@@ -124,9 +124,61 @@ internal sealed class TaskbarTapHost : IDisposable
         return pid == 0 ? null : (int)pid;
     }
 
+    /// <summary>
+    /// Smart App Control (Windows 11 Home/Pro clean installs) enforces a code
+    /// integrity policy that blocks unsigned DLLs from loading into explorer.exe.
+    /// InitializeXamlDiagnosticsEx still returns S_OK, but our TAP never loads
+    /// (CodeIntegrity events 3033/3077) — so we must not wait for it.
+    /// </summary>
+    public static string? DetectTapBlocker()
+    {
+        try
+        {
+            using var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\CI\Policy");
+            if (k?.GetValue("VerifiedAndReputablePolicyState") is int state && state == 1)
+                return "smart-app-control";
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>Checks the CodeIntegrity log for a recent block of our DLL in explorer.</summary>
+    public static bool CodeIntegrityBlockedRecently(TimeSpan window)
+    {
+        try
+        {
+            var q = new System.Diagnostics.Eventing.Reader.EventLogQuery(
+                "Microsoft-Windows-CodeIntegrity/Operational",
+                System.Diagnostics.Eventing.Reader.PathType.LogName,
+                $"*[System[(EventID=3033 or EventID=3077) and TimeCreated[timediff(@SystemTime) <= {(long)window.TotalMilliseconds}]]]")
+            { ReverseDirection = true };
+            using var reader = new System.Diagnostics.Eventing.Reader.EventLogReader(q);
+            for (int i = 0; i < 20; i++)
+            {
+                using var ev = reader.ReadEvent();
+                if (ev is null) break;
+                string? msg = null;
+                try { msg = ev.FormatDescription(); } catch { }
+                if (msg is not null && msg.Contains("TaskbarTap", StringComparison.OrdinalIgnoreCase)) return true;
+                if (msg is null && ev.Properties.Any(p => (p.Value?.ToString() ?? "").Contains("TaskbarTap", StringComparison.OrdinalIgnoreCase))) return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    public float ReadyTimeoutSeconds { get; set; } = 3.5f;
+
     public bool Attach(Action<string> log)
     {
-        DetachInternal(restoreFirst: false, log);
+        DetachInternal(restoreFirst: false, log, fast: true);
+        var blocker = DetectTapBlocker();
+        if (blocker is not null)
+        {
+            _status = "blocked-" + blocker;
+            log("TAP: skipped — Smart App Control is ON (unsigned TaskbarTap.dll cannot load into explorer). Using UIA icon-safe mode.");
+            return false;
+        }
         try
         {
             var dll = EnsureDllDeployed();
@@ -192,7 +244,8 @@ internal sealed class TaskbarTapHost : IDisposable
             _diagThread.IsBackground = true;
             _diagThread.SetApartmentState(ApartmentState.STA);
             _diagThread.Start();
-            if (!started.Wait(20000))
+            try { File.Delete(Path.Combine(Path.GetDirectoryName(dll)!, "tap-status.txt")); } catch { }
+            if (!started.Wait(5000))
             {
                 _status = "ixde-thread-timeout";
                 log("TAP: diagnostics thread did not finish InitializeXamlDiagnosticsEx in time.");
@@ -209,25 +262,32 @@ internal sealed class TaskbarTapHost : IDisposable
                 return false;
             }
 
-            bool ready = _ready.WaitOne(TimeSpan.FromSeconds(15));
-            log(ready ? "TAP: Ready event signaled (" + used + ")." : "TAP: timed out waiting for Ready.");
+            var sw = Stopwatch.StartNew();
+            bool ready = _ready.WaitOne(TimeSpan.FromSeconds(Math.Clamp(ReadyTimeoutSeconds, 1.5f, 8f)));
+            log(ready ? $"TAP: Ready event signaled ({used}) in {sw.ElapsedMilliseconds} ms." : $"TAP: no Ready after {sw.ElapsedMilliseconds} ms.");
             if (!ready)
             {
-                _status = "ready-timeout";
-                log("TAP: stopping session after Ready timeout.");
-                DetachInternal(restoreFirst: true, log);
+                bool loaded = File.Exists(Path.Combine(Path.GetDirectoryName(dll)!, "tap-status.txt"));
+                if (CodeIntegrityBlockedRecently(TimeSpan.FromMinutes(2)))
+                {
+                    _status = "blocked-code-integrity";
+                    log("TAP: Windows Code Integrity blocked TaskbarTap.dll in explorer (event 3033/3077) — permanent for this session.");
+                }
+                else _status = loaded ? "ready-timeout" : "dll-not-loaded";
+                // If the DLL never loaded there is nothing to restore: tear down instantly.
+                DetachInternal(restoreFirst: loaded, log, fast: !loaded);
                 return false;
             }
 
             // Give the visual tree walk a moment to actually patch fills.
-            _applied.WaitOne(TimeSpan.FromSeconds(3));
-            Thread.Sleep(400);
+            _applied.WaitOne(TimeSpan.FromSeconds(2));
+            Thread.Sleep(250);
             var (state, patched, error) = ReadStatus();
             log($"TAP status: state={state} patched={patched} error={error}");
             if (patched <= 0)
             {
                 // Advise succeeded but no BackgroundFill seen yet — retry a short wait.
-                _applied.WaitOne(TimeSpan.FromSeconds(4));
+                _applied.WaitOne(TimeSpan.FromSeconds(2));
                 (state, patched, error) = ReadStatus();
                 log($"TAP status (retry): state={state} patched={patched} error={error}");
             }
@@ -276,16 +336,24 @@ internal sealed class TaskbarTapHost : IDisposable
 
     public void Detach(Action<string> log) => DetachInternal(restoreFirst: true, log);
 
-    private void DetachInternal(bool restoreFirst, Action<string> log)
+    private void DetachInternal(bool restoreFirst, Action<string> log, bool fast = false)
     {
         try
         {
-            if (restoreFirst) RequestRestore(log);
-            Thread.Sleep(500); // let Explorer paint the restored fill before we unadvise
-            _stop?.Set();
-            _stopped?.WaitOne(TimeSpan.FromSeconds(4));
-            Thread.Sleep(200);
-            _diagKeepAlive?.Set();
+            if (fast)
+            {
+                _stop?.Set();
+                _diagKeepAlive?.Set();
+            }
+            else
+            {
+                if (restoreFirst) RequestRestore(log);
+                Thread.Sleep(400); // let Explorer paint the restored fill before we unadvise
+                _stop?.Set();
+                _stopped?.WaitOne(TimeSpan.FromSeconds(2.5));
+                Thread.Sleep(150);
+                _diagKeepAlive?.Set();
+            }
         }
         catch (Exception ex) { log("TAP detach: " + ex.Message); }
         finally

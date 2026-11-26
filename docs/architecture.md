@@ -1,4 +1,4 @@
-# Kiến trúc Audio Taskbar v4.0
+# Kiến trúc Audio Taskbar v5.0
 
 Audio Taskbar gồm hai phần:
 
@@ -91,6 +91,30 @@ Bật khi:
 - z-order không giữ được vị trí phía sau taskbar.
 
 Hành vi: cửa sổ hiệu ứng có thể nằm trên taskbar nhưng `iconSafeFade` làm mờ/khoét vùng Start, cụm icon và khay (`iconSafePadding`, mặc định 28px). Icon luôn còn và bấm được. Vùng trống vẫn hiện diorama / thời tiết.
+
+## v5: đo bố cục icon (TaskbarLayout.cs)
+
+Nguyên nhân icon bị che ở v4: trên taskbar XAML của Windows 11, các HWND con cũ (`ReBarWindow32`, `MSTaskSwWClass`…) có khung không khớp với icon thật (ví dụ ReBar 516–1073 px trong khi icon kéo tới 1403 px), cộng thêm phần đoán 40% chiều rộng.
+
+v5 chạy `TaskbarLayoutProbe` trên một luồng MTA nền, mỗi ~400 ms:
+
+1. UI Automation (`System.Windows.Automation`, CacheRequest + FindAll Descendants) từ `Shell_TrayWnd` / `Shell_SecondaryTrayWnd`: lấy khung `StartButton`, `SearchButton`, `TaskViewButton`, `WidgetsButton`, `Taskbar.TaskListButtonAutomationPeer`, `SystemTray.*`, đồng hồ… Bỏ các container rộng hơn 60% thanh.
+2. Bổ sung HWND cũ (`TrayNotifyWnd`, `Start`, `MSTaskSwWClass`/`MSTaskListWClass`) qua EnumChildWindows.
+3. Gộp các khung chạm nhau → danh sách cutout; nếu UIA không trả gì → dự phòng bảo thủ (chỉ vẽ dải trái hẹp).
+
+`OverlayWindow` vẽ cảnh 48 px logic rồi scale `H/48` (PerMonitorV2), nhân alpha theo từng cột: alpha = 0 trong (icon + pad), smoothstep 6 px·DPI ra ngoài. Thẻ thời tiết, danh lam được đặt **chỉ** vào các khoảng trống (`FreeSpans`). Bố cục thay đổi (mở app, đổi DPI, ẩn/hiện khay) được cập nhật trong vòng ~1 s.
+
+## v5: TAP và Smart App Control
+
+`TaskbarTapHost` kiểm tra trước `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState` (1 = SAC đang chặn) và log CodeIntegrity. Nếu bị chặn → chế độ an toàn ngay. Ngược lại TAP gắn trên Task nền, chờ Ready tối đa `tapTimeoutSeconds` (3,5 s); thất bại thì nhớ PID Explorer để F8 không thử lại. `InitializeXamlDiagnosticsEx` trả `hr=0` **không** có nghĩa DLL đã nạp: v5 xóa `tap-status.txt` trước và chỉ coi là gắn khi DLL ghi Ready.
+
+Ở chế độ an toàn, `BackdropWindow` (lớp tối đặc, click-through) được đặt bằng `SetWindowPos(hwnd, Shell_TrayWnd)` ngay dưới taskbar, kiểm tra lại z-order; acrylic của taskbar hiện lớp này thay vì wallpaper.
+
+## v5: khu vực và cảnh vật
+
+`Regions.cs` chứa 7 hồ sơ (`RegionCatalog`) với tọa độ, danh lam, skyline nền, bảng giao thông đường bộ / đường thủy. `Resolve` ưu tiên: chọn tay → `weatherCity` → tên địa điểm thời tiết (bỏ dấu) → hộp tọa độ. `Scenery.cs` dựng skyline + danh lam vào khoảng trống theo độ ưu tiên và vẽ: nền xa, mặt nước & thuyền, danh lam (đèn, cửa sổ, hiệu ứng như hải đăng quét, cầu Rồng phun lửa mỗi 45 s, Eiffel lấp lánh), làn xe gần (trái → phải) / xa (phải → trái), cánh hoa.
+
+Đoàn tàu: `x = phase0 + t / (trainCrossingMinutes·60)`, `phase0` đặt vào khoảng trống rộng nhất để thấy ngay; bánh xe quay theo quãng đường, khói nhẹ 0,45 s/lần.
 
 ## Visualizer âm thanh (tùy chọn, tắt ở v4)
 

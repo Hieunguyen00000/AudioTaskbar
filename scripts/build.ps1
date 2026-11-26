@@ -25,7 +25,7 @@ if (Test-Path $out) {
     New-Item -ItemType Directory -Path $out | Out-Null
 }
 
-Write-Host "Publishing Audio Taskbar v4 to $out ..."
+Write-Host "Publishing Audio Taskbar v5 to $out ..."
 dotnet publish $src -c Release -r win-x64 --self-contained true `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `

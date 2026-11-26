@@ -45,6 +45,14 @@ internal sealed class TrayApp : ApplicationContext
     private float _idle; // 0 active, 1 idle
     private Icon? _icon;
     private bool _savingConfig;
+    // v5
+    private readonly TaskbarLayoutProbe _layout;
+    private readonly List<BackdropWindow> _backdrops = new();
+    private int _tapFailedPid;
+    private string? _tapBlockedReason;
+    private bool _attachInFlight;
+    private string _regionLogged = "";
+    private volatile bool _layoutDirty;
 
     public TrayApp()
     {
@@ -68,9 +76,14 @@ internal sealed class TrayApp : ApplicationContext
         _cfg.EnableAudio = false;
         if (string.IsNullOrWhiteSpace(_cfg.WeatherPreview)) _cfg.WeatherPreview = "live";
         _cfg.Normalize();
-        Log("Start v4.0. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
+        _layout = new TaskbarLayoutProbe(Log);
+        _layout.Changed += () => _layoutDirty = true;
+        Log("Start v5.0. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
-            + " train=" + _cfg.ShowTrain + " bike=" + _cfg.ShowCyclist);
+            + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) traffic=" + _cfg.ShowCyclist
+            + " region=" + _cfg.RegionMode + " hud=" + _cfg.ShowWeatherHud
+            + " dpiCtx=PerMonitorV2 sac=" + (TaskbarTapHost.DetectTapBlocker() ?? "off"));
+        _tap.ReadyTimeoutSeconds = _cfg.TapTimeoutSeconds;
 
         _icon = CreateIcon(on: true);
         _iconOff = CreateIcon(on: false);
@@ -103,7 +116,7 @@ internal sealed class TrayApp : ApplicationContext
                 : "Weather failed: " + snap.Error);
             UpdateTip();
         };
-        if (_cfg.ShowWeather) _weather.Start(_cfg);
+        _weather.Start(_cfg); // weather drives sky, scenery region and the (toggleable) HUD
 
         _frameTimer = new System.Windows.Forms.Timer { Interval = Math.Max(8, 1000 / _cfg.Fps) };
         _frameTimer.Tick += (_, _) => OnFrame();
@@ -119,6 +132,7 @@ internal sealed class TrayApp : ApplicationContext
                 Log("TaskbarCreated — re-syncing.");
                 _behindFailed = false;
                 _behindFailStreak = 0;
+                _tapFailedPid = 0; // new Explorer instance: TAP may be retried once
                 BeginInvoke(() =>
                 {
                     if (_paused) return;
@@ -156,12 +170,45 @@ internal sealed class TrayApp : ApplicationContext
         pause.Click += (_, _) => ToggleEffect();
         menu.Items.Add(pause);
 
-        var scene = new ToolStripMenuItem("Cảnh vật");
-        scene.DropDownItems.Add(MakeToggle("Xe lửa", () => _cfg.ShowTrain, v => { _cfg.ShowTrain = v; Persist(); }));
-        scene.DropDownItems.Add(MakeToggle("Xe đạp", () => _cfg.ShowCyclist, v => { _cfg.ShowCyclist = v; Persist(); }));
-        scene.DropDownItems.Add(MakeToggle("Chim & đèn phố", () => _cfg.ShowAmbientDetails, v => { _cfg.ShowAmbientDetails = v; Persist(); }));
-        scene.DropDownItems.Add(MakeToggle("Thời tiết (mưa, mây, sấm, sương)", () => _cfg.ShowWeatherEffects, v => { _cfg.ShowWeatherEffects = v; Persist(); }));
+        var scene = new ToolStripMenuItem("Hoạt ảnh");
+        scene.DropDownItems.Add(MakeToggle("Tàu hỏa (" + _cfg.TrainCrossingMinutes.ToString("0.#") + " phút/lượt)", () => _cfg.ShowTrain, v => { _cfg.ShowTrain = v; Persist(); }));
+        scene.DropDownItems.Add(MakeToggle("Giao thông đặc trưng khu vực", () => _cfg.ShowCyclist, v => { _cfg.ShowCyclist = v; Persist(); }));
+        scene.DropDownItems.Add(MakeToggle("Chim, đèn phố, cánh hoa", () => _cfg.ShowAmbientDetails, v => { _cfg.ShowAmbientDetails = v; Persist(); }));
+        scene.DropDownItems.Add(MakeToggle("Hiệu ứng thời tiết (mưa, mây, sấm, sương)", () => _cfg.ShowWeatherEffects, v => { _cfg.ShowWeatherEffects = v; Persist(); }));
         menu.Items.Add(scene);
+
+        var region = new ToolStripMenuItem("Khu vực & Cảnh vật");
+        void addRegion(string id, string label)
+        {
+            var it = new ToolStripMenuItem(label);
+            it.Click += (_, _) =>
+            {
+                _cfg.RegionMode = id;
+                _cfg.Normalize();
+                Persist();
+                Log("Region mode: " + _cfg.RegionMode);
+                if (_cfg.WeatherFollowsRegion) _weather.RefreshNow(_cfg);
+            };
+            it.Paint += (_, _) => { try { it.Checked = _cfg.RegionMode == id; } catch { } };
+            region.DropDownItems.Add(it);
+        }
+        addRegion("auto", "Tự động theo máy");
+        region.DropDownItems.Add(new ToolStripSeparator());
+        addRegion("hcmc", "TP. Hồ Chí Minh");
+        addRegion("baria-vungtau", "Bà Rịa – Vũng Tàu");
+        addRegion("hanoi", "Hà Nội");
+        addRegion("danang-hoian", "Đà Nẵng – Hội An");
+        addRegion("tokyo", "Tokyo / Nhật Bản");
+        addRegion("paris", "Paris / Pháp");
+        addRegion("default", "Mặc định (quê hương & đô thị)");
+        region.DropDownItems.Add(new ToolStripSeparator());
+        region.DropDownItems.Add(MakeToggle("Thời tiết theo khu vực đã chọn", () => _cfg.WeatherFollowsRegion, v =>
+        {
+            _cfg.WeatherFollowsRegion = v;
+            Persist();
+            _weather.RefreshNow(_cfg);
+        }));
+        menu.Items.Add(region);
 
         var preview = new ToolStripMenuItem("Xem trước thời tiết");
         void addPreview(string id, string label)
@@ -179,21 +226,19 @@ internal sealed class TrayApp : ApplicationContext
         addPreview("night", "Đêm sao");
         menu.Items.Add(preview);
 
-        var weather = new ToolStripMenuItem("Thời tiết");
-        weather.DropDownItems.Add(MakeToggle("Hiện thời tiết trên taskbar", () => _cfg.ShowWeather, v =>
+        menu.Items.Add(MakeToggle("Hiện thông tin thời tiết & địa điểm", () => _cfg.ShowWeatherHud, v =>
         {
-            _cfg.ShowWeather = v;
-            if (v) _weather.Start(_cfg);
+            _cfg.ShowWeatherHud = v;
             Persist();
+            Log("Weather HUD: " + (v ? "on" : "off"));
         }));
-        var refresh = new ToolStripMenuItem("Làm mới ngay");
+        var refresh = new ToolStripMenuItem("Làm mới thời tiết & vị trí");
         refresh.Click += (_, _) =>
         {
             Log("Weather refresh requested.");
             _weather.RefreshNow(_cfg);
         };
-        weather.DropDownItems.Add(refresh);
-        menu.Items.Add(weather);
+        menu.Items.Add(refresh);
 
         var fusion = MakeToggle("Chặn ảnh nền desktop",
             () => _cfg.BlockWallpaper || (_cfg.FuseIntoTaskbar && _cfg.MakeTaskbarTransparent),
@@ -203,7 +248,7 @@ internal sealed class TrayApp : ApplicationContext
                 _cfg.FuseIntoTaskbar = v;
                 _cfg.MakeTaskbarTransparent = v;
                 Persist();
-                if (v) TryEnableFusion(initial: false);
+                if (v) TryEnableFusion(initial: false, force: true);
                 else DisableFusion();
             });
         menu.Items.Add(fusion);
@@ -308,6 +353,7 @@ internal sealed class TrayApp : ApplicationContext
         if (!on)
         {
             foreach (var o in _overlays) o.ClearAndHide();
+            HideBackdrops();
             // Do not RequestRestore / Detach on F8 — toggling TAP fills mid-session
             // has recycled Explorer on 26300. TAP stays patched and attached; we
             // only hide the visualizer. Icons remain; wallpaper may peek through
@@ -449,7 +495,8 @@ internal sealed class TrayApp : ApplicationContext
             _frameTimer.Interval = Math.Max(8, 1000 / cfg.Fps);
             if (_sampleBuf.Length != cfg.FftSize)
                 _sampleBuf = new float[cfg.FftSize];
-            if (weatherOn) _weather.Start(cfg);
+            _weather.Start(cfg);
+            _tap.ReadyTimeoutSeconds = cfg.TapTimeoutSeconds;
             SyncOverlays();
             if (WantsSealedTaskbar(cfg))
                 TryEnableFusion(initial: false);
@@ -506,16 +553,33 @@ internal sealed class TrayApp : ApplicationContext
         bool checkZ = _zCounter >= Math.Max(4, cfg.Fps / 2);
         if (checkZ) _zCounter = 0;
 
+        if (_layoutDirty)
+        {
+            _layoutDirty = false;
+            RefreshRegions();
+        }
+        var region = RegionCatalog.Resolve(cfg, weather);
+        string regionKey = region.Id + "|" + cfg.RegionMode + "|" + (weather?.LocationName ?? "");
+        if (regionKey != _regionLogged)
+        {
+            _regionLogged = regionKey;
+            Log($"Region: {region.Id} ({region.NameVi}) mode={cfg.RegionMode} location='{weather?.LocationName}'");
+        }
+        var moodNow = SceneClock.Compose(weather, cfg, DateTime.Now);
+
         foreach (var overlay in _overlays)
         {
+            var backdrop = _backdrops.FirstOrDefault(b => b.TaskbarHwnd == overlay.TaskbarHwnd);
             if (cfg.HideWhenFullscreen && TaskbarService.IsFullscreenOnBounds(overlay.Bounds))
             {
                 if (overlay.Visible) overlay.ClearAndHide();
+                backdrop?.HideNow();
                 continue;
             }
             if (_regions.TryGetValue(overlay.TaskbarHwnd, out var regions) && regions.AutoHidden)
             {
                 if (overlay.Visible) overlay.ClearAndHide();
+                backdrop?.HideNow();
                 continue;
             }
             if (!overlay.Visible)
@@ -528,7 +592,7 @@ internal sealed class TrayApp : ApplicationContext
             if (!_regions.TryGetValue(overlay.TaskbarHwnd, out regions))
                 regions = new TaskbarRegions { Bounds = overlay.Bounds };
 
-            bool showWeather = cfg.ShowWeather && (overlay.IsPrimaryTaskbar || !cfg.WeatherOnPrimaryOnly);
+            bool showWeather = cfg.ShowWeatherHud && (overlay.IsPrimaryTaskbar || !cfg.WeatherOnPrimaryOnly);
             overlay.DrawFrame(new FrameContext
             {
                 Cfg = cfg,
@@ -540,9 +604,25 @@ internal sealed class TrayApp : ApplicationContext
                 Time = time,
                 Fused = _fused,
                 BehindOk = overlay.BehindOk,
-                ShowWeather = showWeather
+                ShowWeather = showWeather,
+                Region = region
             });
             if (checkZ) overlay.ReassertZ(_fused);
+
+            // Safe mode: a solid scene-tinted layer *behind* Shell_TrayWnd keeps the
+            // wallpaper out from under the (untouched) icons.
+            if (backdrop is not null && (checkZ || !backdrop.Placed))
+            {
+                if (!_fused && cfg.BlockWallpaper)
+                {
+                    var top = SceneClock.Mix(moodNow.SkyMid, Color.FromArgb(255, 8, 10, 18), 0.35f);
+                    var bot = SceneClock.Mix(moodNow.Ground, Color.FromArgb(255, 6, 8, 12), 0.35f);
+                    backdrop.ShowBehind(overlay.Bounds,
+                        Color.FromArgb(255, top.R / 8 * 8, top.G / 8 * 8, top.B / 8 * 8),
+                        Color.FromArgb(255, bot.R / 8 * 8, bot.G / 8 * 8, bot.B / 8 * 8));
+                }
+                else backdrop.HideNow();
+            }
         }
 
         if (checkZ && _fused && !_paused)
@@ -564,8 +644,8 @@ internal sealed class TrayApp : ApplicationContext
             TryEnableFusion(initial: false);
         }
 
-        if (_probePhase < 3 && cfg.FuseIntoTaskbar && cfg.MakeTaskbarTransparent && !_tap.IsAttached)
-            MaybeProbeFusion(cfg);
+        // v5: the old pixel-probe "fusion" guess is retired — _fused is only ever
+        // true when the TAP really attached, so the icon cut-out mask can't be skipped by mistake.
 
         if (_tap.IsAttached && _watchdogCounter == 0 && !_tap.ExplorerStillAlive())
         {
@@ -593,7 +673,7 @@ internal sealed class TrayApp : ApplicationContext
         return cfg.BlockWallpaper || (cfg.MakeTaskbarTransparent && cfg.FuseIntoTaskbar);
     }
 
-    private void TryEnableFusion(bool initial)
+    private void TryEnableFusion(bool initial, bool force = false)
     {
         if (_behindFailed && initial)
         {
@@ -611,17 +691,56 @@ internal sealed class TrayApp : ApplicationContext
             _fused = true;
             _transparency.Effective = true;
             foreach (var o in _overlays) o.ReassertZ(true);
+            HideBackdrops();
             WatchBehindZ();
             Log("Fusion: TAP already attached — reapplied fills.");
             return;
         }
-        Log(initial ? "Fusion: attempting TAP attach…" : "Fusion: re-attaching TAP…");
-        bool ok = false;
-        int pidBefore = TaskbarTapHost.FindTaskbarExplorerPid() ?? 0;
-        try { ok = _tap.Attach(Log); }
-        catch (Exception ex) { Log("Fusion attach error: " + ex.Message); ok = false; }
+        if (_cfg.TapMode == "off")
+        {
+            Log("Fusion: tapMode=off — UIA icon-safe mode + wallpaper backdrop (Explorer untouched).");
+            SafeMode();
+            return;
+        }
+        if (_tapBlockedReason is not null && !force)
+        {
+            Log("Fusion: TAP unavailable (" + _tapBlockedReason + ") — staying in UIA icon-safe mode (no wait).");
+            SafeMode();
+            return;
+        }
+        int pidNow = TaskbarTapHost.FindTaskbarExplorerPid() ?? 0;
+        if (!force && pidNow != 0 && pidNow == _tapFailedPid)
+        {
+            Log("Fusion: TAP already failed for explorer PID " + pidNow + " — not retrying on F8 (instant safe mode).");
+            SafeMode();
+            return;
+        }
+        var blocker = TaskbarTapHost.DetectTapBlocker();
+        if (blocker is not null)
+        {
+            _tapBlockedReason = blocker;
+            Log("Fusion: Smart App Control is ON — Windows blocks unsigned DLLs inside explorer.exe; using UIA icon-safe mode + backdrop.");
+            SafeMode();
+            return;
+        }
+        if (_attachInFlight) return;
+        _attachInFlight = true;
+        SafeMode(); // icon-safe immediately while we try, never a blank/blocked bar
+        Log(initial ? "Fusion: attempting TAP attach (background)…" : "Fusion: re-attaching TAP (background)…");
+        int pidBefore = pidNow;
+        Task.Run(() =>
+        {
+            bool ok;
+            try { ok = _tap.Attach(Log); }
+            catch (Exception ex) { Log("Fusion attach error: " + ex.Message); ok = false; }
+            BeginInvoke(() => FinishAttach(ok, pidBefore));
+        });
+    }
 
-        // If explorer died during attach, bring it back and fall back.
+    private void FinishAttach(bool ok, int pidBefore)
+    {
+        _attachInFlight = false;
+        if (_exiting) return;
         bool explorerAlive = TaskbarTapHost.FindTaskbarExplorerPid() is not null;
         if (pidBefore != 0)
         {
@@ -640,20 +759,56 @@ internal sealed class TrayApp : ApplicationContext
             try { _tap.Detach(_ => { }); } catch { }
         }
 
-        if (ok)
+        if (ok && !_paused)
         {
             _fused = true;
             _transparency.Effective = true;
             Log("Fusion: TAP attached — visualizer will sit behind the taskbar.");
             foreach (var o in _overlays) o.ReassertZ(true);
+            HideBackdrops();
             WatchBehindZ();
         }
         else
         {
-            _fused = false;
-            _transparency.Effective = false;
-            Log("Fusion: TAP unsuccessful (" + _tap.Status + ") — safe-mode overlay (icons stay untinted).");
-            foreach (var o in _overlays) o.ReassertZ(false);
+            if (!ok)
+            {
+                _tapFailedPid = pidBefore;
+                if (_tap.Status.StartsWith("blocked-")) _tapBlockedReason = _tap.Status["blocked-".Length..];
+            }
+            Log("Fusion: TAP unsuccessful (" + _tap.Status + ") — UIA icon-safe mode (exact cut-outs) + wallpaper backdrop.");
+            SafeMode();
+        }
+    }
+
+    private void SafeMode()
+    {
+        _fused = false;
+        _transparency.Effective = false;
+        foreach (var o in _overlays) o.ReassertZ(false);
+    }
+
+    private void HideBackdrops()
+    {
+        foreach (var b in _backdrops) b.HideNow();
+    }
+
+    private void RefreshRegions()
+    {
+        AppConfig cfg;
+        lock (_configLock) cfg = _cfg;
+        foreach (var o in _overlays)
+        {
+            if (o.TaskbarHwnd == IntPtr.Zero) continue;
+            if (!_layout.TryGet(o.TaskbarHwnd, out var snap)) continue;
+            var info = new TaskbarInfo(o.TaskbarHwnd, snap.Bounds, o.IsPrimaryTaskbar);
+            var reg = TaskbarService.GetRegions(info, cfg, snap);
+            if (!_regions.TryGetValue(o.TaskbarHwnd, out var prev) || prev.Signature != reg.Signature)
+                Log("Layout " + (o.IsPrimaryTaskbar ? "primary" : "secondary") + " source=" + snap.Source
+                    + " bounds=" + snap.Bounds.Width + "x" + snap.Bounds.Height + " cutouts="
+                    + string.Join(",", reg.Cutouts.Select(c => (c.Left - snap.Bounds.Left) + "-" + (c.Right - snap.Bounds.Left))));
+            _regions[o.TaskbarHwnd] = reg;
+            if (snap.Bounds != o.Bounds && snap.Bounds.Width > 4 && snap.Bounds.Height > 4)
+                o.MoveTo(snap.Bounds);
         }
     }
 
@@ -783,6 +938,7 @@ internal sealed class TrayApp : ApplicationContext
         if (_paused)
         {
             foreach (var o in _overlays) o.ClearAndHide();
+            HideBackdrops();
             return;
         }
         var bars = TaskbarService.GetTaskbars();
@@ -796,9 +952,22 @@ internal sealed class TrayApp : ApplicationContext
         if (!allMonitors)
             bars = bars.Where(b => b.IsPrimary).ToList();
 
+        _layout.SetTargets(bars.Select(b => b.Hwnd));
         _regions.Clear();
         foreach (var b in bars)
-            _regions[b.Hwnd] = TaskbarService.GetRegions(b, cfg);
+        {
+            if (!_layout.TryGet(b.Hwnd, out var snap) || snap.Bounds != b.Bounds)
+                snap = _layout.ProbeNow(b.Hwnd); // first frame is already icon-safe
+            _regions[b.Hwnd] = TaskbarService.GetRegions(b, cfg, snap);
+        }
+        while (_backdrops.Count > bars.Count)
+        {
+            var last = _backdrops[^1];
+            _backdrops.RemoveAt(_backdrops.Count - 1);
+            try { last.HideNow(); last.Close(); last.Dispose(); } catch { }
+        }
+        while (_backdrops.Count < bars.Count) _backdrops.Add(new BackdropWindow());
+        for (int i = 0; i < bars.Count; i++) _backdrops[i].TaskbarHwnd = bars[i].Hwnd;
 
         while (_overlays.Count > bars.Count)
         {
@@ -852,6 +1021,9 @@ internal sealed class TrayApp : ApplicationContext
             try { o.Close(); o.Dispose(); } catch { }
         }
         _overlays.Clear();
+        foreach (var b in _backdrops) { try { b.HideNow(); b.Close(); b.Dispose(); } catch { } }
+        _backdrops.Clear();
+        try { _layout.Dispose(); } catch { }
         try { _tap.Detach(Log); } catch { }
         _transparency.Restore();
         Log("Taskbar appearance restored.");

@@ -5,13 +5,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- UIAutomationClient (System.Windows.Automation) for exact taskbar icon bounds -->
+    <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <AssemblyName>AudioTaskbar</AssemblyName>
     <RootNamespace>AudioTaskbar</RootNamespace>
-    <Version>4.0.0</Version>
+    <Version>5.0.0</Version>
     <Product>Audio Taskbar</Product>
-    <Description>Living weather diorama for the Windows taskbar. Toggle with F8.</Description>
+    <Description>Living regional weather diorama for the Windows taskbar (icon-safe at any DPI). Toggle with F8.</Description>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ForceDesignerDpiUnaware>false</ForceDesignerDpiUnaware>
     <DisableWinExeOutputInference>true</DisableWinExeOutputInference>

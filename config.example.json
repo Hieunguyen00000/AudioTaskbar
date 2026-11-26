@@ -28,5 +28,11 @@
   "weatherLatitude": null,
   "weatherLongitude": null,
   "weatherRefreshMinutes": 15,
-  "weatherOnPrimaryOnly": true
+  "weatherOnPrimaryOnly": true,
+  "trainCrossingMinutes": 25,
+  "regionMode": "auto",
+  "showWeatherHud": true,
+  "weatherFollowsRegion": false,
+  "tapMode": "auto",
+  "tapTimeoutSeconds": 3.5
 }

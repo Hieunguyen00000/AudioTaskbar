@@ -66,6 +66,20 @@ public sealed class AppConfig
     /// <summary>live | sunny | cloudy | rain | storm | night</summary>
     public string WeatherPreview { get; set; } = "live";
 
+    // v5
+    /// <summary>Minutes for the single train to cross the full taskbar left→right.</summary>
+    public float TrainCrossingMinutes { get; set; } = 25f;
+    /// <summary>"auto" (detect from machine location) or a region id: hcmc, baria-vungtau, hanoi, danang-hoian, tokyo, paris, default.</summary>
+    public string RegionMode { get; set; } = "auto";
+    /// <summary>Show the temperature / condition / location HUD on the taskbar background.</summary>
+    public bool ShowWeatherHud { get; set; } = true;
+    /// <summary>When a region is picked manually, fetch that region's weather instead of the machine's.</summary>
+    public bool WeatherFollowsRegion { get; set; } = false;
+    /// <summary>Seconds to wait for the TAP DLL inside Explorer before using safe mode.</summary>
+    public float TapTimeoutSeconds { get; set; } = 3.5f;
+    /// <summary>"auto" = try the Explorer TAP for true behind-icon mode; "off" = always UIA icon-safe mode.</summary>
+    public string TapMode { get; set; } = "auto";
+
     [JsonIgnore] public Color RgbaLow { get; private set; }
     [JsonIgnore] public Color RgbaMid { get; private set; }
     [JsonIgnore] public Color RgbaHigh { get; private set; }
@@ -98,6 +112,10 @@ public sealed class AppConfig
         IdleFadeSeconds = Math.Clamp(IdleFadeSeconds, 0.3f, 8f);
         IconSafePadding = Math.Clamp(IconSafePadding, 0, 200);
         WeatherRefreshMinutes = Math.Clamp(WeatherRefreshMinutes, 5, 120);
+        TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 1f, 240f) : 25f;
+        RegionMode = RegionCatalog.NormalizeMode(RegionMode);
+        TapMode = (TapMode ?? "auto").Trim().ToLowerInvariant() is "off" or "safe" or "false" ? "off" : "auto";
+        TapTimeoutSeconds = float.IsFinite(TapTimeoutSeconds) ? Math.Clamp(TapTimeoutSeconds, 1.5f, 8f) : 3.5f;
 
         Mode = (Mode ?? "diorama").Trim().ToLowerInvariant();
         if (Mode is "diorama" or "scene")

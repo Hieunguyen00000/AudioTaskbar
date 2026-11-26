@@ -15,6 +15,7 @@ internal sealed class FrameContext
     public bool Fused { get; init; }          // TAP filled transparent; only full-bleed if BehindOk
     public bool BehindOk { get; init; }       // visualizer is actually below Shell_TrayWnd
     public bool ShowWeather { get; init; }
+    public RegionProfile Region { get; init; } = RegionCatalog.Default;
 }
 
 internal sealed class OverlayWindow : Form
@@ -80,6 +81,14 @@ internal sealed class OverlayWindow : Form
         _diorama.Reset();
     }
 
+    // v5 layout cache (physical pixels, client coords)
+    private string _layoutKey = "";
+    private float[] _colVis = Array.Empty<float>();
+    private RectangleF _badgeRect = RectangleF.Empty;
+    private int _badgeLevel = -1;
+    private List<(float L, float R)> _logicalSpans = new();
+    public string LastLayoutInfo { get; private set; } = "";
+
     public void DrawFrame(FrameContext ctx)
     {
         if (!IsHandleCreated || Width <= 0 || Height <= 0) return;
@@ -87,30 +96,165 @@ internal sealed class OverlayWindow : Form
         {
             EnsureBuffer(Width, Height);
             if (_buffer is null) return;
-            var mood = SceneClock.Compose(ctx.Weather, ctx.Cfg, DateTime.Now);
-            using (var g = Graphics.FromImage(_buffer))
-            {
-                g.CompositingMode = CompositingMode.SourceOver;
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                g.CompositingQuality = CompositingQuality.HighSpeed;
-                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-
-                _diorama.Ensure(Width, Height);
-                _diorama.Draw(g, ctx, mood, ctx.Time);
-            }
-            // Never paint over icons: full-bleed only when we are truly behind the taskbar.
-            if (ctx.Cfg.IconSafeFade && !(ctx.Fused && ctx.BehindOk))
-                ApplyIconSafeMask(_buffer, ctx);
-            if (ctx.ShowWeather)
-            {
-                using var g2 = Graphics.FromImage(_buffer);
-                g2.SmoothingMode = SmoothingMode.AntiAlias;
-                g2.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-                _diorama.DrawBadge(g2, ctx, mood);
-            }
+            RenderCore(_buffer, ctx);
             PushLayered(_buffer);
         }
+    }
+
+    /// <summary>Offscreen render (used by --render to preview exactly what a machine would see).</summary>
+    public Bitmap RenderOffscreen(int w, int h, FrameContext ctx)
+    {
+        var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
+        RenderCore(bmp, ctx);
+        return bmp;
+    }
+
+    private int _rw, _rh;
+
+    private void RenderCore(Bitmap buffer, FrameContext ctx)
+    {
+        _rw = buffer.Width; _rh = buffer.Height;
+        int W = _rw, H = _rh;
+        var mood = SceneClock.Compose(ctx.Weather, ctx.Cfg, DateTime.Now);
+        bool behind = ctx.Fused && ctx.BehindOk;
+        // Per-monitor DPI: the scene is authored for a 48 px bar and scaled
+        // to the real physical height (60 px at 125 %, 72 px at 150 %...).
+        float s = Math.Max(0.5f, H / 48f);
+        int logicalW = (int)Math.Ceiling(W / s);
+        using (var g = Graphics.FromImage(buffer))
+        {
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            UpdateLayout(g, ctx, mood, s);
+
+            g.CompositingMode = CompositingMode.SourceOver;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.CompositingQuality = CompositingQuality.HighSpeed;
+
+            _diorama.Ensure(logicalW, 48);
+            _diorama.SetLayout(ctx.Region, _logicalSpans);
+            var st = g.Save();
+            g.ScaleTransform(s, s);
+            _diorama.Draw(g, ctx, mood, ctx.Time);
+            g.Restore(st);
+
+            if (behind)
+                DimUnderIcons(g, ctx);
+
+            if (ctx.ShowWeather && _badgeLevel >= 0 && !_badgeRect.IsEmpty)
+                DioramaRenderer.DrawBadge(g, mood, _badgeRect, H, _badgeLevel);
+        }
+        // Safe mode (not truly behind the taskbar): punch crisp, DPI-exact
+        // holes around every UIA-measured taskbar item. Never skipped.
+        if (!behind)
+            ApplyCutoutMask(buffer);
+    }
+
+    private void UpdateLayout(Graphics g, FrameContext ctx, SceneMood mood, float s)
+    {
+        string text = ctx.ShowWeather ? mood.TemperatureText + "|" + mood.ConditionVi + "|" + mood.Place + "|" + ctx.Cfg.WeatherPosition : "-";
+        string key = ctx.Regions.Signature + "|" + _rw + "x" + _rh + "|" + text + "|" + ctx.Region.Id;
+        if (key == _layoutKey) return;
+        _layoutKey = key;
+
+        int pad = Math.Max(2, (int)Math.Round(2 * s));
+        int feather = Math.Max(4, (int)Math.Round(6 * s));
+        var spans = TaskbarService.FreeSpans(ctx.Regions, _rw, pad + feather, 6);
+
+        // Column visibility: 0 inside (cutout + pad), smooth 6px (scaled) feather outside.
+        if (_colVis.Length != _rw) _colVis = new float[_rw];
+        for (int x = 0; x < _rw; x++) _colVis[x] = 1f;
+        foreach (var c in ctx.Regions.Cutouts)
+        {
+            int l = c.Left - ctx.Regions.Bounds.X - pad;
+            int r = c.Right - ctx.Regions.Bounds.X + pad;
+            int a = Math.Max(0, l - feather), b = Math.Min(_rw, r + feather);
+            for (int x = a; x < b; x++)
+            {
+                float v;
+                if (x >= l && x < r) v = 0f;
+                else
+                {
+                    float d = x < l ? (l - x) : (x - r + 1);
+                    float t = Math.Clamp(d / (feather + 1f), 0f, 1f);
+                    v = t * t * (3 - 2 * t);
+                }
+                if (v < _colVis[x]) _colVis[x] = v;
+            }
+        }
+
+        // Weather HUD: largest-fitting free span (left or right preference).
+        _badgeRect = RectangleF.Empty;
+        _badgeLevel = -1;
+        if (ctx.ShowWeather)
+        {
+            float margin = Math.Max(4, 4 * s);
+            for (int level = 0; level <= 2 && _badgeLevel < 0; level++)
+            {
+                var size = DioramaRenderer.MeasureBadge(g, mood, _rh, level);
+                var fits = spans.Where(sp => sp.R - sp.L >= size.Width + 2 * margin).ToList();
+                if (fits.Count == 0) continue;
+                var span = ctx.Cfg.WeatherPosition == "right" ? fits[^1] : fits[0];
+                float bx = ctx.Cfg.WeatherPosition == "right" ? span.R - margin - size.Width : span.L + margin;
+                _badgeRect = new RectangleF(bx, (_rh - size.Height) / 2f, size.Width, size.Height);
+                _badgeLevel = level;
+            }
+        }
+
+        // Spans left for landmarks (logical units), minus the HUD.
+        var free = new List<(float L, float R)>();
+        foreach (var sp in spans)
+        {
+            if (!_badgeRect.IsEmpty && _badgeRect.Right > sp.L && _badgeRect.Left < sp.R)
+            {
+                float gap = 6 * s;
+                if (_badgeRect.Left - gap - sp.L > 10) free.Add((sp.L, _badgeRect.Left - gap));
+                if (sp.R - (_badgeRect.Right + gap) > 10) free.Add((_badgeRect.Right + gap, sp.R));
+            }
+            else free.Add((sp.L, sp.R));
+        }
+        float totalFree = free.Sum(f => f.R - f.L);
+        if (totalFree < _rw * 0.08f) free = new List<(float L, float R)> { (0, _rw) };
+        _logicalSpans = free.Select(f => (f.L / s, f.R / s)).ToList();
+        LastLayoutInfo = $"cutouts={ctx.Regions.Cutouts.Count} spans=[{string.Join(", ", spans.Select(x => x.L + "-" + x.R))}] badge={(_badgeLevel >= 0 ? $"L{_badgeLevel}@{_badgeRect.X:0}+{_badgeRect.Width:0}" : "none")} scale={s:0.00}";
+    }
+
+    private void ApplyCutoutMask(Bitmap bmp)
+    {
+        int w = bmp.Width, h = bmp.Height;
+        if (_colVis.Length != w) return;
+        var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format32bppPArgb);
+        try
+        {
+            int stride = Math.Abs(data.Stride);
+            var buf = new byte[stride * h];
+            System.Runtime.InteropServices.Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+            for (int x = 0; x < w; x++)
+            {
+                float vis = _colVis[x];
+                if (vis >= 0.999f) continue;
+                int mul = Math.Clamp((int)(vis * 256f), 0, 256);
+                for (int y = 0; y < h; y++)
+                {
+                    int i = y * stride + x * 4;
+                    if (mul == 0) { buf[i] = buf[i + 1] = buf[i + 2] = buf[i + 3] = 0; continue; }
+                    buf[i] = (byte)((buf[i] * mul) >> 8);
+                    buf[i + 1] = (byte)((buf[i + 1] * mul) >> 8);
+                    buf[i + 2] = (byte)((buf[i + 2] * mul) >> 8);
+                    buf[i + 3] = (byte)((buf[i + 3] * mul) >> 8);
+                }
+            }
+            System.Runtime.InteropServices.Marshal.Copy(buf, 0, data.Scan0, buf.Length);
+        }
+        finally { bmp.UnlockBits(data); }
+    }
+
+    private void DimUnderIcons(Graphics g, FrameContext ctx)
+    {
+        // Truly behind the taskbar: icons sit on top; a faint calm band keeps them readable.
+        using var br = new SolidBrush(Color.FromArgb(46, 6, 8, 14));
+        foreach (var c in ctx.Regions.Cutouts)
+            g.FillRectangle(br, c.Left - ctx.Regions.Bounds.X, 0, c.Width, _rh);
     }
 
     private void DrawBackground(Graphics g, FrameContext ctx, float live)

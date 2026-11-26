@@ -27,6 +27,8 @@ F8 **không** gỡ TAP (chỉ ẩn overlay) đúng để tránh restart Explorer
 Không chạy đồng thời Windhawk Taskbar Styler, TranslucentTB, hoặc Visual Studio đang debug XAML Explorer — chỉ một consumer `InitializeXamlDiagnosticsEx` tại một thời điểm.
 
 ## Icon Start / ứng dụng / khay bị che hoặc mất
+**v5:** vùng icon được đo bằng UI Automation mỗi ~0,4 s. Xem `app.log` dòng `layout source=uia cutouts=…`. Nếu thấy `fallback-conservative` (UIA không đọc được), app chỉ vẽ dải trái hẹp để an toàn — thử khởi động lại Explorer rồi app.
+
 
 Đã sửa ở v3.2.1: overlay phải nằm *dưới* `Shell_TrayWnd`, không dùng `HWND_TOPMOST` như insert-after.
 
@@ -34,6 +36,9 @@ Không chạy đồng thời Windhawk Taskbar Styler, TranslucentTB, hoặc Visu
 - Nếu vẫn che: tắt *Chặn ảnh nền desktop* (về overlay an toàn + `iconSafeFade`).
 - Kiểm tra `app.log` có dòng TAP attach / `BehindOk` / fallback.
 - Chưa bao giờ thay icon, chỉ vẽ nền. Nếu icon biến mất hẳn, đó là Explorer lỗi — restart Explorer như trên.
+
+## TAP không gắn / log báo `blocked-smart-app-control` hoặc `blocked-code-integrity`
+Smart App Control (hoặc chính sách WDAC) chặn `TaskbarTap.dll` chưa ký trong Explorer. v5 tự chuyển chế độ an toàn ngay (không còn chờ 15–20 s mỗi lần F8). Nếu bản exe mới cũng bị chặn chạy (Event Viewer → Applications and Services Logs → Microsoft → Windows → CodeIntegrity → Operational, sự kiện 3077/3033): ký số exe, hoặc tắt SAC trong Windows Security → App & browser control → Smart App Control (không bật lại được nếu không reset Windows).
 
 ## Phím F8 không bật/tắt được
 

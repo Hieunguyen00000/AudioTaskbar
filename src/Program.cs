@@ -7,6 +7,12 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--render")
+        {
+            try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }
+            RenderPreview.Run(args);
+            return;
+        }
         using var mutex = new Mutex(true, MutexName, out bool created);
         if (!created)
         {
@@ -14,6 +20,9 @@ internal static class Program
             return;
         }
 
+        // Per-Monitor V2 before any window exists: UIA rects, GetWindowRect and our
+        // layered windows then all speak the same physical pixels at 100/125/150 %.
+        try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -46,6 +55,9 @@ internal static class Program
             GC.KeepAlive(mutex);
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
     private static void LogCrash(Exception ex)
     {

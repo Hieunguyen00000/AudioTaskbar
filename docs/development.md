@@ -90,6 +90,17 @@ Chạy nhanh khi đang dev (không single-file):
 dotnet run --project src\AudioTaskbar.csproj -c Debug
 ```
 
+## Xem trước không cần màn hình (`--render`, v5)
+
+```powershell
+release\AudioTaskbar.exe --render out.png --size 1920x60 --cutouts 8-198,516-1403,1653-1920 `
+  --region auto --place "Ho Chi Minh City" --temp 27 --code 3 --day 0 --hud 1
+```
+
+Tham số: `--size WxH`, `--cutouts l-r,...` (px vật lý, vùng icon), `--region`, `--preview` (sunny/cloudy/rain/storm/night), `--hud 0|1`, `--train <phút>`, `--place`, `--temp`, `--code` (WMO), `--day 0|1`, `--cloud`, `--t <giây>`, `--frames`, `--fused 0|1`. Ghi kèm `out.png.txt` (khu vực, khoảng trống, vị trí thẻ, scale). Dùng để kiểm tra layout trên máy bị khóa màn hình hoặc bị SAC chặn chạy app.
+
+Lưu ý: dự án bật `UseWPF` (để dùng UI Automation); `GlobalUsings.cs` thêm lại `System.IO` / `System.Net.Http`.
+
 ## 3. Chạy tests
 
 ```powershell

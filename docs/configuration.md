@@ -108,6 +108,22 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 | `weatherRefreshMinutes` | int | `15` | Chu kỳ gọi Open-Meteo (5–120). |
 | `weatherOnPrimaryOnly` | bool | `true` | Chỉ vẽ thẻ thời tiết trên taskbar màn hình chính. |
 
+## Khu vực, tàu lửa, thẻ thời tiết, TAP (v5)
+
+| Khóa | Kiểu | Mặc định | Ý nghĩa |
+|------|------|----------|---------|
+| `trainCrossingMinutes` | float | `25` | Số phút để đoàn tàu đi hết chiều rộng taskbar, trái → phải (1–240). |
+| `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `default`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |
+| `showWeatherHud` | bool | `true` | Hiện thẻ nhiệt độ / trạng thái / địa điểm trên nền taskbar. Tắt thì cảnh vật vẫn đổi theo thời tiết. |
+| `weatherFollowsRegion` | bool | `false` | Khi chọn khu vực bằng tay: lấy thời tiết theo tọa độ khu vực đó thay vì vị trí máy. |
+| `tapMode` | string | `"auto"` | `auto` thử gắn TAP (bỏ qua nếu có SAC); `off` luôn dùng chế độ an toàn. |
+| `tapTimeoutSeconds` | float | `3.5` | Thời gian tối đa chờ TAP báo Ready (1.5–8). |
+
+Ghi chú:
+
+- `iconSafePadding` không còn là độ rộng cố định: v5 đo icon thật bằng UI Automation; vùng khoét = khung icon + 2 px·DPI, viền mờ 6 px·DPI nằm ngoài icon.
+- Vị trí IP có chống nhảy: khi IP báo nơi cách hơn 80 km, cần 2 lần xác nhận liên tiếp mới đổi (log ghi `+stable`). Muốn cố định, đặt `weatherCity` hoặc `weatherLatitude`/`weatherLongitude`.
+
 ## Âm thanh / spectrum (tắt mặc định ở v4)
 
 Chỉ có hiệu lực khi `enableAudio` là `true`.
@@ -152,4 +168,4 @@ Chỉ có hiệu lực khi `enableAudio` là `true`.
 | `%LOCALAPPDATA%\AudioTaskbar\tap-status.txt` | Trạng thái TAP (state, số element đã vá, lỗi). |
 | `%LOCALAPPDATA%\AudioTaskbar\TaskbarTap.dll` | Bản DLL được host trích ra từ resource. |
 
-Xóa `config.json` rồi chạy lại app để trở về mặc định v4.
+Xóa `config.json` rồi chạy lại app để trở về mặc định v5.

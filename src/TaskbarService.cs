@@ -7,8 +7,12 @@ public sealed class TaskbarRegions
     public Rectangle Bounds;
     public Rectangle IconCluster;   // screen coords; empty if unknown
     public Rectangle Tray;          // screen coords
-    public Rectangle WeatherSlot;   // client coords relative to Bounds
+    public Rectangle WeatherSlot;   // client coords relative to Bounds (legacy)
     public bool AutoHidden;
+    /// <summary>v5: exact screen rects of every taskbar item (UIA-measured).</summary>
+    public List<Rectangle> Cutouts = new();
+    public string LayoutSource = "";
+    public string Signature = "";
 }
 
 public static class TaskbarService
@@ -36,59 +40,49 @@ public static class TaskbarService
     public static bool IsAutoHidden(Rectangle bounds)
         => bounds.Width <= 4 || bounds.Height <= 4;
 
-    public static TaskbarRegions GetRegions(TaskbarInfo info, AppConfig cfg)
+    public static TaskbarRegions GetRegions(TaskbarInfo info, AppConfig cfg, TaskbarLayoutSnapshot? layout)
     {
         var regions = new TaskbarRegions
         {
             Bounds = info.Bounds,
             AutoHidden = IsAutoHidden(info.Bounds)
         };
-
-        var children = new List<(string cls, Rectangle r, bool vis)>();
-        Native.EnumChildWindows(info.Hwnd, (h, _) =>
-        {
-            if (!Native.GetWindowRect(h, out var r) || r.Width <= 0 || r.Height <= 0) return true;
-            var cls = Native.GetClass(h);
-            children.Add((cls, r.ToRectangle(), Native.IsWindowVisible(h)));
-            return true;
-        }, IntPtr.Zero);
-
-        var iconParts = new List<Rectangle>();
-        foreach (var (cls, r, vis) in children)
-        {
-            if (cls is "TrayNotifyWnd" or "Button" || cls.Contains("Notify", StringComparison.OrdinalIgnoreCase))
-            {
-                if (vis && r.Width > 20 && r.Width < info.Bounds.Width / 2)
-                    regions.Tray = regions.Tray.IsEmpty ? r : Rectangle.Union(regions.Tray, r);
-            }
-            if (cls is "MSTaskListWClass" or "MSTaskSwWClass" or "ReBarWindow32" or "Start" or "TrayDummySearchControl")
-            {
-                if (r.Width > 8 && r.Width < info.Bounds.Width * 4 / 5)
-                    iconParts.Add(r);
-            }
-        }
-        if (iconParts.Count > 0)
-        {
-            var u = iconParts[0];
-            for (int i = 1; i < iconParts.Count; i++) u = Rectangle.Union(u, iconParts[i]);
-            regions.IconCluster = Rectangle.Intersect(u, info.Bounds);
-        }
-
-        // Fallback: assume a centered cluster (~40% width) if we couldn't see legacy children.
-        if (regions.IconCluster.IsEmpty)
-        {
-            int w = Math.Max(200, info.Bounds.Width * 2 / 5);
-            int x = info.Bounds.X + (info.Bounds.Width - w) / 2;
-            regions.IconCluster = new Rectangle(x, info.Bounds.Y, w, info.Bounds.Height);
-        }
-        if (regions.Tray.IsEmpty)
-        {
-            int tw = Math.Min(260, info.Bounds.Width / 5);
-            regions.Tray = new Rectangle(info.Bounds.Right - tw, info.Bounds.Y, tw, info.Bounds.Height);
-        }
-
+        layout ??= TaskbarLayoutProbe.Probe(info.Hwnd);
+        regions.Cutouts = layout.Items
+            .Select(r => Rectangle.Intersect(r, info.Bounds))
+            .Where(r => r.Width > 0 && r.Height > 0)
+            .ToList();
+        regions.LayoutSource = layout.Source;
+        regions.Signature = layout.Signature();
+        regions.IconCluster = layout.TaskArea;
+        regions.Tray = layout.TrayArea;
+        if (regions.IconCluster.IsEmpty && regions.Cutouts.Count > 0)
+            regions.IconCluster = regions.Cutouts.Aggregate(Rectangle.Union);
         regions.WeatherSlot = ComputeWeatherSlot(info.Bounds, regions.IconCluster, regions.Tray, cfg);
         return regions;
+    }
+
+    /// <summary>
+    /// Free horizontal spans (client coords) that hold no taskbar item, after
+    /// inflating every cut-out by <paramref name="guard"/> pixels.
+    /// </summary>
+    public static List<(int L, int R)> FreeSpans(TaskbarRegions regions, int width, int guard, int minWidth = 8)
+    {
+        var spans = new List<(int L, int R)> { (0, width) };
+        foreach (var c in regions.Cutouts)
+        {
+            int l = c.Left - regions.Bounds.X - guard;
+            int r = c.Right - regions.Bounds.X + guard;
+            var next = new List<(int L, int R)>();
+            foreach (var s in spans)
+            {
+                if (r <= s.L || l >= s.R) { next.Add(s); continue; }
+                if (l > s.L) next.Add((s.L, l));
+                if (r < s.R) next.Add((r, s.R));
+            }
+            spans = next;
+        }
+        return spans.Where(s => s.R - s.L >= minWidth).OrderBy(s => s.L).ToList();
     }
 
     private static Rectangle ComputeWeatherSlot(Rectangle bounds, Rectangle icons, Rectangle tray, AppConfig cfg)

@@ -254,14 +254,20 @@ internal static class SceneClock
     {
         if (string.IsNullOrWhiteSpace(name)) return "Bà Rịa";
         var n = name.Trim();
-        if (n.Contains("Ba Ria", StringComparison.OrdinalIgnoreCase) ||
-            n.Contains("Bà Rịa", StringComparison.OrdinalIgnoreCase))
-            return "Bà Rịa";
+        var f = RegionCatalog.Fold(n);
+        if (f.Contains("ho chi minh") || f.Contains("saigon")) return "TP.HCM";
+        if (f.Contains("ba ria")) return "Bà Rịa";
+        if (f.Contains("vung tau")) return "Vũng Tàu";
+        if (f.Contains("ha noi") || f.Contains("hanoi")) return "Hà Nội";
+        if (f.Contains("da nang")) return "Đà Nẵng";
+        if (f.Contains("hoi an")) return "Hội An";
         if (n.StartsWith("Thanh Pho ", StringComparison.OrdinalIgnoreCase))
-            return n["Thanh Pho ".Length..].Trim();
+            n = n["Thanh Pho ".Length..].Trim();
         if (n.StartsWith("Thành phố ", StringComparison.OrdinalIgnoreCase))
-            return n["Thành phố ".Length..].Trim();
-        return n;
+            n = n["Thành phố ".Length..].Trim();
+        int comma = n.IndexOf(',');
+        if (comma > 0) n = n[..comma].Trim();
+        return n.Length > 18 ? n[..18] + "…" : n;
     }
 
     private static float MoonAmount(DateTime local)
@@ -316,6 +322,17 @@ internal sealed class DioramaRenderer
 
     private float _trainX = -400;
     private float _bikeX = 200;
+    private readonly RegionScenery _scenery = new();
+    private RegionProfile _region = RegionCatalog.Default;
+    private List<(float L, float R)> _spans = new();
+    private double _trainPhase0;
+    private bool _trainSeeded;
+    private bool _trainSeededWithSpans;
+    private float _trainSeedTime;
+    private float _lastSteamEmit = -1;
+    private const float TrainScale = 0.8f;
+    private const float TrainW = 176f * TrainScale;
+    public string ActiveRegionId => _scenery.ActiveId;
     private float _balloonX = 0.35f;
     private float _flash;          // 0..1 lightning envelope
     private float _flashCool;
@@ -353,8 +370,17 @@ internal sealed class DioramaRenderer
         _city?.Dispose(); _city = null;
     }
 
+    /// <summary>Region + free spans (logical units) where landmarks may stand.</summary>
+    public void SetLayout(RegionProfile region, List<(float L, float R)> spans)
+    {
+        _region = region;
+        _spans = spans;
+    }
+
     public void Draw(Graphics g, FrameContext ctx, SceneMood mood, float time)
     {
+        _scenery.Build(_region, _w, _h, _groundTop, _spans);
+
         DrawSky(g, mood, time);
         if (mood.IsNight) DrawStarsAndMoon(g, mood, time, ctx.Cfg.ShowWeatherEffects || ctx.Cfg.ShowAmbientDetails);
         else if (mood.IsClear && ctx.Cfg.ShowWeatherEffects) DrawSun(g, mood, time);
@@ -371,6 +397,11 @@ internal sealed class DioramaRenderer
         if (ctx.Cfg.ShowAmbientDetails && mood.IsClear && mood.IsDay)
             DrawBalloon(g, mood, time);
 
+        // v5 regional horizon: far mountains/filler skyline, water + boats, landmarks.
+        _scenery.DrawFar(g, mood, time);
+        _scenery.DrawWater(g, mood, time, 0);
+        _scenery.DrawLandmarks(g, mood, time);
+
         DrawHorizon(g, mood, time);
         if (ctx.Cfg.ShowAmbientDetails)
             DrawLampsAndWindows(g, mood, time);
@@ -379,7 +410,10 @@ internal sealed class DioramaRenderer
             DrawClouds(g, mood, time, far: false);
 
         if (ctx.Cfg.ShowTrain)
-            DrawTrain(g, mood, time);
+            DrawTrain(g, mood, time, ctx.Cfg);
+
+        if (ctx.Cfg.ShowCyclist)
+            _scenery.DrawRoadTraffic(g, mood, time);
 
         if (mood.IsRainy && ctx.Cfg.ShowWeatherEffects)
         {
@@ -399,13 +433,8 @@ internal sealed class DioramaRenderer
         if (ctx.Cfg.ShowAmbientDetails && mood.IsNight && mood.IsClear)
             DrawFirefliesAndShootingStar(g, mood, time);
 
-        if (ctx.Cfg.ShowAmbientDetails && mood.IsNight)
-            DrawNightCar(g, mood, time);
-
-        if (ctx.Cfg.ShowCyclist)
-            DrawCyclist(g, mood, time);
-
-        DimBehindIcons(g, ctx, mood);
+        if (ctx.Cfg.ShowAmbientDetails)
+            _scenery.DrawPetals(g, mood, time);
     }
 
     #region sky & celestial
@@ -794,20 +823,35 @@ internal sealed class DioramaRenderer
 
     #region actors
 
-    private void DrawTrain(Graphics g, SceneMood mood, float time)
+    /// <summary>
+    /// One single train, crossing left→right in exactly <c>trainCrossingMinutes</c>
+    /// (default 25 min). Position is a pure function of time, so it glides
+    /// at ~1 px/s without jitter. Seeded so it is visible right after launch.
+    /// </summary>
+    private void DrawTrain(Graphics g, SceneMood mood, float time, AppConfig cfg)
     {
-        // Period: 20s travel + 8s gap. Train length ~ 210px
-        const float period = 28f;
-        const float travel = 19f;
-        float t = time % period;
-        float trainW = 215f;
-        if (t > travel)
+        float trainW = TrainW;
+        double period = Math.Max(1.0, cfg.TrainCrossingMinutes) * 60.0;
+        double track = _w + trainW;
+        if (!_trainSeeded || (!_trainSeededWithSpans && _spans.Count > 0 && time - _trainSeedTime < 6f))
         {
-            // park off-screen, don't draw
-            _trainX = -trainW;
-            return;
+            // Put the locomotive inside the widest free span so it shows immediately.
+            float frontTarget = _w * 0.32f;
+            if (_spans.Count > 0)
+            {
+                var best = _spans.OrderByDescending(sp => sp.R - sp.L).First();
+                float sw = best.R - best.L;
+                frontTarget = best.L + Math.Min(sw - 6, Math.Max(sw * 0.82f, Math.Min(sw, trainW * 0.7f)));
+                _trainSeededWithSpans = true;
+            }
+            double progressNow = frontTarget / track;
+            _trainPhase0 = progressNow - time / period;
+            _trainSeeded = true;
+            _trainSeedTime = time;
         }
-        _trainX = -trainW + (t / travel) * (_w + trainW + 20);
+        double p = _trainPhase0 + time / period;
+        p -= Math.Floor(p);
+        _trainX = (float)(-trainW + p * track);
         float y = _railY - 1.2f;
         bool night = mood.IsNight || mood.Phase == DayPhase.Dusk;
         bool rain = mood.IsRainy;
@@ -818,27 +862,38 @@ internal sealed class DioramaRenderer
             using var cone = new GraphicsPath();
             cone.AddPolygon(new[]
             {
-                new PointF(_trainX + trainW - 4, y - 8),
-                new PointF(_trainX + trainW + 70, y - 16),
-                new PointF(_trainX + trainW + 70, y + 4)
+                new PointF(_trainX + trainW - 3, y - 6.5f),
+                new PointF(_trainX + trainW + 60, y - 13),
+                new PointF(_trainX + trainW + 60, y + 3)
             });
             using var pgb = new PathGradientBrush(cone);
             pgb.CenterColor = Color.FromArgb(70, 255, 236, 190);
             pgb.SurroundColors = new[] { Color.FromArgb(0, 255, 236, 190) };
-            pgb.CenterPoint = new PointF(_trainX + trainW, y - 7);
+            pgb.CenterPoint = new PointF(_trainX + trainW, y - 6f);
             g.FillPath(pgb, cone);
         }
 
-        // Carriages (4) then locomotive at the right (LTR)
-        float x = _trainX;
-        DrawCarriage(g, x, y, 38, night, rain, 0); x += 40;
-        DrawCarriage(g, x, y, 38, night, rain, 1); x += 40;
-        DrawCarriage(g, x, y, 38, night, rain, 2); x += 40;
-        DrawCarriage(g, x, y, 36, night, rain, 3); x += 38;
-        DrawLoco(g, x, y, night, rain, time);
+        // 3 carriages then the locomotive at the right (LTR), drawn at 80 % so
+        // the regional landmarks stay visible above the roofline.
+        var st = g.Save();
+        g.TranslateTransform(_trainX, y);
+        g.ScaleTransform(TrainScale, TrainScale);
+        float x = 0, ly = 0;
+        float spin = _trainX / (3.1f * TrainScale); // wheels roll exactly with distance travelled
+        DrawCarriage(g, x, ly, 38, night, rain, 0, spin); x += 40;
+        DrawCarriage(g, x, ly, 38, night, rain, 1, spin); x += 40;
+        DrawCarriage(g, x, ly, 38, night, rain, 2, spin); x += 40;
+        DrawLoco(g, x, ly, night, rain, spin);
+        g.Restore(st);
 
-        // Steam
-        EmitSteam(_trainX + trainW - 28, y - 16, time);
+        // Gentle smoke: a puff every ~0.45 s drifting up and back (world coords).
+        float chimX = _trainX + (x + 30.5f) * TrainScale, chimY = y - 21 * TrainScale;
+        if (_lastSteamEmit < 0 || time - _lastSteamEmit > 0.45f || time < _lastSteamEmit)
+        {
+            _lastSteamEmit = time;
+            EmitSteam(chimX, chimY, time);
+        }
+        else AgeSteam();
         DrawSteam(g, mood, time);
     }
 
@@ -874,11 +929,16 @@ internal sealed class DioramaRenderer
         using var hl = new SolidBrush(Color.FromArgb(night ? 255 : 180, 255, 236, 180));
         g.FillEllipse(hl, x + 46, y - 11, 4.2f, 4.2f);
         // wheels
-        DrawWheels(g, x + 6, y, 3, time * 8f);
-        DrawWheels(g, x + 28, y, 2, time * 8f);
+        DrawWheels(g, x + 6, y, 3, time);
+        DrawWheels(g, x + 28, y, 2, time);
+        // brass boiler bands + rim light
+        using var band = new Pen(Color.FromArgb(150, 200, 160, 90), 0.7f);
+        g.DrawLine(band, x + 22, y - 13, x + 22, y - 2);
+        g.DrawLine(band, x + 32, y - 13, x + 32, y - 2);
+        g.DrawLine(rim, x + 6, y - 12.6f, x + 42, y - 12.6f);
     }
 
-    private void DrawCarriage(Graphics g, float x, float y, float w, bool night, bool rain, int idx)
+    private void DrawCarriage(Graphics g, float x, float y, float w, bool night, bool rain, int idx, float spin)
     {
         using var body = new SolidBrush(Color.FromArgb(255, 54 + idx * 2, 38, 42));
         using var roof = new SolidBrush(Color.FromArgb(255, 34, 24, 28));
@@ -891,7 +951,10 @@ internal sealed class DioramaRenderer
         // coupler
         using var coup = new SolidBrush(Color.FromArgb(200, 30, 24, 24));
         g.FillRectangle(coup, x + w, y - 7, 2, 2);
-        DrawWheels(g, x + 6, y, 2, 0);
+        using var trim = new Pen(Color.FromArgb(120, 210, 170, 100), 0.6f);
+        g.DrawLine(trim, x + 0.5f, y - 5.6f, x + w - 0.5f, y - 5.6f);
+        DrawWheels(g, x + 4, y, 2, spin);
+        DrawWheels(g, x + w - 16, y, 2, spin);
     }
 
     private void DrawWheels(Graphics g, float x, float y, int n, float spin)
@@ -908,36 +971,36 @@ internal sealed class DioramaRenderer
 
     private void EmitSteam(float x, float y, float time)
     {
-        // emit a couple puffs
-        if ((int)(time * 10) % 3 != 0) { /* still age existing */ }
-        else
+        for (int i = 0; i < _steam.Length; i++)
         {
-            for (int i = 0; i < _steam.Length; i++)
+            if (!_steam[i].On)
             {
-                if (!_steam[i].On)
+                _steam[i] = new Puff
                 {
-                    _steam[i] = new Puff
-                    {
-                        X = x + (float)_rng.NextDouble() * 3,
-                        Y = y,
-                        Vx = -0.35f - (float)_rng.NextDouble() * 0.4f,
-                        Vy = -0.45f - (float)_rng.NextDouble() * 0.3f,
-                        Life = 1f, Max = 1f,
-                        Size = 2.5f + (float)_rng.NextDouble() * 2.2f,
-                        On = true
-                    };
-                    break;
-                }
+                    X = x + (float)_rng.NextDouble() * 2,
+                    Y = y,
+                    Vx = -0.10f - (float)_rng.NextDouble() * 0.10f,
+                    Vy = -0.20f - (float)_rng.NextDouble() * 0.12f,
+                    Life = 1f, Max = 1f,
+                    Size = 2.2f + (float)_rng.NextDouble() * 1.6f,
+                    On = true
+                };
+                break;
             }
         }
+        AgeSteam();
+    }
+
+    private void AgeSteam()
+    {
         for (int i = 0; i < _steam.Length; i++)
         {
             if (!_steam[i].On) continue;
             ref var p = ref _steam[i];
             p.X += p.Vx; p.Y += p.Vy;
-            p.Life -= 0.025f;
-            p.Size += 0.08f;
-            if (p.Life <= 0) p.On = false;
+            p.Life -= 0.012f;
+            p.Size += 0.05f;
+            if (p.Life <= 0 || p.Y < -4) p.On = false;
         }
     }
 
@@ -1186,40 +1249,70 @@ internal sealed class DioramaRenderer
         }
     }
 
-    public void DrawBadge(Graphics g, FrameContext ctx, SceneMood mood)
+    /// <summary>
+    /// Compact two-line HUD (physical pixels). level 0 = temp + condition + place,
+    /// 1 = temp + condition, 2 = temp only. Returns the box size.
+    /// </summary>
+    public static SizeF MeasureBadge(Graphics g, SceneMood mood, float barH, int level)
     {
-        var slot = ctx.Regions.WeatherSlot;
-        if (slot.Width < 40 || slot.Height < 16) return;
-        string line = mood.Ok
-            ? $"{mood.TemperatureText}  ·  {mood.ConditionVi}  ·  {mood.Place}"
-            : "…  thời tiết";
+        Layout(g, mood, barH, level, out var size, out _, out _, out _, out _, out _);
+        return size;
+    }
 
-        using var font = new Font("Segoe UI Semibold", Math.Clamp(_h * 0.34f, 8.0f, 10.8f), FontStyle.Regular, GraphicsUnit.Point);
-        var size = g.MeasureString(line, font);
-        float glyph = Math.Min(slot.Height - 4, 15);
-        float padX = 7f, padY = 2f;
-        float boxW = glyph + 5 + size.Width + padX * 2;
-        float boxH = Math.Max(size.Height, glyph) + padY * 2;
-        float x = slot.X + 4;
-        if (ctx.Cfg.WeatherPosition == "right")
-            x = slot.Right - boxW - 4;
-        float y = slot.Y + Math.Max(0, (slot.Height - boxH) / 2f);
-
-        using (var path = Rounded(x, y, boxW, boxH, Math.Min(8f, boxH / 2f)))
-        using (var plate = new SolidBrush(Color.FromArgb(170, 8, 12, 22)))
-        using (var rim = new Pen(Color.FromArgb(36, 255, 255, 255), 1f))
+    private static void Layout(Graphics g, SceneMood mood, float barH, int level, out SizeF box,
+        out Font big, out Font small, out string l1, out string l2, out float glyph)
+    {
+        float boxH = Math.Max(18f, barH - 2 * Math.Max(3f, barH * 0.12f));
+        glyph = boxH * 0.62f;
+        big = new Font("Segoe UI Semibold", Math.Max(8f, boxH * 0.40f), FontStyle.Regular, GraphicsUnit.Pixel);
+        small = new Font("Segoe UI", Math.Max(7f, boxH * 0.27f), FontStyle.Regular, GraphicsUnit.Pixel);
+        l1 = mood.Ok ? mood.TemperatureText : "…";
+        l2 = level switch
         {
-            g.FillPath(plate, path);
-            g.DrawPath(rim, path);
-        }
+            0 => mood.Ok ? mood.ConditionVi + " · " + mood.Place : "thời tiết",
+            1 => mood.Ok ? mood.ConditionVi : "",
+            _ => ""
+        };
+        float pad = boxH * 0.22f;
+        var s1 = g.MeasureString(l1, big);
+        var s2 = string.IsNullOrEmpty(l2) ? SizeF.Empty : g.MeasureString(l2, small);
+        float textW = Math.Max(s1.Width, s2.Width);
+        box = new SizeF(pad + glyph + pad * 0.6f + textW + pad * 0.7f, boxH);
+    }
 
-        var glyphRect = new RectangleF(x + padX, y + (boxH - glyph) / 2f, glyph, glyph);
-        DrawGlyph(g, mood, glyphRect);
-        var textPos = new PointF(x + padX + glyph + 4, y + (boxH - size.Height) / 2f);
-        using (var shadow = new SolidBrush(Color.FromArgb(120, 0, 0, 0)))
-            g.DrawString(line, font, shadow, textPos.X, textPos.Y + 1);
-        using var fg = new SolidBrush(Color.FromArgb(240, 246, 248, 255));
-        g.DrawString(line, font, fg, textPos);
+    public static void DrawBadge(Graphics g, SceneMood mood, RectangleF box, float barH, int level)
+    {
+        Layout(g, mood, barH, level, out var size, out var big, out var small, out var l1, out var l2, out var glyph);
+        using (big) using (small)
+        {
+            float x = box.X, y = box.Y;
+            float boxH = size.Height, boxW = size.Width;
+            using (var path = Rounded(x, y, boxW, boxH, Math.Min(10f, boxH * 0.3f)))
+            using (var plate = new LinearGradientBrush(new RectangleF(x, y - 1, boxW, boxH + 2),
+                       Color.FromArgb(178, 10, 16, 30), Color.FromArgb(150, 6, 10, 20), LinearGradientMode.Vertical))
+            using (var rim = new Pen(Color.FromArgb(46, 255, 255, 255), 1f))
+            {
+                g.FillPath(plate, path);
+                g.DrawPath(rim, path);
+            }
+            float pad = boxH * 0.22f;
+            var glyphRect = new RectangleF(x + pad, y + (boxH - glyph) / 2f, glyph, glyph);
+            DrawGlyph(g, mood, glyphRect);
+            float tx = glyphRect.Right + pad * 0.6f;
+            var s1 = g.MeasureString(l1, big);
+            var s2 = string.IsNullOrEmpty(l2) ? SizeF.Empty : g.MeasureString(l2, small);
+            float total = s1.Height * 0.86f + (s2.Height > 0 ? s2.Height * 0.9f : 0);
+            float ty = y + (boxH - total) / 2f - s1.Height * 0.06f;
+            using (var shadow = new SolidBrush(Color.FromArgb(120, 0, 0, 0)))
+                g.DrawString(l1, big, shadow, tx, ty + 1);
+            using (var fg = new SolidBrush(Color.FromArgb(250, 248, 250, 255)))
+                g.DrawString(l1, big, fg, tx, ty);
+            if (!string.IsNullOrEmpty(l2))
+            {
+                using var fg2 = new SolidBrush(Color.FromArgb(225, 214, 226, 240));
+                g.DrawString(l2, small, fg2, tx + 1, ty + s1.Height * 0.86f);
+            }
+        }
     }
 
     private static void DrawGlyph(Graphics g, SceneMood mood, RectangleF r)
@@ -1301,7 +1394,8 @@ internal sealed class DioramaRenderer
             hz.AddCurve(crest.ToArray(), 0.45f);
         hz.AddLine(_w, _groundTop + 2, _w, _h);
         hz.CloseFigure();
-        _horizon = hz;
+        hz.Dispose();
+        _horizon = null; // v5: regional scenery replaces the generic hills
 
         // City blocks on the right
         var city = new GraphicsPath();
@@ -1318,7 +1412,8 @@ internal sealed class DioramaRenderer
         city.AddRectangle(new RectangleF(bx, _groundTop - 2, 70, 3));
         city.AddRectangle(new RectangleF(bx + 4, _groundTop, 2, 6));
         city.AddRectangle(new RectangleF(bx + 64, _groundTop, 2, 6));
-        _city = city;
+        city.Dispose();
+        _city = null;
 
         // Tree clusters
         var trees = new GraphicsPath();
@@ -1330,7 +1425,8 @@ internal sealed class DioramaRenderer
             trees.AddEllipse(tx, _groundTop + 2 - th, tw, th);
             trees.AddRectangle(new RectangleF(tx + tw * 0.4f, _groundTop, 1.4f, 4));
         }
-        _trees = trees;
+        trees.Dispose();
+        _trees = null;
 
         _rail = new PointF[]
         {
@@ -1362,7 +1458,7 @@ internal sealed class DioramaRenderer
         _farRain = MakeRain(70, far: true);
         _nearRain = MakeRain(50, far: false);
         _ripples = new Ripple[12];
-        _steam = new Puff[14];
+        _steam = new Puff[24];
         _birds = new Bird[5];
         _flies = new Firefly[8];
         for (int i = 0; i < _flies.Length; i++)

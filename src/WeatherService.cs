@@ -85,6 +85,17 @@ public sealed class WeatherService : IDisposable
     private WeatherSnapshot? _latest;
     private CancellationTokenSource? _loopCts;
     private int _refreshMinutes = 15;
+    private (double, double, string, string)? _stableLoc;
+    private (double, double, string, string)? _pendingLoc;
+    private int _pendingCount;
+
+    private static double DistanceKm(double lat1, double lon1, double lat2, double lon2)
+    {
+        double r = 6371, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
+        double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                   Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return 2 * r * Math.Asin(Math.Min(1, Math.Sqrt(a)));
+    }
 
     public event Action<WeatherSnapshot>? Updated;
 
@@ -177,7 +188,14 @@ public sealed class WeatherService : IDisposable
         double lat, lon;
         string name, country, source;
 
-        if (cfg.WeatherLatitude is { } clat && cfg.WeatherLongitude is { } clon)
+        var manualRegion = RegionCatalog.NormalizeMode(cfg.RegionMode);
+        if (cfg.WeatherFollowsRegion && manualRegion is not ("auto" or "default"))
+        {
+            var rp = RegionCatalog.Get(manualRegion);
+            lat = rp.Lat; lon = rp.Lon; name = rp.WeatherCity; country = "";
+            source = "region-" + rp.Id;
+        }
+        else if (cfg.WeatherLatitude is { } clat && cfg.WeatherLongitude is { } clon)
         {
             lat = clat; lon = clon;
             name = string.IsNullOrWhiteSpace(cfg.WeatherCity) ? $"{lat:0.##}, {lon:0.##}" : cfg.WeatherCity;
@@ -195,6 +213,26 @@ public sealed class WeatherService : IDisposable
             var ip = await LocateByIpAsync(token).ConfigureAwait(false);
             lat = ip.lat; lon = ip.lon; name = ip.name; country = ip.country;
             source = ip.source;
+            // IP geolocation of Vietnamese ISPs hops between provinces (Bà Rịa ↔ Đà Nẵng ↔ HCMC).
+            // Keep the last stable place unless the new one is confirmed by two lookups in a row.
+            var stable = _stableLoc ?? (Latest is { Ok: true } c && !c.Source.StartsWith("config") && !c.Source.StartsWith("region")
+                ? (c.Latitude, c.Longitude, c.LocationName, c.Country) : ((double, double, string, string)?)null);
+            if (stable is { } st && DistanceKm(st.Item1, st.Item2, lat, lon) > 80)
+            {
+                if (_pendingLoc is { } pd && DistanceKm(pd.Item1, pd.Item2, lat, lon) <= 80) _pendingCount++;
+                else { _pendingLoc = (lat, lon, name, country); _pendingCount = 1; }
+                if (_pendingCount < 2)
+                {
+                    (lat, lon, name, country) = st;
+                    source += "+stable";
+                }
+                else { _stableLoc = (lat, lon, name, country); _pendingLoc = null; _pendingCount = 0; }
+            }
+            else
+            {
+                _stableLoc = (lat, lon, name, country);
+                _pendingLoc = null; _pendingCount = 0;
+            }
         }
 
         var url =
