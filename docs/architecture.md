@@ -1,0 +1,124 @@
+# Kiến trúc Audio Taskbar v4.0
+
+Audio Taskbar gồm hai phần:
+
+1. **Host managed** — `AudioTaskbar.exe`, .NET 8, WinForms + GDI+. Vẽ diorama, quản lý khay hệ thống, hotkey, thời tiết, và điều khiển lớp nền taskbar.
+2. **Native TAP** — `TaskbarTap.dll` (C++), được host nhúng như embedded resource rồi trích ra `%LOCALAPPDATA%\AudioTaskbar\TaskbarTap.dll`. Windows tự nạp DLL vào `explorer.exe` qua API XAML Diagnostics.
+
+Không dùng `CreateRemoteThread`, không hook Win32 của Explorer, và không cần quyền Administrator.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  AudioTaskbar.exe  (.NET 8, STA, PerMonitorV2)              │
+│  TrayApp  →  OverlayWindow (WS_EX_LAYERED, click-through)   │
+│           →  Diorama / (tùy chọn) Analyzer + AudioCapture   │
+│           →  WeatherService (Open-Meteo)                    │
+│           →  TaskbarTapHost  ──InitializeXamlDiagnosticsEx──┐
+└─────────────────────────────────────────────────────────────┘ │
+                                                                ▼
+                                           explorer.exe  (Shell_TrayWnd)
+                                           TaskbarTap.dll  (IObjectWithSite
+                                             + IVisualTreeServiceCallback2)
+                                           Rectangle#BackgroundFill → trong suốt
+                                           BackgroundStroke → Collapsed
+```
+
+## Host .NET 8
+
+| Thành phần | Vai trò |
+|------------|---------|
+| `Program.cs` | Entry point, mutex singleton, DPI, log crash. |
+| `TrayApp.cs` | Vòng đời app, menu khay, F8, gắn/gỡ TAP, reload config. |
+| `OverlayWindow.cs` | Cửa sổ layered phủ đúng bounds từng taskbar; vẽ frame (diorama hoặc spectrum). |
+| `Diorama.cs` | Cảnh 48px: trời theo giờ, mây, mưa, sấm, tàu, xe đạp, chim, đom đóm, đèn phố. |
+| `TaskbarService.cs` | Tìm `Shell_TrayWnd` / `Shell_SecondaryTrayWnd`, đo vùng Start / icon / khay. |
+| `TaskbarTapHost.cs` | Trích DLL, gọi `InitializeXamlDiagnosticsEx`, đọc `tap-status.txt`, detach/restore. |
+| `TaskbarTransparency.cs` | Thử API composition cũ (không còn tác dụng trên taskbar XAML 26300) — lớp dự phòng lịch sử. |
+| `WeatherService.cs` | Geocode / IP locate + forecast Open-Meteo, cache offline. |
+| `Hotkey.cs` | Parse `"Ctrl+Alt+F8"` và `RegisterHotKey`. |
+| `Config.cs` | Đọc/ghi `%LOCALAPPDATA%\AudioTaskbar\config.json` (camelCase). |
+| `AudioCapture.cs` / `Analyzer.cs` / `Presets.cs` | WASAPI loopback + FFT. Tắt mặc định ở v4 (`enableAudio: false`). |
+
+`OverlayWindow` dùng `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST` và `ShowWithoutActivation`, nên click xuyên qua tới icon taskbar bên dưới.
+
+## Z-order: nằm sát phía sau taskbar
+
+Khi TAP đã làm nền XAML trong suốt, visualizer phải **ở dưới** `Shell_TrayWnd` — nếu không, nền đặc sẽ che icon (lỗi đã gặp ở v3.2).
+
+`PlaceBehindTaskbar()` gọi:
+
+```text
+SetWindowPos(viz, taskbarHwnd, ..., SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+```
+
+`hwndInsertAfter = taskbarHwnd` chèn cửa sổ hiệu ứng *ngay sau* taskbar trong z-order, **không** dùng `HWND_TOPMOST` làm insert-after (cờ đó sẽ đẩy visualizer lên trên icon). App kiểm tra định kỳ (`IsBelowTaskbar` / `ReassertZ`). Nếu không giữ được vị trí phía sau, host tự chuyển overlay sang chế độ an toàn: nền vẫn vẽ ở khoảng trống, vùng Start / icon / khay được khoét mềm (`iconSafeFade`).
+
+`blockWallpaper` + `backdropOpacity` (mặc định `1.0`) vẽ một lớp tối **đặc**, nên wallpaper desktop không xuyên qua taskbar.
+
+## TaskbarTap.dll — clean-room XAML TAP
+
+Host lấy địa chỉ `InitializeXamlDiagnosticsEx` từ `Windows.UI.Xaml.dll` rồi gọi với CLSID của TAP. Windows nạp DLL vào process Explorer (cùng cơ chế Visual Studio dùng để debug XAML).
+
+DLL triển khai:
+
+- `DllGetClassObject` / `DllCanUnloadNow` (export trong `TaskbarTap.def`)
+- `IObjectWithSite` — nhận site, `QueryInterface` ra `IVisualTreeService` / `IXamlDiagnostics`
+- `IVisualTreeServiceCallback2` — đi cây, theo dõi element mới (màn hình mới, Explorer vẽ lại)
+
+Ghép phần tử theo **`x:Name`**, không theo đường dẫn cha–con cứng (cần thiết trên cây Windows 11 26H2 / build 26300 khi `TaskbarFrame` bị bọc thêm lớp):
+
+| Element | Hành động | Khôi phục |
+|---------|-----------|-----------|
+| `BackgroundFill` | Đặt `Fill` = brush trong suốt | `IVisualTreeService::ClearProperty` |
+| `BackgroundStroke` | `Visibility = Collapsed` (fallback: fill trong suốt) | `ClearProperty` |
+
+Host và DLL đồng bộ qua named events (`Local\AudioTaskbar.Tap.Ready`, `.Apply`, `.Applied`, `.Restore`, `.Stop`, `.Stopped`) và file `%LOCALAPPDATA%\AudioTaskbar\tap-status.txt`.
+
+Khi gắn thất bại (timeout, không vá được phần tử, Explorer không còn), host **gỡ TAP** (nếu đã advise) và quay về overlay an toàn. Nếu Explorer chết ngay sau khi gắn, host có thể khởi động lại Explorer rồi tắt fusion.
+
+**F8** chỉ ẩn/hiện overlay; không `Detach` TAP giữa phiên để tránh Explorer restart. Thoát app (`ExitApp`) mới restore + detach.
+
+### Giới hạn quan trọng
+
+Chỉ **một** consumer XAML Diagnostics được gắn vào Explorer tại một thời điểm. Không chạy đồng thời với Windhawk Taskbar Styler, TranslucentTB (ExplorerTAP), hoặc Visual Studio đang debug XAML của Explorer.
+
+## Chế độ an toàn (fallback)
+
+Bật khi:
+
+- `blockWallpaper` / fusion tắt, hoặc
+- TAP không gắn được, hoặc
+- z-order không giữ được vị trí phía sau taskbar.
+
+Hành vi: cửa sổ hiệu ứng có thể nằm trên taskbar nhưng `iconSafeFade` làm mờ/khoét vùng Start, cụm icon và khay (`iconSafePadding`, mặc định 28px). Icon luôn còn và bấm được. Vùng trống vẫn hiện diorama / thời tiết.
+
+## Visualizer âm thanh (tùy chọn, tắt ở v4)
+
+Khi `enableAudio: true` (và `showSpectrum` / `showWaveform`):
+
+- `AudioCapture` bắt **toàn bộ** output hệ thống bằng WASAPI loopback (nhạc, trình duyệt, RainyMood, …) — không cần biết nguồn phát.
+- `Analyzer` FFT (kích thước mặc định 2048), smoothing, peak-hold, preset màu (Aurora, Night Ocean, Sunset, Minimal, Windows Accent).
+
+v4 đặt `mode: "diorama"` và tắt audio để tiết CPU/RAM; bật lại bất cứ lúc nào trong config rồi *Tải lại cấu hình*.
+
+## Thời tiết
+
+1. Vị trí, theo thứ tự ưu tiên: `weatherLatitude` + `weatherLongitude` → `weatherCity` (geocoding Open-Meteo, `language=vi`) → IP (`ipapi.co`, `geojs`, `ip-api.com`).
+2. Forecast: `https://api.open-meteo.com/v1/forecast` (`temperature_2m`, `weather_code`, `is_day`, `precipitation`, `cloud_cover`, `timezone=auto`).
+3. Cache: `%LOCALAPPDATA%\AudioTaskbar\weather-cache.json`. Làm mới theo `weatherRefreshMinutes` (5–120, mặc định 15).
+
+`weatherPreview` khác `live` thì diorama dùng scene cố định (sunny / cloudy / rain / storm / night) — tiện xem thử, không ghi đè dữ liệu forecast đã cache.
+
+## So sánh với Windhawk Windows 11 Taskbar Styler
+
+| | Windhawk Taskbar Styler | Audio Taskbar v4 |
+|--|--|--|
+| Cài đặt thêm | Cần Windhawk (thường cần admin) + mod | Không; DLL đi kèm / embed trong exe |
+| Cơ chế | XAML Diagnostics TAP trong `explorer.exe` | Cùng họ API, tự viết clean-room |
+| Mục tiêu | Theme/styler đầy đủ (màu, blur, nhiều selector) | Chỉ làm nền trong suốt + khôi phục, rồi vẽ diorama phía sau |
+| Đa màn hình / Explorer restart | Có | Có (gắn lại khi `TaskbarCreated`) |
+| Bật/tắt / restore | Tắt mod trong Windhawk | Menu khay **Chặn ảnh nền desktop**, restore khi thoát |
+| Xung đột | Chỉ 1 consumer XAML Diagnostics tại một thời điểm | Cùng giới hạn đó |
+| Mã nguồn | Mods GPL-3.0 | Không sao chép mã Windhawk / TranslucentTB (xem `NOTICE.md`) |
+
+Audio Taskbar **không** thay thế Windhawk: không có bộ chọn style tùy ý, không chỉnh màu từng phần taskbar ngoài việc làm nền trong suốt. Bù lại, không cần cài thêm công cụ và chỉ chạm đúng hai element nền.
