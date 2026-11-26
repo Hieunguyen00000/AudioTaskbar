@@ -1,0 +1,961 @@
+using Microsoft.Win32;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+
+namespace AudioTaskbar;
+
+internal sealed class TrayApp : ApplicationContext
+{
+    private readonly NotifyIcon _tray;
+    private readonly System.Windows.Forms.Timer _frameTimer;
+    private readonly System.Windows.Forms.Timer _layoutTimer;
+    private readonly AudioCapture _capture = new();
+    private readonly Analyzer _analyzer = new();
+    private readonly WeatherService _weather = new();
+    private readonly TaskbarTransparency _transparency = new();
+    private readonly TaskbarTapHost _tap = new();
+    private readonly EventWaitHandle _cmdFusionOn = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.FusionOn");
+    private readonly EventWaitHandle _cmdFusionOff = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.FusionOff");
+    private readonly EventWaitHandle _cmdToggle = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.Toggle");
+    private readonly EventWaitHandle _cmdPreview = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.Preview");
+
+    private readonly List<OverlayWindow> _overlays = new();
+    private readonly Dictionary<IntPtr, TaskbarRegions> _regions = new();
+    private readonly object _configLock = new();
+    private readonly string _configPath;
+    private readonly FileSystemWatcher _watcher;
+    private readonly string _logPath;
+    private readonly ShellNotifyWindow _shellNotify;
+    private readonly DateTime _startedAt = DateTime.UtcNow;
+    private AppConfig _cfg;
+    private float[] _sampleBuf = new float[2048];
+    private int _watchdogCounter;
+    private int _zCounter;
+    private int _probePhase;
+    private Color? _stockPixel;
+    private bool _paused;
+    private bool _hotkeyRegistered;
+    private string _hotkeyDisplay = "F8";
+    private DateTime _lastToggleUtc = DateTime.MinValue;
+    private Icon? _iconOff;
+    private bool _exiting;
+    private bool _fused;
+    private bool _behindFailed;
+    private int _behindFailStreak;
+    private float _idle; // 0 active, 1 idle
+    private Icon? _icon;
+    private bool _savingConfig;
+
+    public TrayApp()
+    {
+        Directory.CreateDirectory(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AudioTaskbar"));
+        _logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AudioTaskbar", "app.log");
+        var loaded = ConfigStore.LoadPreferred();
+        _configPath = loaded.path;
+        _cfg = loaded.cfg;
+        if (loaded.note == "migrated-fusion-opt-in")
+            Log("Config migrated to " + _configPath + ". Fusion nền taskbar is opt-in (disabled by default after Explorer restarted at 10:54).");
+        else if (loaded.note is not null)
+            Log("Config: " + loaded.note + " path=" + _configPath);
+        if (!string.IsNullOrWhiteSpace(_cfg.Preset) && _cfg.Preset != "custom")
+        {
+            if (_cfg.Preset == "windows-accent")
+                Presets.Apply(_cfg, "windows-accent");
+        }
+        // v4: temporarily retire spectrum/waveform and the WASAPI engine.
+        _cfg.ShowSpectrum = false;
+        _cfg.ShowWaveform = false;
+        _cfg.EnableAudio = false;
+        if (string.IsNullOrWhiteSpace(_cfg.WeatherPreview)) _cfg.WeatherPreview = "live";
+        _cfg.Normalize();
+        Log("Start v4.0. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
+            + " blockWallpaper=" + _cfg.BlockWallpaper
+            + " train=" + _cfg.ShowTrain + " bike=" + _cfg.ShowCyclist);
+
+        _icon = CreateIcon(on: true);
+        _iconOff = CreateIcon(on: false);
+        _tray = new NotifyIcon
+        {
+            Icon = _icon ?? SystemIcons.Application,
+            Visible = true,
+            Text = "Audio Taskbar (F8)"
+        };
+        _tray.ContextMenuStrip = BuildMenu();
+        _tray.DoubleClick += (_, _) => ToggleEffect();
+
+        _capture.StatusChanged += msg =>
+        {
+            Log(msg);
+            UpdateTip();
+        };
+        if (_cfg.EnableAudio)
+        {
+            _capture.Start();
+            _analyzer.Configure(_cfg, _capture.SampleRate);
+        }
+        else
+            Log("Audio engine idle (v4 diorama — spectrum/waveform off).");
+
+        _weather.Updated += snap =>
+        {
+            Log(snap.Ok
+                ? $"Weather: {snap.LocationName} {snap.TemperatureText(false)} {snap.ConditionEn} (via {snap.Source})"
+                : "Weather failed: " + snap.Error);
+            UpdateTip();
+        };
+        if (_cfg.ShowWeather) _weather.Start(_cfg);
+
+        _frameTimer = new System.Windows.Forms.Timer { Interval = Math.Max(8, 1000 / _cfg.Fps) };
+        _frameTimer.Tick += (_, _) => OnFrame();
+        _frameTimer.Start();
+
+        _layoutTimer = new System.Windows.Forms.Timer { Interval = 750 };
+        _layoutTimer.Tick += (_, _) => SyncOverlays();
+        _layoutTimer.Start();
+
+        _shellNotify = new ShellNotifyWindow(
+            () =>
+            {
+                Log("TaskbarCreated — re-syncing.");
+                _behindFailed = false;
+                _behindFailStreak = 0;
+                BeginInvoke(() =>
+                {
+                    if (_paused) return;
+                    SyncOverlays();
+                    if (WantsSealedTaskbar())
+                        TryEnableFusion(initial: false);
+                });
+            },
+            () => BeginInvoke(ToggleEffect));
+        RegisterConfiguredHotkey();
+
+        SyncOverlays();
+        if (WantsSealedTaskbar())
+            TryEnableFusion(initial: true);
+
+        _watcher = new FileSystemWatcher(Path.GetDirectoryName(_configPath) ?? ".", Path.GetFileName(_configPath))
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
+        };
+        _watcher.Changed += (_, _) => { if (!_savingConfig) BeginReload(); };
+        _watcher.Created += (_, _) => { if (!_savingConfig) BeginReload(); };
+        _watcher.Renamed += (_, _) => { if (!_savingConfig) BeginReload(); };
+        _watcher.EnableRaisingEvents = File.Exists(_configPath);
+
+        SystemEvents.DisplaySettingsChanged += (_, _) =>
+        {
+            try { if (!_exiting) BeginInvoke(SyncOverlays); } catch { }
+        };
+    }
+
+    private ContextMenuStrip BuildMenu()
+    {
+        var menu = new ContextMenuStrip();
+        var pause = new ToolStripMenuItem("Bật/tắt hiệu ứng (F8)");
+        pause.Click += (_, _) => ToggleEffect();
+        menu.Items.Add(pause);
+
+        var scene = new ToolStripMenuItem("Cảnh vật");
+        scene.DropDownItems.Add(MakeToggle("Xe lửa", () => _cfg.ShowTrain, v => { _cfg.ShowTrain = v; Persist(); }));
+        scene.DropDownItems.Add(MakeToggle("Xe đạp", () => _cfg.ShowCyclist, v => { _cfg.ShowCyclist = v; Persist(); }));
+        scene.DropDownItems.Add(MakeToggle("Chim & đèn phố", () => _cfg.ShowAmbientDetails, v => { _cfg.ShowAmbientDetails = v; Persist(); }));
+        scene.DropDownItems.Add(MakeToggle("Thời tiết (mưa, mây, sấm, sương)", () => _cfg.ShowWeatherEffects, v => { _cfg.ShowWeatherEffects = v; Persist(); }));
+        menu.Items.Add(scene);
+
+        var preview = new ToolStripMenuItem("Xem trước thời tiết");
+        void addPreview(string id, string label)
+        {
+            var it = new ToolStripMenuItem(label);
+            it.Click += (_, _) => { _cfg.WeatherPreview = id; _cfg.Normalize(); Persist(); Log("Weather preview: " + _cfg.WeatherPreview); };
+            it.Paint += (_, _) => { try { it.Checked = _cfg.WeatherPreview == id; } catch { } };
+            preview.DropDownItems.Add(it);
+        }
+        addPreview("live", "Thực tế");
+        addPreview("sunny", "Nắng đẹp");
+        addPreview("cloudy", "Mây trôi");
+        addPreview("rain", "Mưa rào");
+        addPreview("storm", "Giông bão");
+        addPreview("night", "Đêm sao");
+        menu.Items.Add(preview);
+
+        var weather = new ToolStripMenuItem("Thời tiết");
+        weather.DropDownItems.Add(MakeToggle("Hiện thời tiết trên taskbar", () => _cfg.ShowWeather, v =>
+        {
+            _cfg.ShowWeather = v;
+            if (v) _weather.Start(_cfg);
+            Persist();
+        }));
+        var refresh = new ToolStripMenuItem("Làm mới ngay");
+        refresh.Click += (_, _) =>
+        {
+            Log("Weather refresh requested.");
+            _weather.RefreshNow(_cfg);
+        };
+        weather.DropDownItems.Add(refresh);
+        menu.Items.Add(weather);
+
+        var fusion = MakeToggle("Chặn ảnh nền desktop",
+            () => _cfg.BlockWallpaper || (_cfg.FuseIntoTaskbar && _cfg.MakeTaskbarTransparent),
+            v =>
+            {
+                _cfg.BlockWallpaper = v;
+                _cfg.FuseIntoTaskbar = v;
+                _cfg.MakeTaskbarTransparent = v;
+                Persist();
+                if (v) TryEnableFusion(initial: false);
+                else DisableFusion();
+            });
+        menu.Items.Add(fusion);
+
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Tải lại cấu hình", null, (_, _) => ReloadConfig());
+        menu.Items.Add("Mở thư mục cấu hình", null, (_, _) =>
+        {
+            var dir = Path.GetDirectoryName(_configPath);
+            if (dir is not null) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = dir,
+                UseShellExecute = true
+            });
+        });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Thoát", null, (_, _) => ExitApp());
+
+        menu.Opening += (_, _) =>
+        {
+            pause.Text = _paused
+                ? $"Bật hiệu ứng ({_hotkeyDisplay})"
+                : $"Tắt hiệu ứng ({_hotkeyDisplay})";
+            pause.Checked = !_paused;
+        };
+        return menu;
+    }
+
+    private ToolStripMenuItem MakeIntensity(string label, float value)
+    {
+        var item = new ToolStripMenuItem(label) { Tag = value };
+        item.Click += (_, _) =>
+        {
+            _cfg.Intensity = value;
+            _cfg.Normalize();
+            Persist();
+        };
+        return item;
+    }
+
+    private ToolStripMenuItem MakeToggle(string label, Func<bool> get, Action<bool> set)
+    {
+        var item = new ToolStripMenuItem(label);
+        item.Click += (_, _) => set(!get());
+        item.DropDownOpening += (_, _) => { };
+        // refresh check on parent opening is enough if we hook menu Opening for leaves:
+        item.OwnerChanged += (_, _) => { };
+        var parent = item;
+        // We'll update in a paint/open via Click only; also set CheckOnClick style:
+        item.CheckOnClick = false;
+        item.Paint += (_, _) => { try { item.Checked = get(); } catch { } };
+        return item;
+    }
+
+    private void ApplyPreset(string id)
+    {
+        lock (_configLock)
+        {
+            Presets.Apply(_cfg, id);
+        }
+        Persist();
+        Log("Preset: " + id);
+    }
+
+    private void Persist()
+    {
+        try
+        {
+            _savingConfig = true;
+            AppConfig copy;
+            lock (_configLock)
+            {
+                _cfg.Normalize();
+                copy = _cfg;
+            }
+            ConfigStore.Save(_configPath, copy);
+        }
+        catch (Exception ex) { Log("Save config failed: " + ex.Message); }
+        finally
+        {
+            // Delay so the watcher ignores our own write.
+            Task.Delay(400).ContinueWith(_ => _savingConfig = false);
+        }
+    }
+
+    private void ToggleEffect()
+    {
+        // RegisterHotKey + synthesized key events can occasionally fire twice
+        // in the same press (keydown/keyup). Ignore a second toggle within 350ms.
+        var now = DateTime.UtcNow;
+        if ((now - _lastToggleUtc).TotalMilliseconds < 350) return;
+        _lastToggleUtc = now;
+        SetEffectEnabled(_paused);
+    }
+
+    private void SetEffectEnabled(bool on)
+    {
+        if (_exiting) return;
+        if (on && !_paused) { UpdateTip(); return; }
+        if (!on && _paused) { UpdateTip(); return; }
+        _paused = !on;
+        if (!on)
+        {
+            foreach (var o in _overlays) o.ClearAndHide();
+            // Do not RequestRestore / Detach on F8 — toggling TAP fills mid-session
+            // has recycled Explorer on 26300. TAP stays patched and attached; we
+            // only hide the visualizer. Icons remain; wallpaper may peek through
+            // the transparent bar while the effect is off. Exit still restores.
+            if (_tap.IsAttached || _fused)
+            {
+                Log("Effect OFF: hiding visualizer, TAP fills left in place (no restore).");
+                _fused = false;
+                _transparency.Effective = false;
+            }
+            ApplyTrayIcon(on: false);
+            UpdateTip();
+            NotifyBalloon("Đã tắt hiệu ứng (" + _hotkeyDisplay + ")");
+            Log("Effect OFF via " + _hotkeyDisplay + ".");
+        }
+        else
+        {
+            ApplyTrayIcon(on: true);
+            UpdateTip();
+            _behindFailed = false;
+            _behindFailStreak = 0;
+            if (_tap.IsAttached)
+            {
+                // Fills were left patched on OFF, so just slip back under the taskbar.
+                _fused = true;
+                _transparency.Effective = true;
+                Log("Effect ON: TAP still attached — showing visualizer behind the taskbar.");
+                foreach (var o in _overlays) o.ReassertZ(true);
+                WatchBehindZ();
+            }
+            else if (WantsSealedTaskbar())
+                TryEnableFusion(initial: false);
+            SyncOverlays();
+            NotifyBalloon("Đã bật hiệu ứng (" + _hotkeyDisplay + ")");
+            Log("Effect ON via " + _hotkeyDisplay + ".");
+        }
+    }
+
+    private void NotifyBalloon(string text)
+    {
+        try
+        {
+            _tray.BalloonTipTitle = "Audio Taskbar";
+            _tray.BalloonTipText = text;
+            _tray.BalloonTipIcon = ToolTipIcon.Info;
+            _tray.ShowBalloonTip(1600);
+        }
+        catch { }
+    }
+
+    private void ApplyTrayIcon(bool on)
+    {
+        try
+        {
+            var ic = on ? _icon : _iconOff;
+            if (ic is not null) _tray.Icon = ic;
+        }
+        catch { }
+    }
+
+    private void RegisterConfiguredHotkey()
+    {
+        _hotkeyRegistered = false;
+        _hotkeyDisplay = _cfg.Hotkey ?? "F8";
+        try { _shellNotify.UnregisterToggleHotkey(); } catch { }
+        if (!Hotkey.TryParse(_cfg.Hotkey, out uint mods, out uint vk, out string display))
+        {
+            Log("Hotkey: cannot parse '" + _cfg.Hotkey + "'. Use e.g. F8 or Ctrl+Alt+F9.");
+            NotifyBalloon("Không hiểu phím tắt '" + _cfg.Hotkey + "'. Sửa hotkey trong config.json.");
+            return;
+        }
+        _hotkeyDisplay = display;
+        if (!_shellNotify.RegisterToggleHotkey(mods, vk, out int err))
+        {
+            Log($"Hotkey: RegisterHotKey({display}) failed win32={err}. Change 'hotkey' in config.json.");
+            NotifyBalloon("Không đăng ký được " + display + " (có thể đang dùng bởi app khác). Đổi hotkey trong config.json.");
+            return;
+        }
+        _hotkeyRegistered = true;
+        Log("Hotkey registered: " + display + " (RegisterHotKey ok).");
+    }
+
+    private void BeginReload()
+    {
+        try
+        {
+            if (_exiting || _tray.ContextMenuStrip is null) return;
+            _tray.ContextMenuStrip.BeginInvoke(new Action(ReloadConfig));
+        }
+        catch { }
+    }
+
+    private void BeginInvoke(Action action)
+    {
+        try
+        {
+            if (_tray.ContextMenuStrip is { IsHandleCreated: true } m)
+                m.BeginInvoke(action);
+        }
+        catch { }
+    }
+
+
+    private void TryApplyPreviewCommand()
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "AudioTaskbar", "preview-cmd.txt");
+            if (!File.Exists(path)) return;
+            var raw = File.ReadAllText(path).Trim();
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            _cfg.WeatherPreview = raw;
+            _cfg.Normalize();
+            Persist();
+            Log("Weather preview via command: " + _cfg.WeatherPreview);
+        }
+        catch (Exception ex) { Log("Preview command: " + ex.Message); }
+    }
+
+    private void ReloadConfig()
+    {
+        try
+        {
+            Thread.Sleep(80);
+            var cfg = ConfigStore.Load(_configPath);
+            bool weatherOn;
+            lock (_configLock)
+            {
+                cfg.ShowSpectrum = false;
+                cfg.ShowWaveform = false;
+                cfg.EnableAudio = false;
+                cfg.Normalize();
+                _cfg = cfg;
+                weatherOn = cfg.ShowWeather;
+            }
+            if (cfg.EnableAudio)
+                _analyzer.Configure(cfg, _capture.SampleRate);
+            _frameTimer.Interval = Math.Max(8, 1000 / cfg.Fps);
+            if (_sampleBuf.Length != cfg.FftSize)
+                _sampleBuf = new float[cfg.FftSize];
+            if (weatherOn) _weather.Start(cfg);
+            SyncOverlays();
+            if (WantsSealedTaskbar(cfg))
+                TryEnableFusion(initial: false);
+            else
+                DisableFusion();
+            RegisterConfiguredHotkey();
+            Log("Config reloaded. preview=" + cfg.WeatherPreview + " hotkey=" + cfg.Hotkey);
+            _tray.ShowBalloonTip(1200, "Audio Taskbar", "Đã tải lại cấu hình.", ToolTipIcon.None);
+        }
+        catch (Exception ex)
+        {
+            Log("Config reload failed: " + ex.Message);
+        }
+    }
+
+    private void OnFrame()
+    {
+        if (_exiting) return;
+        if (_cmdToggle.WaitOne(0))
+            ToggleEffect();
+        if (_cmdPreview.WaitOne(0))
+            TryApplyPreviewCommand();
+
+        _watchdogCounter++;
+        if (_watchdogCounter >= Math.Max(1, _cfg.Fps * 2))
+        {
+            _watchdogCounter = 0;
+            if (_cfg.EnableAudio)
+            {
+                _capture.TickWatchdog();
+                _analyzer.Configure(_cfg, _capture.SampleRate);
+            }
+        }
+
+        if (_paused) return;
+
+        AppConfig cfg;
+        lock (_configLock) cfg = _cfg;
+
+        if (cfg.EnableAudio)
+        {
+            if (_sampleBuf.Length != cfg.FftSize)
+                _sampleBuf = new float[cfg.FftSize];
+            bool have = _capture.TryGetMono(_sampleBuf, cfg.FftSize);
+            if (have) _analyzer.Process(_sampleBuf, cfg);
+        }
+
+        _idle = 0f;
+
+        float time = (float)(DateTime.UtcNow - _startedAt).TotalSeconds;
+        var weather = _weather.Latest;
+
+        _zCounter++;
+        bool checkZ = _zCounter >= Math.Max(4, cfg.Fps / 2);
+        if (checkZ) _zCounter = 0;
+
+        foreach (var overlay in _overlays)
+        {
+            if (cfg.HideWhenFullscreen && TaskbarService.IsFullscreenOnBounds(overlay.Bounds))
+            {
+                if (overlay.Visible) overlay.ClearAndHide();
+                continue;
+            }
+            if (_regions.TryGetValue(overlay.TaskbarHwnd, out var regions) && regions.AutoHidden)
+            {
+                if (overlay.Visible) overlay.ClearAndHide();
+                continue;
+            }
+            if (!overlay.Visible)
+            {
+                overlay.Show();
+                // Show() can lift a TOPMOST window above the taskbar — slip back immediately.
+                overlay.ReassertZ(_fused);
+            }
+
+            if (!_regions.TryGetValue(overlay.TaskbarHwnd, out regions))
+                regions = new TaskbarRegions { Bounds = overlay.Bounds };
+
+            bool showWeather = cfg.ShowWeather && (overlay.IsPrimaryTaskbar || !cfg.WeatherOnPrimaryOnly);
+            overlay.DrawFrame(new FrameContext
+            {
+                Cfg = cfg,
+                Analyzer = _analyzer,
+                Wave = cfg.ShowWaveform ? _sampleBuf : null,
+                Weather = weather,
+                Regions = regions,
+                Idle = _idle,
+                Time = time,
+                Fused = _fused,
+                BehindOk = overlay.BehindOk,
+                ShowWeather = showWeather
+            });
+            if (checkZ) overlay.ReassertZ(_fused);
+        }
+
+        if (checkZ && _fused && !_paused)
+            WatchBehindZ();
+
+        // Named events let us toggle fusion during unattended verification.
+        if (_cmdFusionOff.WaitOne(0))
+        {
+            _cfg.FuseIntoTaskbar = false;
+            _cfg.MakeTaskbarTransparent = false;
+            Persist();
+            DisableFusion();
+        }
+        else if (_cmdFusionOn.WaitOne(0))
+        {
+            _cfg.FuseIntoTaskbar = true;
+            _cfg.MakeTaskbarTransparent = true;
+            Persist();
+            TryEnableFusion(initial: false);
+        }
+
+        if (_probePhase < 3 && cfg.FuseIntoTaskbar && cfg.MakeTaskbarTransparent && !_tap.IsAttached)
+            MaybeProbeFusion(cfg);
+
+        if (_tap.IsAttached && _watchdogCounter == 0 && !_tap.ExplorerStillAlive())
+        {
+            int? live = TaskbarTapHost.FindTaskbarExplorerPid();
+            _fused = false;
+            _transparency.Effective = false;
+            try { _tap.Detach(_ => { }); } catch { }
+            foreach (var o in _overlays) o.ReassertZ(false);
+            if (live is int pid)
+            {
+                // A new shell is already up (crash or user restart). Never kill it.
+                Log("TAP: explorer PID changed to " + pid + " — detached without restarting the new shell.");
+            }
+            else
+            {
+                Log("TAP: explorer exited and no taskbar is present — restarting explorer.");
+                TaskbarTapHost.RestartExplorer(Log);
+            }
+        }
+    }
+
+    private bool WantsSealedTaskbar(AppConfig? cfg = null)
+    {
+        cfg ??= _cfg;
+        return cfg.BlockWallpaper || (cfg.MakeTaskbarTransparent && cfg.FuseIntoTaskbar);
+    }
+
+    private void TryEnableFusion(bool initial)
+    {
+        if (_behindFailed && initial)
+        {
+            Log("Fusion: skipped (earlier z-order fallback this session).");
+            return;
+        }
+        if (!initial)
+        {
+            _behindFailed = false;
+            _behindFailStreak = 0;
+        }
+        if (_tap.IsAttached)
+        {
+            _tap.RequestApply(Log);
+            _fused = true;
+            _transparency.Effective = true;
+            foreach (var o in _overlays) o.ReassertZ(true);
+            WatchBehindZ();
+            Log("Fusion: TAP already attached — reapplied fills.");
+            return;
+        }
+        Log(initial ? "Fusion: attempting TAP attach…" : "Fusion: re-attaching TAP…");
+        bool ok = false;
+        int pidBefore = TaskbarTapHost.FindTaskbarExplorerPid() ?? 0;
+        try { ok = _tap.Attach(Log); }
+        catch (Exception ex) { Log("Fusion attach error: " + ex.Message); ok = false; }
+
+        // If explorer died during attach, bring it back and fall back.
+        bool explorerAlive = TaskbarTapHost.FindTaskbarExplorerPid() is not null;
+        if (pidBefore != 0)
+        {
+            try
+            {
+                var p = System.Diagnostics.Process.GetProcessById(pidBefore);
+                explorerAlive = explorerAlive && !p.HasExited;
+            }
+            catch { explorerAlive = TaskbarTapHost.FindTaskbarExplorerPid() is not null; }
+        }
+        if (!explorerAlive)
+        {
+            Log("Fusion: explorer is gone after attach — restarting.");
+            TaskbarTapHost.RestartExplorer(Log);
+            ok = false;
+            try { _tap.Detach(_ => { }); } catch { }
+        }
+
+        if (ok)
+        {
+            _fused = true;
+            _transparency.Effective = true;
+            Log("Fusion: TAP attached — visualizer will sit behind the taskbar.");
+            foreach (var o in _overlays) o.ReassertZ(true);
+            WatchBehindZ();
+        }
+        else
+        {
+            _fused = false;
+            _transparency.Effective = false;
+            Log("Fusion: TAP unsuccessful (" + _tap.Status + ") — safe-mode overlay (icons stay untinted).");
+            foreach (var o in _overlays) o.ReassertZ(false);
+        }
+    }
+
+    private void WatchBehindZ()
+    {
+        if (!_fused)
+        {
+            _behindFailStreak = 0;
+            return;
+        }
+
+        bool allOk = true;
+        foreach (var o in _overlays)
+        {
+            if (!o.Visible) continue;
+            if (!o.PlaceBehindTaskbar())
+                allOk = false;
+        }
+
+        if (allOk)
+        {
+            if (_behindFailStreak > 0)
+                Log("Fusion: visualizer is back under the taskbar.");
+            _behindFailStreak = 0;
+            return;
+        }
+
+        _behindFailStreak++;
+        Log("Fusion: visualizer was above the taskbar (streak=" + _behindFailStreak + ") — re-slipped under Shell_TrayWnd.");
+        if (_behindFailStreak >= 3)
+            FallBackToIconSafe("could not keep visualizer behind the taskbar");
+    }
+
+    private void FallBackToIconSafe(string reason)
+    {
+        Log("Fusion fallback: " + reason + " — restoring taskbar fill and using icon-safe overlay so icons stay visible.");
+        if (_tap.IsAttached)
+            _tap.RequestRestore(Log);
+        _fused = false;
+        _transparency.Effective = false;
+        _behindFailed = true;
+        _behindFailStreak = 0;
+        foreach (var o in _overlays) o.ReassertZ(false);
+    }
+
+    private void DisableFusion()
+    {
+        Log("Fusion: disabling, restoring taskbar background.");
+        try { _tap.Detach(Log); } catch { }
+        _transparency.Restore();
+        _fused = false;
+        _transparency.Effective = false;
+        foreach (var o in _overlays) o.ReassertZ(false);
+    }
+
+    private void MaybeProbeFusion(AppConfig cfg)
+    {
+        var primary = _overlays.FirstOrDefault(o => o.IsPrimaryTaskbar);
+        if (primary is null || !_regions.TryGetValue(primary.TaskbarHwnd, out var regions)) return;
+        if (!TryEmptySamplePoint(regions, out var pt)) return;
+
+        if (_probePhase == 0)
+        {
+            foreach (var o in _overlays) o.ClearAndHide();
+            _stockPixel = SampleScreen(pt);
+            Log($"Fusion probe: stock empty pixel={Fmt(_stockPixel)} at {pt.X},{pt.Y}");
+            _probePhase = 1;
+            return;
+        }
+
+        if (_probePhase == 1)
+        {
+            foreach (var o in _overlays)
+            {
+                if (!o.Visible) o.Show();
+                o.PlaceBehindTaskbar();
+            }
+            _probePhase = 2;
+            return;
+        }
+
+        var now = SampleScreen(pt);
+        bool behind = primary.IsBelowTaskbar();
+        int dist = _stockPixel is { } s && now is { } n ? ColorDist(s, n) : 0;
+        bool changed = dist >= 18;
+        _fused = behind && changed;
+        _transparency.Effective = _fused;
+        _probePhase = 3;
+        Log($"Fusion probe: fused={_fused} behind={behind} delta={dist} behindPixel={Fmt(now)} stock={Fmt(_stockPixel)} status={_transparency.Status}");
+        foreach (var o in _overlays) o.ReassertZ(_fused);
+    }
+
+    private static bool TryEmptySamplePoint(TaskbarRegions regions, out Point pt)
+    {
+        int x = regions.Bounds.X + 24;
+        int y = regions.Bounds.Y + Math.Max(2, regions.Bounds.Height / 2);
+        var icon = regions.IconCluster;
+        if (!icon.IsEmpty && x >= icon.Left - 8 && x <= icon.Right + 8)
+            x = Math.Max(regions.Bounds.X + 8, icon.Left - 40);
+        if (!regions.Tray.IsEmpty && x >= regions.Tray.Left)
+            x = regions.Bounds.X + 16;
+        pt = new Point(x, y);
+        return regions.Bounds.Contains(pt);
+    }
+
+    private static Color? SampleScreen(Point pt)
+    {
+        try
+        {
+            using var bmp = new Bitmap(1, 1);
+            using var g = Graphics.FromImage(bmp);
+            g.CopyFromScreen(pt, Point.Empty, new Size(1, 1));
+            return bmp.GetPixel(0, 0);
+        }
+        catch { return null; }
+    }
+
+    private static int ColorDist(Color a, Color b)
+        => Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B);
+
+    private static string Fmt(Color? c)
+        => c is { } x ? $"#{x.R:X2}{x.G:X2}{x.B:X2}" : "null";
+
+    private void SyncOverlays()
+    {
+        if (_exiting) return;
+        if (_paused)
+        {
+            foreach (var o in _overlays) o.ClearAndHide();
+            return;
+        }
+        var bars = TaskbarService.GetTaskbars();
+        bool allMonitors;
+        AppConfig cfg;
+        lock (_configLock)
+        {
+            cfg = _cfg;
+            allMonitors = cfg.ShowOnAllMonitors;
+        }
+        if (!allMonitors)
+            bars = bars.Where(b => b.IsPrimary).ToList();
+
+        _regions.Clear();
+        foreach (var b in bars)
+            _regions[b.Hwnd] = TaskbarService.GetRegions(b, cfg);
+
+        while (_overlays.Count > bars.Count)
+        {
+            var last = _overlays[^1];
+            _overlays.RemoveAt(_overlays.Count - 1);
+            last.Close();
+            last.Dispose();
+        }
+        while (_overlays.Count < bars.Count)
+        {
+            var w = new OverlayWindow();
+            w.Show();
+            _overlays.Add(w);
+        }
+        for (int i = 0; i < bars.Count; i++)
+        {
+            _overlays[i].TaskbarHwnd = bars[i].Hwnd;
+            _overlays[i].IsPrimaryTaskbar = bars[i].IsPrimary;
+            _overlays[i].MoveTo(bars[i].Bounds);
+            _overlays[i].ReassertZ(_fused);
+        }
+    }
+
+    private void UpdateTip()
+    {
+        try
+        {
+            var w = _weather.Latest;
+            string weather = w is { Ok: true }
+                ? $" | {w.LocationName} {w.TemperatureText(false)}"
+                : "";
+            string state = _paused ? "TẮT" : "BẬT";
+            string hk = _hotkeyRegistered ? _hotkeyDisplay : (_hotkeyDisplay + "?");
+            _tray.Text = TrimTip($"Audio Taskbar {state} ({hk})" + weather + ( _cfg.WeatherPreview != "live" ? " [" + _cfg.WeatherPreview + "]" : ""));
+        }
+        catch { }
+    }
+
+    private void ExitApp()
+    {
+        if (_exiting) return;
+        _exiting = true;
+        _frameTimer.Stop();
+        _layoutTimer.Stop();
+        _watcher.EnableRaisingEvents = false;
+        _watcher.Dispose();
+        try { _shellNotify.UnregisterToggleHotkey(); } catch { }
+        _shellNotify.DestroyHandle();
+        foreach (var o in _overlays)
+        {
+            try { o.Close(); o.Dispose(); } catch { }
+        }
+        _overlays.Clear();
+        try { _tap.Detach(Log); } catch { }
+        _transparency.Restore();
+        Log("Taskbar appearance restored.");
+        _weather.Dispose();
+        try { _cmdFusionOn.Dispose(); _cmdFusionOff.Dispose(); _cmdToggle.Dispose(); _cmdPreview.Dispose(); } catch { }
+
+        _capture.Dispose();
+        _tray.Visible = false;
+        _tray.Dispose();
+        _icon?.Dispose();
+        _iconOff?.Dispose();
+        Log("Exit.");
+        ExitThread();
+    }
+
+    private void Log(string message)
+    {
+        try
+        {
+            var line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + message + Environment.NewLine;
+            File.AppendAllText(_logPath, line);
+        }
+        catch { }
+    }
+
+    private static string TrimTip(string s) => s.Length <= 63 ? s : s[..63];
+
+    private static Icon? CreateIcon(bool on = true)
+    {
+        try
+        {
+            using var bmp = new Bitmap(32, 32, PixelFormat.Format32bppPArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                var bgc = on ? Color.FromArgb(255, 7, 21, 38) : Color.FromArgb(255, 50, 50, 55);
+                var fgc = on ? Color.FromArgb(255, 46, 230, 166) : Color.FromArgb(255, 140, 140, 145);
+                using (var bg = new SolidBrush(bgc))
+                    g.FillEllipse(bg, 1, 1, 30, 30);
+                using var pen = new Pen(fgc, 2.2f);
+                var pts = new[]
+                {
+                    new PointF(6, 20), new PointF(10, 16), new PointF(14, 22),
+                    new PointF(18, 10), new PointF(22, 18), new PointF(26, 12)
+                };
+                g.DrawLines(pen, pts);
+            }
+            IntPtr hIcon = bmp.GetHicon();
+            try
+            {
+                using var tmp = Icon.FromHandle(hIcon);
+                return (Icon)tmp.Clone();
+            }
+            finally { Native.DestroyIcon(hIcon); }
+        }
+        catch { return null; }
+    }
+}
+
+/// <summary>Hidden window that listens for the TaskbarCreated broadcast.</summary>
+internal sealed class ShellNotifyWindow : NativeWindow
+{
+    public const int ToggleHotkeyId = 1;
+    private readonly Action _onTaskbarCreated;
+    private readonly Action _onToggleHotkey;
+    private readonly int _msg;
+
+    public ShellNotifyWindow(Action onTaskbarCreated, Action onToggleHotkey)
+    {
+        _onTaskbarCreated = onTaskbarCreated;
+        _onToggleHotkey = onToggleHotkey;
+        _msg = Native.RegisterWindowMessage("TaskbarCreated");
+        var cp = new CreateParams
+        {
+            Caption = "AudioTaskbar.ShellNotify",
+            Style = 0,
+            ExStyle = Native.WS_EX_TOOLWINDOW
+        };
+        CreateHandle(cp);
+    }
+
+    public bool RegisterToggleHotkey(uint modifiers, uint vk, out int win32Error)
+    {
+        UnregisterToggleHotkey();
+        if (!Native.RegisterHotKey(Handle, ToggleHotkeyId, modifiers, vk))
+        {
+            win32Error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            return false;
+        }
+        win32Error = 0;
+        return true;
+    }
+
+    public void UnregisterToggleHotkey()
+    {
+        try { Native.UnregisterHotKey(Handle, ToggleHotkeyId); } catch { }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == _msg) _onTaskbarCreated();
+        else if (m.Msg == Native.WM_HOTKEY && m.WParam.ToInt32() == ToggleHotkeyId)
+            _onToggleHotkey();
+        base.WndProc(ref m);
+    }
+}

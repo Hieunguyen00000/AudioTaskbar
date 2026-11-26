@@ -1,0 +1,22 @@
+# Normalize text; keep Windows scripts/C# on CRLF, docs/unix scripts on LF.
+* text=auto
+
+*.cs        text eol=crlf
+*.csproj    text eol=crlf
+*.ps1       text eol=crlf
+*.bat       text eol=crlf
+*.manifest  text eol=crlf
+
+*.md        text eol=lf
+*.py        text eol=lf
+*.sh        text eol=lf
+*.json      text eol=lf
+*.cpp       text eol=lf
+*.def       text eol=lf
+*.h         text eol=lf
+.gitignore  text eol=lf
+.gitattributes text eol=lf
+
+*.ico       binary
+*.dll       binary
+*.exe       binary
