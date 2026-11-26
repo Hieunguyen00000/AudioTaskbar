@@ -446,12 +446,24 @@ internal sealed class TrayApp : ApplicationContext
         catch { }
     }
 
+    // Hidden control owned by the UI thread, used to marshal background work
+    // (TAP attach, layout probe, file watchers) back onto the UI thread. The tray
+    // menu's handle only exists once the menu has been opened, so it is not usable.
+    private readonly Control _invoker = CreateInvoker();
+
+    private static Control CreateInvoker()
+    {
+        var c = new Control();
+        _ = c.Handle; // force handle creation on the constructing (UI) thread
+        return c;
+    }
+
     private void BeginInvoke(Action action)
     {
         try
         {
-            if (_tray.ContextMenuStrip is { IsHandleCreated: true } m)
-                m.BeginInvoke(action);
+            if (_invoker.IsHandleCreated && !_invoker.IsDisposed)
+                _invoker.BeginInvoke(action);
         }
         catch { }
     }
@@ -1033,6 +1045,7 @@ internal sealed class TrayApp : ApplicationContext
         _capture.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
+        try { _invoker.Dispose(); } catch { }
         _icon?.Dispose();
         _iconOff?.Dispose();
         Log("Exit.");
