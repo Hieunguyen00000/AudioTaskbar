@@ -203,6 +203,20 @@ public sealed class AppConfig
     }
 
     /// <summary>cycle (default) | real | day (fixed daytime) | night (fixed night).</summary>
+    /// <summary>
+    /// v5.3.2: the single place where a weather-preview pick from the portal, tray menu or preview command is
+    /// applied. "Đêm sao" (night) also switches the day/night clock to "Cố định ban đêm" so the sky really is a
+    /// starry night; every other weather keeps the user's own time mode. Returns true when the time mode changed.
+    /// </summary>
+    public bool ApplyWeatherOverrideSelection(string? weatherMode)
+    {
+        WeatherPreview = weatherMode ?? "live";
+        string before = TimeMode;
+        Normalize();
+        if (WeatherPreview == "night") TimeMode = "night";
+        return TimeMode != NormalizeTimeMode(before);
+    }
+
     public static string NormalizeTimeMode(string? mode)
     {
         var m = (mode ?? "cycle").Trim().ToLowerInvariant();

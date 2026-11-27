@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
 namespace AudioTaskbar;
@@ -23,8 +24,8 @@ internal sealed class PortalForm : Form
     private readonly ComboBox _time = Combo();
     private readonly CheckBox _hud = Check("Hiện thông tin thời tiết && địa điểm");
     private readonly CheckBox _train = Check("Tàu hỏa");
-    private readonly NumericUpDown _cycleMin = new() { Minimum = (decimal)AppConfig.MinDayCycleMinutes, Maximum = (decimal)AppConfig.MaxDayCycleMinutes, DecimalPlaces = 1, Increment = 5m, Width = 72, TextAlign = HorizontalAlignment.Right };
-    private readonly NumericUpDown _trainMin = new() { Minimum = 0.25m, Maximum = 240m, DecimalPlaces = 2, Increment = 0.25m, Width = 64, TextAlign = HorizontalAlignment.Right };
+    private readonly NumericUpDown _cycleMin = new() { BorderStyle = BorderStyle.None, Minimum = (decimal)AppConfig.MinDayCycleMinutes, Maximum = (decimal)AppConfig.MaxDayCycleMinutes, DecimalPlaces = 1, Increment = 5m, Width = 72, TextAlign = HorizontalAlignment.Right };
+    private readonly NumericUpDown _trainMin = new() { BorderStyle = BorderStyle.None, Minimum = 0.25m, Maximum = 240m, DecimalPlaces = 2, Increment = 0.25m, Width = 64, TextAlign = HorizontalAlignment.Right };
     private readonly CheckBox _traffic = Check("Phương tiện khu vực");
     private readonly CheckBox _ambient = Check("Chi tiết nền (chim, đèn phố)");
     private readonly CheckBox _effects = Check("Hiệu ứng thời tiết");
@@ -56,6 +57,7 @@ internal sealed class PortalForm : Form
     {
         _host = host;
         _p = Palette.Current();
+        s_palette = _p;
         Text = "Audio Taskbar";
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96f, 96f);
@@ -93,6 +95,19 @@ internal sealed class PortalForm : Form
     }
 
     private const int CardWidth = 440;
+    private const int LabelColumn = 118;
+    [ThreadStatic] private static Palette? s_palette;
+
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] private static extern int SetWindowTheme(IntPtr hwnd, string? app, string? idList);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (!_p.Dark) return;
+        // Windows 10 20H1+ / 11: dark title bar so the frame matches the dark panel.
+        try { int on = 1; if (DwmSetWindowAttribute(Handle, 20, ref on, 4) != 0) DwmSetWindowAttribute(Handle, 19, ref on, 4); } catch { }
+    }
 
     #region layout
 
@@ -113,6 +128,7 @@ internal sealed class PortalForm : Form
         _status.Margin = new Padding(1, 2, 0, 0);
         _status.Font = new Font("Segoe UI Semibold", 9.5f);
         t.Controls.Add(_status, 1, 1); t.SetColumnSpan(_status, 2);
+        t.Margin = new Padding(0, 0, 0, 12);
         return t;
     }
 
@@ -121,10 +137,10 @@ internal sealed class PortalForm : Form
     {
         // Fixed width: an AutoSize panel would otherwise shrink to its padding around the Dock=Top grid.
         var card = new Card(_p) { Width = CardWidth, MinimumSize = new Size(CardWidth, 0), MaximumSize = new Size(CardWidth, 0), Margin = new Padding(0, 0, 0, 10) };
-        grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Top, BackColor = _p.Card, Padding = new Padding(12, 6, 12, 8) };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+        grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Top, BackColor = _p.Card, Padding = new Padding(12, 8, 12, 10) };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, LabelColumn));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        var head = new Label { Text = title, AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = _p.Accent, Margin = new Padding(0, 0, 0, 6) };
+        var head = new Label { Text = title, AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = _p.Accent, Margin = new Padding(0, 0, 0, 8) };
         grid.Controls.Add(head, 0, 0); grid.SetColumnSpan(head, 2);
         card.Controls.Add(grid);
         // The card follows the grid's real height (an AutoSize Panel mis-measures a Dock=Top child,
@@ -140,8 +156,8 @@ internal sealed class PortalForm : Form
     private void Row(TableLayoutPanel g, string label, Control c)
     {
         int r = g.RowCount++;
-        var l = new Label { Text = label, AutoSize = true, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 6, 4) };
-        c.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        var l = new Label { Text = label, AutoSize = true, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) };
+        c.Anchor = c is ComboBox ? AnchorStyles.Left | AnchorStyles.Right : AnchorStyles.Left;
         c.Margin = new Padding(0, 3, 0, 3);
         g.Controls.Add(l, 0, r);
         g.Controls.Add(c, 1, r);
@@ -150,7 +166,7 @@ internal sealed class PortalForm : Form
     private void Full(TableLayoutPanel g, Control c)
     {
         int r = g.RowCount++;
-        c.Margin = new Padding(0, 2, 0, 2);
+        c.Margin = new Padding(0, 3, 0, 3);
         g.Controls.Add(c, 0, r);
         g.SetColumnSpan(c, 2);
     }
@@ -166,21 +182,24 @@ internal sealed class PortalForm : Form
         Row(g, "Thời tiết", _weather);
         Row(g, "Ngày && đêm", _time);
         var cycleRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
-        _cycleMin.Margin = new Padding(0, 1, 4, 0);
-        cycleRow.Controls.Add(_cycleMin);
-        cycleRow.Controls.Add(new Label { Text = "phút/ngày  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(0, 4, 0, 0) });
+        cycleRow.Controls.Add(Framed(_cycleMin, 86));
+        cycleRow.Controls.Add(new Label { Text = "phút/ngày  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(8, 6, 0, 0) });
         Row(g, "Độ dài chu kỳ", cycleRow);
         Full(g, _hud);
-        var trainRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
-        _train.Margin = new Padding(0, 3, 6, 0);
-        _trainMin.Margin = new Padding(0, 1, 4, 0);
-        trainRow.Controls.Add(_train);
-        trainRow.Controls.Add(_trainMin);
-        trainRow.Controls.Add(new Label { Text = "phút/lượt", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(0, 4, 0, 0) });
-        Full(g, trainRow);
+        // Same label/control grid as the rows above: checkbox in the label column, value in the control column.
+        _train.Margin = new Padding(0, 0, 0, 0);
+        var trainCell = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
+        trainCell.Controls.Add(Framed(_trainMin, 86));
+        trainCell.Controls.Add(new Label { Text = "phút/lượt", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) });
+        int tr = g.RowCount++;
+        _train.Anchor = AnchorStyles.Left;
+        g.Controls.Add(_train, 0, tr);
+        trainCell.Margin = new Padding(0, 3, 0, 3);
+        g.Controls.Add(trainCell, 1, tr);
         var two = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, BackColor = _p.Card, Margin = Padding.Empty };
         two.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         two.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        foreach (var cb in new Control[] { _traffic, _effects, _ambient }) cb.Margin = new Padding(0, 3, 0, 3); // flush with the rows above
         two.Controls.Add(_traffic, 0, 0); two.Controls.Add(_effects, 1, 0);
         two.Controls.Add(_ambient, 0, 1); two.SetColumnSpan(_ambient, 2);
         Full(g, two);
@@ -194,8 +213,9 @@ internal sealed class PortalForm : Form
         foreach (var h in Hotkeys) _hotkey.Items.Add(h);
         var hk = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
         _hotkey.Width = 150;
+        _hotkey.Margin = Padding.Empty;
         hk.Controls.Add(_hotkey);
-        _hotkeyNote.Margin = new Padding(6, 5, 0, 0);
+        _hotkeyNote.Margin = new Padding(10, 5, 0, 0);
         hk.Controls.Add(_hotkeyNote);
         Row(g, "Phím tắt bật/tắt", hk);
         Full(g, _autostart);
@@ -301,13 +321,47 @@ internal sealed class PortalForm : Form
         b.FlatAppearance.BorderSize = 1;
         b.BackColor = primary ? _p.Accent : _p.Card;
         b.ForeColor = primary ? Color.White : danger ? _p.Danger : _p.Text;
-        b.Padding = new Padding(8, 3, 8, 3);
-        b.Margin = new Padding(6, 3, 0, 3);
+        b.FlatAppearance.MouseOverBackColor = primary ? ControlPaint.Light(_p.Accent, 0.15f) : _p.Hover;
+        b.FlatAppearance.MouseDownBackColor = primary ? ControlPaint.Dark(_p.Accent, 0.05f) : _p.Input;
+        b.Padding = new Padding(10, 4, 10, 4);
+        b.Margin = new Padding(0, 3, 8, 3);
         b.Cursor = Cursors.Hand;
+        b.UseMnemonic = false;
     }
 
-    private static ComboBox Combo() => new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
-    private static CheckBox Check(string text) => new() { Text = text, AutoSize = true };
+    /// <summary>A borderless NumericUpDown inside a 1-px themed frame, with dark up/down arrows.</summary>
+    private Control Framed(NumericUpDown n, int width)
+    {
+        n.BackColor = _p.Input;
+        n.ForeColor = _p.Text;
+        n.Font = Font;
+        var frame = new InputFrame(_p) { Size = new Size(width, n.PreferredHeight + 8), Margin = Padding.Empty, Anchor = AnchorStyles.Left };
+        n.Location = new Point(6, 4);
+        n.Width = width - 8;
+        frame.Controls.Add(n);
+        n.EnabledChanged += (_, _) => { n.BackColor = n.Enabled ? _p.Input : _p.Card; n.ForeColor = n.Enabled ? _p.Text : _p.Sub; frame.Invalidate(); };
+        n.GotFocus += (_, _) => frame.Focused2 = true;
+        n.LostFocus += (_, _) => frame.Focused2 = false;
+        if (n.Controls.Count > 0 && n.Controls[0] is Control spin)
+        {
+            // Overpaint the classic light spinner after it draws itself.
+            spin.Paint += (_, e) =>
+            {
+                var r = spin.ClientRectangle;
+                using var bg = new SolidBrush(n.Enabled ? _p.Input : _p.Card);
+                e.Graphics.FillRectangle(bg, r);
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using var arrow = new SolidBrush(n.Enabled ? _p.Sub : _p.Border);
+                float cx = r.Width / 2f, h = r.Height / 2f;
+                e.Graphics.FillPolygon(arrow, new[] { new PointF(cx - 3.5f, h - 2.5f), new PointF(cx + 3.5f, h - 2.5f), new PointF(cx, h - 6.5f) });
+                e.Graphics.FillPolygon(arrow, new[] { new PointF(cx - 3.5f, h + 2.5f), new PointF(cx + 3.5f, h + 2.5f), new PointF(cx, h + 6.5f) });
+            };
+        }
+        return frame;
+    }
+
+    private static ComboBox Combo() => new DarkCombo { Width = 260 };
+    private static CheckBox Check(string text) => new DarkCheck { Text = text, AutoSize = true };
 
     #endregion
 
@@ -317,7 +371,13 @@ internal sealed class PortalForm : Form
     {
         _toggle.Click += (_, _) => _host.SetEffect(!_host.EffectOn);
         _region.SelectedIndexChanged += (_, _) => Apply(c => c.RegionMode = Regions[Math.Max(0, _region.SelectedIndex)].Id, refreshWeather: true);
-        _weather.SelectedIndexChanged += (_, _) => Apply(c => c.WeatherPreview = Weathers[Math.Max(0, _weather.SelectedIndex)].Id);
+        _weather.SelectedIndexChanged += (_, _) =>
+        {
+            if (_syncing) return;
+            var id = Weathers[Math.Max(0, _weather.SelectedIndex)].Id;
+            _host.Mutate(c => c.ApplyWeatherOverrideSelection(id)); // "Đêm sao" → Cố định ban đêm
+            SyncFromHost();
+        };
         _time.SelectedIndexChanged += (_, _) => Apply(c => c.TimeMode = Times[Math.Max(0, _time.SelectedIndex)].Id);
         _hud.CheckedChanged += (_, _) => Apply(c => c.ShowWeatherHud = _hud.Checked);
         _train.CheckedChanged += (_, _) => Apply(c => c.ShowTrain = _train.Checked);
@@ -385,6 +445,8 @@ internal sealed class PortalForm : Form
             _toggle.ForeColor = on ? Color.White : _p.Accent;
             _toggle.FlatAppearance.BorderSize = 1;
             _toggle.FlatAppearance.BorderColor = _p.Accent;
+            _toggle.FlatAppearance.MouseOverBackColor = on ? ControlPaint.Light(_p.Accent, 0.15f) : _p.Hover;
+            _toggle.FlatAppearance.MouseDownBackColor = on ? ControlPaint.Dark(_p.Accent, 0.05f) : _p.Input;
 
             SetIndex(_region, IndexOf(Regions, c.RegionMode));
             SetIndex(_weather, IndexOf(Weathers, c.WeatherPreview));
@@ -496,6 +558,10 @@ internal sealed class PortalForm : Form
     {
         public Color Back, Card, Border, Text, Sub, Accent, Ok, Warn, Danger;
 
+        public bool Dark { get; init; }
+        public Color Input { get; init; }
+        public Color Hover { get; init; }
+
         public static Palette Current()
         {
             bool dark = false;
@@ -508,12 +574,14 @@ internal sealed class PortalForm : Form
             return dark
                 ? new Palette
                 {
+                    Dark = true, Input = Color.FromArgb(53, 56, 65), Hover = Color.FromArgb(62, 66, 76),
                     Back = Color.FromArgb(32, 33, 38), Card = Color.FromArgb(43, 45, 52), Border = Color.FromArgb(70, 74, 84),
                     Text = Color.FromArgb(236, 238, 242), Sub = Color.FromArgb(168, 174, 186), Accent = Color.FromArgb(22, 160, 133),
                     Ok = Color.FromArgb(64, 200, 140), Warn = Color.FromArgb(240, 180, 70), Danger = Color.FromArgb(240, 100, 96)
                 }
                 : new Palette
                 {
+                    Dark = false, Input = Color.White, Hover = Color.FromArgb(234, 238, 243),
                     Back = Color.FromArgb(242, 244, 247), Card = Color.White, Border = Color.FromArgb(214, 219, 226),
                     Text = Color.FromArgb(28, 32, 40), Sub = Color.FromArgb(96, 104, 118), Accent = Color.FromArgb(14, 138, 116),
                     Ok = Color.FromArgb(20, 140, 80), Warn = Color.FromArgb(190, 120, 10), Danger = Color.FromArgb(200, 50, 50)
@@ -521,6 +589,19 @@ internal sealed class PortalForm : Form
         }
     }
 
+    private static GraphicsPath Round(RectangleF r, float radius)
+    {
+        var path = new GraphicsPath();
+        float d = radius * 2;
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    /// <summary>Card with 8-px rounded corners and a hairline border (the grid sits inside the 4-px inset).</summary>
     private sealed class Card : Panel
     {
         private readonly Palette _p;
@@ -528,16 +609,167 @@ internal sealed class PortalForm : Form
         {
             _p = p;
             AutoSize = false;
-            BackColor = p.Card;
-            Padding = new Padding(1);
+            BackColor = p.Back;
+            Padding = new Padding(4);
             DoubleBuffered = true;
+            ResizeRedraw = true;
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var path = Round(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 8);
+            using var fill = new SolidBrush(_p.Card);
             using var pen = new Pen(_p.Border);
-            e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            e.Graphics.FillPath(fill, path);
+            e.Graphics.DrawPath(pen, path);
+        }
+    }
+
+    /// <summary>Rounded 1-px frame hosting an input; accent border while focused.</summary>
+    private sealed class InputFrame : Panel
+    {
+        private readonly Palette _p;
+        private bool _focused;
+        public bool Focused2 { get => _focused; set { _focused = value; Invalidate(); } }
+        public InputFrame(Palette p) { _p = p; BackColor = p.Card; DoubleBuffered = true; ResizeRedraw = true; }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            bool en = Controls.Count == 0 || Controls[0].Enabled;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var path = Round(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 4);
+            using var fill = new SolidBrush(en ? _p.Input : _p.Card);
+            using var pen = new Pen(_focused && en ? _p.Accent : _p.Border);
+            e.Graphics.FillPath(fill, path);
+            e.Graphics.DrawPath(pen, path);
+        }
+    }
+
+    /// <summary>
+    /// Owner-drawn drop-down list: dark slate field, light text, chevron, accent border on hover/focus,
+    /// and a matching dark item list (no bright-white system combo on the dark card).
+    /// </summary>
+    private sealed class DarkCombo : ComboBox
+    {
+        private bool _hover;
+        private Palette P => s_palette ?? Palette.Current();
+
+        public DarkCombo()
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList;
+            DrawMode = DrawMode.OwnerDrawFixed;
+            FlatStyle = FlatStyle.Flat;
+            ItemHeight = 22;
+            IntegralHeight = false;
+            MaxDropDownItems = 10;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            BackColor = P.Input; ForeColor = P.Text;
+            if (P.Dark) { try { SetWindowTheme(Handle, "DarkMode_CFD", null); } catch { } }
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hover = true; Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hover = false; Invalidate(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            if (e.Index < 0) return;
+            var p = P;
+            bool edit = (e.State & DrawItemState.ComboBoxEdit) != 0;
+            bool sel = !edit && (e.State & DrawItemState.Selected) != 0;
+            using var bg = new SolidBrush(sel ? Color.FromArgb(p.Dark ? 70 : 40, p.Accent) : p.Input);
+            if (sel) { using var baseBg = new SolidBrush(p.Input); e.Graphics.FillRectangle(baseBg, e.Bounds); }
+            e.Graphics.FillRectangle(bg, e.Bounds);
+            var r = Rectangle.Inflate(e.Bounds, -8, 0);
+            TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, r, Enabled ? p.Text : p.Sub,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+
+        private const int WM_PAINT = 0x000F;
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == WM_PAINT) PaintField();
+        }
+
+        /// <summary>Repaint the whole closed field (border, background, text, chevron) over the system frame.</summary>
+        private void PaintField()
+        {
+            var p = P;
+            using var g = CreateGraphics();
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            var rc = ClientRectangle;
+            using (var parentBg = new SolidBrush(Parent?.BackColor ?? p.Card)) g.FillRectangle(parentBg, rc);
+            using var path = Round(new RectangleF(0.5f, 0.5f, rc.Width - 1.5f, rc.Height - 1.5f), 4);
+            using (var fill = new SolidBrush(Enabled ? (_hover && !DroppedDown ? p.Hover : p.Input) : p.Card)) g.FillPath(fill, path);
+            using (var pen = new Pen(Focused || DroppedDown ? p.Accent : p.Border)) g.DrawPath(pen, path);
+            var text = SelectedIndex >= 0 ? GetItemText(Items[SelectedIndex]) : "";
+            TextRenderer.DrawText(g, text, Font, new Rectangle(8, 0, rc.Width - 34, rc.Height), Enabled ? p.Text : p.Sub,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            float cx = rc.Width - 15, cy = rc.Height / 2f;
+            using var chev = new Pen(Enabled ? p.Sub : p.Border, 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLines(chev, new[] { new PointF(cx - 4, cy - 2), new PointF(cx, cy + 2), new PointF(cx + 4, cy - 2) });
+        }
+    }
+
+    /// <summary>Flat themed check box: rounded 16-px box, accent fill + white tick when checked.</summary>
+    private sealed class DarkCheck : CheckBox
+    {
+        private bool _hover;
+        private Palette P => s_palette ?? Palette.Current();
+
+        public DarkCheck()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+            Cursor = Cursors.Hand;
+            UseMnemonic = true;
+        }
+
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            var t = TextRenderer.MeasureText(Text.Replace("&&", "&"), Font, Size.Empty, TextFormatFlags.NoPrefix);
+            return new Size(16 + 8 + t.Width + 2, Math.Max(22, t.Height + 4));
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hover = true; Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hover = false; Invalidate(); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var p = P;
+            var g = e.Graphics;
+            using (var bg = new SolidBrush(Parent?.BackColor ?? p.Card)) g.FillRectangle(bg, ClientRectangle);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float y = (Height - 16) / 2f;
+            using var box = Round(new RectangleF(0.5f, y + 0.5f, 15f, 15f), 3.5f);
+            if (Checked)
+            {
+                using var fill = new SolidBrush(Enabled ? p.Accent : p.Border);
+                g.FillPath(fill, box);
+                using var tick = new Pen(Color.White, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+                g.DrawLines(tick, new[] { new PointF(4f, y + 8.2f), new PointF(7f, y + 11f), new PointF(12f, y + 5f) });
+            }
+            else
+            {
+                using var fill = new SolidBrush(_hover && Enabled ? p.Hover : p.Input);
+                using var pen = new Pen(_hover && Enabled ? p.Accent : p.Border);
+                g.FillPath(fill, box);
+                g.DrawPath(pen, box);
+            }
+            if (Focused && ShowFocusCues)
+            {
+                using var fpen = new Pen(Color.FromArgb(140, p.Accent)) { DashStyle = DashStyle.Dot };
+                g.DrawRectangle(fpen, 23, 1, Width - 25, Height - 3);
+            }
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(24, 0, Width - 24, Height), Enabled ? p.Text : p.Sub,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
         }
     }
 

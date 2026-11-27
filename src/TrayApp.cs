@@ -445,7 +445,13 @@ internal sealed class TrayApp : ApplicationContext
         void addPreview(string id, string label)
         {
             var it = new ToolStripMenuItem(label);
-            it.Click += (_, _) => { _cfg.WeatherPreview = id; _cfg.Normalize(); Persist(); Log("Weather preview: " + _cfg.WeatherPreview); };
+            it.Click += (_, _) =>
+            {
+                bool timeChanged;
+                lock (_configLock) timeChanged = _cfg.ApplyWeatherOverrideSelection(id);
+                Persist();
+                Log("Weather preview: " + _cfg.WeatherPreview + (timeChanged ? " → time mode " + _cfg.TimeMode : ""));
+            };
             it.Paint += (_, _) => { try { it.Checked = _cfg.WeatherPreview == id; } catch { } };
             preview.DropDownItems.Add(it);
         }
@@ -696,8 +702,7 @@ internal sealed class TrayApp : ApplicationContext
             if (!File.Exists(path)) return;
             var raw = File.ReadAllText(path).Trim();
             if (string.IsNullOrWhiteSpace(raw)) return;
-            _cfg.WeatherPreview = raw;
-            _cfg.Normalize();
+            lock (_configLock) _cfg.ApplyWeatherOverrideSelection(raw);
             Persist();
             Log("Weather preview via command: " + _cfg.WeatherPreview);
         }

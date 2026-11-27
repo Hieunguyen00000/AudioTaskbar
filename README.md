@@ -2,7 +2,7 @@
 
 Ứng dụng Windows nhỏ vẽ một **diorama thời tiết sống** (48px) ngay trên nền thanh taskbar: bầu trời đổi theo giờ trong ngày, mây/mưa/sấm, tàu hỏa chạy trái → phải, người đi xe đạp, chim, đèn phố, đom đóm… Hiệu ứng nằm **phía sau** icon nên nút Start, Search, app đang chạy và khay hệ thống vẫn sắc, bấm bình thường.
 
-**Mới ở v5.3.2:** nút **Bật / Tắt hiệu ứng (F8)** chuyển xuống hàng nút dưới cùng của bảng điều khiển (bên phải, cạnh *Đóng (Ẩn xuống khay)* và *Kết thúc (Thoát)*), cửa sổ gọn hơn. Nút vẫn màu xanh nổi bật: nền xanh khi đang bật, viền xanh khi đang tắt.
+**Mới ở v5.3.2:** nút **Bật / Tắt hiệu ứng (F8)** chuyển xuống hàng nút dưới cùng của bảng điều khiển (bên phải, cạnh *Đóng (Ẩn xuống khay)* và *Kết thúc (Thoát)*), cửa sổ gọn hơn. Nút vẫn màu xanh nổi bật: nền xanh khi đang bật, viền xanh khi đang tắt. Giao diện tối đồng bộ (ô chọn, ô số, hộp kiểm tối màu, bo góc, thanh tiêu đề tối). Chọn thời tiết **Đêm sao** (bảng điều khiển, menu khay hoặc lệnh xem trước) sẽ tự chuyển *Ngày & đêm* sang **Cố định ban đêm**; các thời tiết khác giữ nguyên chế độ ngày & đêm bạn đã chọn.
 
 **Mới ở v5.3.1 — Tự chỉnh độ dài chu kỳ ngày–đêm:** không còn giới hạn 30 phút. Trong bảng điều khiển chọn *Ngày & đêm → Theo chu kỳ tùy chỉnh* rồi nhập **Độ dài chu kỳ** bất kỳ từ **0,5 phút đến 10080 phút (7 ngày)** — ví dụ 15, 30, 90 hoặc 1440 phút/ngày (`dayCycleMinutes`). Ô nhập chỉ bật khi ở chế độ chu kỳ; đổi giá trị áp dụng ngay, bầu trời **không nhảy** (giữ nguyên giờ cảnh hiện tại, chỉ đổi tốc độ) và được lưu vào `config.json`. Menu khay hiện *Theo chu kỳ (N phút/ngày)*.
 
