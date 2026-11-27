@@ -20,7 +20,9 @@ internal sealed class TaskbarTapHost : IDisposable
     private const string AppliedName = "Local\\AudioTaskbar.Tap.Applied";
     private const string ApplyName = "Local\\AudioTaskbar.Tap.Apply";
     /// <summary>Created by a v2 TAP worker inside Explorer; exists while that service is alive.</summary>
-    private const string AliveName = "Local\\AudioTaskbar.Tap.Alive2";
+    private const string AliveName = "Local\\AudioTaskbar.Tap.Alive3";
+    // Created at DLL load by protocol-v3 TAP copies and never closed (lives with Explorer).
+    private const string LoadedV3Name = "Local\\AudioTaskbar.Tap.Loaded3";
     private const string RestoredName = "Local\\AudioTaskbar.Tap.Restored";
 
     private EventWaitHandle? _ready;
@@ -42,6 +44,12 @@ internal sealed class TaskbarTapHost : IDisposable
     public bool Reused { get; private set; }
 
     /// <summary>A reusable (v2) TaskbarTap service is alive inside the current Explorer.</summary>
+    public static bool TapV3Loaded()
+    {
+        if (EventWaitHandle.TryOpenExisting(LoadedV3Name, out var ev)) { ev.Dispose(); return true; }
+        return false;
+    }
+
     public static bool TapServiceAlive()
     {
         if (EventWaitHandle.TryOpenExisting(AliveName, out var ev)) { ev.Dispose(); return true; }
@@ -230,7 +238,9 @@ internal sealed class TaskbarTapHost : IDisposable
             // over IPC. Calling InitializeXamlDiagnosticsEx a second time can crash Explorer.
             if (TapServiceAlive())
                 return ReuseExisting(log);
-            if (ExplorerHasTapModule(_explorerPid))
+            // A v3 copy whose XAML site was released (e.g. the session ended) is teardown-safe,
+            // so a fresh injection is fine. Older copies (v1/v2) crash on a second injection.
+            if (!TapV3Loaded() && ExplorerHasTapModule(_explorerPid))
             {
                 _status = "stale-legacy-tap";
                 log("TAP: Explorer holds an older (non-reusable) TaskbarTap copy — not injecting again. Restart Explorer once to enable the reusable TAP.");

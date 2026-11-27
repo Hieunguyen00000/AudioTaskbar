@@ -38,9 +38,20 @@ static const wchar_t kApplyEvent[]    = L"Local\\AudioTaskbar.Tap.Apply";
 // v2 (AudioTaskbar 5.1.1): the TAP is a persistent in-Explorer service. While this event
 // exists the watcher is alive and can be re-enabled with Apply — the host must NOT call
 // InitializeXamlDiagnosticsEx again for this Explorer.
-static const wchar_t kAliveEvent[]    = L"Local\\AudioTaskbar.Tap.Alive2";
+// Protocol v3 (5.1.1): all XAML work happens on the XAML UI thread (posted to a message-only
+// window created there); the worker thread only waits on events and never touches XAML.
+static const wchar_t kAliveEvent[]    = L"Local\\AudioTaskbar.Tap.Alive3";
+// Created once at DLL load and never closed: proves a v3 (teardown-safe) copy is in this
+// Explorer, so a fresh injection after its site was released is safe.
+static const wchar_t kLoadedEvent[]   = L"Local\\AudioTaskbar.Tap.Loaded3";
 static const wchar_t kRestoredEvent[] = L"Local\\AudioTaskbar.Tap.Restored";
 static HANDLE g_alive = nullptr;
+static HANDLE g_loaded = nullptr;
+static HWND g_msgWnd = nullptr;
+static const UINT WM_TAP_RESTORE = WM_APP + 0x41;
+static const UINT WM_TAP_APPLY   = WM_APP + 0x42;
+class TapSite;
+static TapSite* g_site = nullptr;          // only touched on the XAML UI thread
 
 static LONG g_locks = 0;
 static HINSTANCE g_hinst = nullptr;
@@ -543,19 +554,53 @@ public:
         return (ULONG)c;
     }
 
+    // Called on the XAML UI thread via the message window.
+    void OnRestore() { if (m_watcher) m_watcher->RestoreAll(); }
+    void OnApply()   { if (m_watcher) m_watcher->ReapplyAll(); }
+
+    static LRESULT CALLBACK MsgWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
+    {
+        if (msg == WM_TAP_RESTORE || msg == WM_TAP_APPLY)
+        {
+            TapSite* site = g_site;
+            if (!site) { Log(L"%s ignored: no active site.", msg == WM_TAP_RESTORE ? L"Restore" : L"Apply"); return 0; }
+            site->AddRef();
+            if (msg == WM_TAP_RESTORE) site->OnRestore(); else site->OnApply();
+            site->Release();
+            return 0;
+        }
+        return DefWindowProcW(h, msg, wp, lp);
+    }
+
+    static void EnsureMsgWindow()
+    {
+        if (g_msgWnd && IsWindow(g_msgWnd)) return;
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = MsgWndProc;
+        wc.hInstance = g_hinst;
+        wc.lpszClassName = L"AudioTaskbarTapMsg3";
+        RegisterClassW(&wc); // may already exist: fine
+        g_msgWnd = CreateWindowExW(0, L"AudioTaskbarTapMsg3", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, g_hinst, nullptr);
+        Log(L"UI-thread message window %s (tid %u).", g_msgWnd ? L"ready" : L"FAILED", GetCurrentThreadId());
+    }
+
     HRESULT STDMETHODCALLTYPE SetSite(IUnknown* pUnkSite) override
     {
         if (m_site) { m_site->Release(); m_site = nullptr; }
 
         if (!pUnkSite)
         {
-            Log(L"SetSite(null) — tearing down.");
+            Log(L"SetSite(null) — tearing down (tid %u).", GetCurrentThreadId());
             Teardown();
             return S_OK;
         }
 
         m_site = pUnkSite;
         m_site->AddRef();
+        // SetSite runs on the XAML UI thread: host the message window here so Restore/Apply
+        // are executed on this thread (IVisualTreeService is not thread-safe).
+        EnsureMsgWindow();
+        g_site = this;
 
         IXamlDiagnostics* diag = nullptr;
         IVisualTreeService* svc = nullptr;
@@ -602,7 +647,9 @@ public:
         {
             m_stop = FALSE;
             InterlockedIncrement(&g_locks);
+            AddRef(); // the worker holds a reference until it exits
             m_worker = CreateThread(nullptr, 0, WorkerProc, this, 0, nullptr);
+            if (!m_worker) { Release(); InterlockedDecrement(&g_locks); }
         }
         return S_OK;
     }
@@ -653,48 +700,53 @@ private:
         HANDLE evApply = CreateEventW(nullptr, TRUE, FALSE, kApplyEvent);
         HANDLE evStop = CreateEventW(nullptr, TRUE, FALSE, kStopEvent);
         HANDLE handles[3] = { evRestore, evApply, evStop };
-        // Persistent-service marker: lives as long as this worker (and Explorer) does.
+        // Persistent-service marker: exists while this worker (and its XAML site) is alive.
         if (!g_alive) g_alive = CreateEventW(nullptr, TRUE, FALSE, kAliveEvent);
-        Log(L"TAP service alive (v2, reusable across host restarts).");
+        Log(L"TAP service alive (v3: reusable, UI-thread dispatch).");
         for (;;)
         {
             DWORD w = WaitForMultipleObjects(3, handles, FALSE, 500);
             if (self->m_stop) break;
             if (w == WAIT_OBJECT_0)
             {
-                Log(L"Restore requested.");
-                if (self->m_watcher) self->m_watcher->RestoreAll();
                 ResetEvent(evRestore);
+                Log(L"Restore requested.");
+                if (g_msgWnd) PostMessageW(g_msgWnd, WM_TAP_RESTORE, 0, 0);
             }
             else if (w == WAIT_OBJECT_0 + 1)
             {
-                Log(L"Reapply requested.");
-                if (self->m_watcher) self->m_watcher->ReapplyAll();
                 ResetEvent(evApply);
+                Log(L"Reapply requested.");
+                if (g_msgWnd) PostMessageW(g_msgWnd, WM_TAP_APPLY, 0, 0);
             }
             else if (w == WAIT_OBJECT_0 + 2)
             {
-                Log(L"Stop requested.");
-                break;
+                // v3 hosts never send Stop; ignore stray signals (e.g. from an old host build).
+                ResetEvent(evStop);
+                Log(L"Stop ignored (v3 TAP is persistent; restore instead).");
+                if (g_msgWnd) PostMessageW(g_msgWnd, WM_TAP_RESTORE, 0, 0);
             }
         }
+        // Only reached after Teardown (SetSite(null)) on the UI thread; never touch XAML here.
         if (g_alive) { CloseHandle(g_alive); g_alive = nullptr; }
-        Log(L"Watcher shutdown before detach.");
-        if (self->m_watcher) self->m_watcher->Shutdown();
+        Log(L"Worker exit (site released).");
         if (evRestore) CloseHandle(evRestore);
         if (evApply) CloseHandle(evApply);
         if (evStop) CloseHandle(evStop);
         HANDLE evStopped = OpenEventW(EVENT_MODIFY_STATE, FALSE, kStoppedEvent);
         if (evStopped) { SetEvent(evStopped); CloseHandle(evStopped); }
+        self->Release();
         InterlockedDecrement(&g_locks);
         return 0;
     }
 
     void Teardown()
     {
+        // UI thread. The worker only polls m_stop, it never calls into the watcher.
         m_stop = TRUE;
-        HANDLE evStop = OpenEventW(EVENT_MODIFY_STATE, FALSE, kStopEvent);
-        if (evStop) { SetEvent(evStop); CloseHandle(evStop); }
+        if (g_site == this) g_site = nullptr;
+        if (g_alive) { CloseHandle(g_alive); g_alive = nullptr; } // host will inject a fresh copy
+        if (m_worker) { CloseHandle(m_worker); m_worker = nullptr; }
         if (m_watcher)
         {
             m_watcher->Shutdown();
@@ -758,6 +810,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID)
     {
         g_hinst = h;
         DisableThreadLibraryCalls(h);
+        if (!g_loaded) g_loaded = CreateEventW(nullptr, TRUE, FALSE, kLoadedEvent);
         Log(L"TaskbarTap loaded in PID %u", GetCurrentProcessId());
     }
     else if (reason == DLL_PROCESS_DETACH)
