@@ -495,7 +495,7 @@ internal sealed class AutoUpdater : IDisposable
     public void Dispose() => _http.Dispose();
 }
 
-/// <summary>HKCU\...\Run autostart (with --minimized), like UniKey's "Khởi động cùng Windows".</summary>
+/// <summary>Autostart (with --minimized): HKCU Run for portable/NSIS, or the MSIX StartupTask API in the Store edition.</summary>
 internal static class AutoStart
 {
     public const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -505,6 +505,8 @@ internal static class AutoStart
 
     public static bool IsEnabled()
     {
+        if (StoreEdition.IsStorePackage)
+            return StoreEdition.IsStartupEnabled();
         try
         {
             using var k = Registry.CurrentUser.OpenSubKey(RunKey);
@@ -521,6 +523,11 @@ internal static class AutoStart
 
     public static void Set(bool enabled, string exePath)
     {
+        if (StoreEdition.IsStorePackage)
+        {
+            StoreEdition.SetStartup(enabled);
+            return;
+        }
         using var k = Registry.CurrentUser.CreateSubKey(RunKey, writable: true);
         if (enabled) k.SetValue(ValueName, Command(exePath), RegistryValueKind.String);
         else if (k.GetValue(ValueName) is not null) k.DeleteValue(ValueName, throwOnMissingValue: false);

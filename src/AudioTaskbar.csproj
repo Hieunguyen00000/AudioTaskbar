@@ -25,6 +25,12 @@
     <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <!-- Microsoft Store / MSIX: retarget for WinRT (StartupTask, ApplicationData) without changing the portable build. -->
+  <PropertyGroup Condition="'$(StoreBuild)' == 'true'">
+    <TargetFramework>net8.0-windows10.0.22000.0</TargetFramework>
+    <DefineConstants>$(DefineConstants);STORE_BUILD</DefineConstants>
+    <PublishSingleFile>false</PublishSingleFile>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AudioTaskbar.Tests" />
   </ItemGroup>
@@ -32,7 +38,9 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="TaskbarTap\TaskbarTap.dll" LogicalName="AudioTaskbar.TaskbarTap.dll" Condition="Exists('TaskbarTap\TaskbarTap.dll')" />
-    <EmbeddedResource Include="..\native\out\TaskbarTap.dll" LogicalName="AudioTaskbar.TaskbarTap.dll" Condition="Exists('..\native\out\TaskbarTap.dll') And !Exists('TaskbarTap\TaskbarTap.dll')" />
+    <!-- Portable / NSIS: embed TaskbarTap.dll and extract at runtime. The Store build ships it as a loose, package-signed file instead. -->
+    <EmbeddedResource Include="TaskbarTap\TaskbarTap.dll" LogicalName="AudioTaskbar.TaskbarTap.dll" Condition="Exists('TaskbarTap\TaskbarTap.dll') And '$(StoreBuild)' != 'true'" />
+    <EmbeddedResource Include="..\native\out\TaskbarTap.dll" LogicalName="AudioTaskbar.TaskbarTap.dll" Condition="Exists('..\native\out\TaskbarTap.dll') And !Exists('TaskbarTap\TaskbarTap.dll') And '$(StoreBuild)' != 'true'" />
+    <None Include="TaskbarTap\TaskbarTap.dll" Condition="Exists('TaskbarTap\TaskbarTap.dll') And '$(StoreBuild)' == 'true'" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

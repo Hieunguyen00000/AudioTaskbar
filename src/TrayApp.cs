@@ -179,13 +179,17 @@ internal sealed class TrayApp : ApplicationContext
         };
 
         // v5.3 auto-update: first check 10 s after start (startup stays instant), then every 6 h.
-        _updateTimer.Interval = 10_000;
-        _updateTimer.Tick += (_, _) =>
+        // Store edition: updates are delivered exclusively by Microsoft Store — never hit GitHub.
+        if (!StoreEdition.UsesStoreUpdates)
         {
-            _updateTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
-            if (_cfg.AutoUpdateEnabled) _ = CheckForUpdatesAsync(manual: false);
-        };
-        _updateTimer.Start();
+            _updateTimer.Interval = 10_000;
+            _updateTimer.Tick += (_, _) =>
+            {
+                _updateTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
+                if (_cfg.AutoUpdateEnabled) _ = CheckForUpdatesAsync(manual: false);
+            };
+            _updateTimer.Start();
+        }
 
         AutoUpdater.CleanupOldBackup(Environment.ProcessPath);
         if (justUpdated)
@@ -270,6 +274,14 @@ internal sealed class TrayApp : ApplicationContext
     /// <summary>Check the release feed; with silent install on, download + verify + install.</summary>
     public async Task CheckForUpdatesAsync(bool manual, bool install = false)
     {
+        if (StoreEdition.UsesStoreUpdates)
+        {
+            _updateStage = StoreEdition.StoreUpdateMessage + ".";
+            if (manual)
+                NotifyBalloon(StoreEdition.StoreUpdateMessage + " — không cần kiểm tra thủ công.");
+            RaiseStateChanged();
+            return;
+        }
         if (_updateBusy || _exiting) return;
         _updateBusy = true; _updateStage = "Đang kiểm tra…"; _updateProgress = -1;
         RaiseStateChanged();
@@ -302,7 +314,9 @@ internal sealed class TrayApp : ApplicationContext
         }
     }
 
-    public Task InstallLatestAsync() => _updater.LastResult?.Info is { } info && _updater.LastResult.Status == UpdateStatus.UpdateAvailable
+    public Task InstallLatestAsync() => StoreEdition.UsesStoreUpdates
+        ? Task.CompletedTask
+        : _updater.LastResult?.Info is { } info && _updater.LastResult.Status == UpdateStatus.UpdateAvailable
         ? WrapInstall(info)
         : CheckForUpdatesAsync(manual: true, install: true);
 
@@ -482,7 +496,8 @@ internal sealed class TrayApp : ApplicationContext
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Tải lại cấu hình", null, (_, _) => ReloadConfig());
-        menu.Items.Add("Kiểm tra cập nhật", null, (_, _) => _ = CheckForUpdatesAsync(manual: true));
+        if (!StoreEdition.UsesStoreUpdates)
+            menu.Items.Add("Kiểm tra cập nhật", null, (_, _) => _ = CheckForUpdatesAsync(manual: true));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Kết thúc (Thoát)", null, (_, _) => ExitApp());
 

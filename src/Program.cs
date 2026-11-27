@@ -17,6 +17,8 @@ internal static class Program
         }
         using var mutex = new Mutex(true, MutexName, out bool created);
         bool minimizedArg = args.Any(a => a.Equals("--minimized", StringComparison.OrdinalIgnoreCase) || a.Equals("/minimized", StringComparison.OrdinalIgnoreCase));
+        if (StoreEdition.LaunchedByStartupTask())
+            minimizedArg = true;
         bool updatedArg = args.Any(a => a.Equals("--updated", StringComparison.OrdinalIgnoreCase));
         if (!created)
         {

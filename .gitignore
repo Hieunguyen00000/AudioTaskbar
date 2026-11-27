@@ -41,3 +41,11 @@ src/TaskbarTap/*.obj
 src/TaskbarTap/*.exp
 src/TaskbarTap/*.lib
 native/out/*.res
+
+# MSIX / Store packaging output (rebuild with scripts/build-msix.ps1)
+packaging/msix/payload/
+packaging/msix/out/
+*.msix
+*.msixbundle
+*.msixupload
+.tools/

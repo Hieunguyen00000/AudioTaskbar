@@ -220,7 +220,9 @@ internal sealed class PortalForm : Form
         Row(g, "Phím tắt bật/tắt", hk);
         Full(g, _autostart);
         // v5.3: wallpaper blocking / behind-icon blending is always on — no user toggle.
-        Full(g, _autoUpdate);
+        // Store edition: GitHub auto-update does not apply (updates come from Microsoft Store).
+        if (!StoreEdition.UsesStoreUpdates)
+            Full(g, _autoUpdate);
         Full(g, _startMin);
         return card;
     }
@@ -233,13 +235,22 @@ internal sealed class PortalForm : Form
         _updStatus.ForeColor = _p.Sub;
         Full(g, _updVersion);
         Full(g, _updStatus);
-        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
-        StyleButton(_updCheck, primary: false);
-        StyleButton(_updNow, primary: true);
-        buttons.Controls.Add(_updCheck);
-        buttons.Controls.Add(_updNow);
-        Full(g, buttons);
-        Full(g, _updBar);
+        if (StoreEdition.UsesStoreUpdates)
+        {
+            _updCheck.Visible = false;
+            _updNow.Visible = false;
+            _updBar.Visible = false;
+        }
+        else
+        {
+            var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
+            StyleButton(_updCheck, primary: false);
+            StyleButton(_updNow, primary: true);
+            buttons.Controls.Add(_updCheck);
+            buttons.Controls.Add(_updNow);
+            Full(g, buttons);
+            Full(g, _updBar);
+        }
         return card;
     }
 
@@ -473,6 +484,15 @@ internal sealed class PortalForm : Form
             _startMin.Checked = c.StartMinimized;
 
             _updVersion.Text = "Phiên bản hiện tại: v" + AutoUpdater.AppVersion();
+            if (StoreEdition.UsesStoreUpdates)
+            {
+                _updStatus.Text = StoreEdition.StoreUpdateMessage + ". Windows sẽ cài bản mới khi có trên Store.";
+                _updStatus.ForeColor = _p.Ok;
+                _updNow.Visible = false;
+                _updCheck.Visible = false;
+                _updBar.Visible = false;
+                return;
+            }
             var last = _host.Updater.LastResult;
             _updStatus.Text = _host.UpdateBusy || _host.UpdateStage.Length > 0 && last is null
                 ? _host.UpdateStage

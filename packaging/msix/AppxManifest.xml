@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  IgnorableNamespaces="uap10 rescap desktop">
+
+  <!-- Identity values must match Partner Center → Product management → Product identity. -->
+  <Identity
+    Name="HubertNguyen.AudioTaskbar"
+    Publisher="CN=826CBF8C-383C-4259-B039-4075F5205C32"
+    Version="5.3.2.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Audio Taskbar</DisplayName>
+    <PublisherDisplayName>Hubert Nguyen</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Living regional weather diorama for the Windows 11 taskbar.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+    <Resource Language="vi-vn" />
+  </Resources>
+
+  <Applications>
+    <Application
+      Id="AudioTaskbar"
+      Executable="AudioTaskbar.exe"
+      EntryPoint="Windows.FullTrustApplication"
+      uap10:RuntimeBehavior="packagedClassicApp"
+      uap10:TrustLevel="mediumIL">
+      <uap:VisualElements
+        DisplayName="Audio Taskbar"
+        Description="Living regional weather diorama for the Windows 11 taskbar."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Assets\Square150x150Logo.png" BackgroundColor="transparent" />
+      </uap:VisualElements>
+      <Extensions>
+        <desktop:Extension
+          Category="windows.startupTask"
+          Executable="AudioTaskbar.exe"
+          EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask
+            TaskId="AudioTaskbarStartup"
+            Enabled="false"
+            DisplayName="Audio Taskbar" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

@@ -38,22 +38,24 @@ Open-Meteo sees the coordinates (or city name) you configured or that were obtai
 - Pick a **fixed region** with **Weather follows selected region** (or set a city / coordinates) so the forecast is for a place you chose, not an IP-guessed location.
 - A **manual weather preview** in the control panel or tray (Clear, Rain, Starry night, and so on; `weatherPreview` other than `live`) only overrides how the diorama is drawn. It does **not** by itself stop the background forecast request. There is currently no separate “fully offline / never contact Open-Meteo” switch; leave the machine disconnected, or contact the maintainer if you need a dedicated toggle.
 
-## 3. Update checks (GitHub Releases)
+## 3. Update checks (GitHub Releases) — portable and NSIS installer editions only
 
-**When:** if automatic updates are enabled (default: `autoUpdateEnabled: true`), the app checks for a newer release about 10 seconds after start and then every 6 hours. You can also click **Check for updates**. If silent install is also on (default: `autoUpdateSilentInstall: true`) and a newer signed checksum-verified release exists, the app may download and install it, then relaunch.
+**Microsoft Store edition:** if you installed Audio Taskbar from the Microsoft Store, the app does **not** contact GitHub to check for or download updates. Updates are delivered exclusively through the Microsoft Store (Windows checks for package updates on its usual schedule). There is no in-app GitHub updater in that edition.
 
-**Where:**
+**Portable / NSIS installer editions:** if automatic updates are enabled (default: `autoUpdateEnabled: true`), the app checks for a newer release about 10 seconds after start and then every 6 hours. You can also click **Check for updates**. If silent install is also on (default: `autoUpdateSilentInstall: true`) and a newer signed checksum-verified release exists, the app may download and install it, then relaunch.
+
+**Where (portable / NSIS only):**
 
 - `https://api.github.com/repos/Hieunguyen00000/AudioTaskbar/releases/latest`
 - `https://github.com/Hieunguyen00000/AudioTaskbar/releases/download/...` (the published `AudioTaskbar.exe` or Setup, plus `latest.json` / `SHA256SUMS.txt` when used)
 
 GitHub sees a normal HTTPS request (including a short `AudioTaskbar-Updater/...` user-agent). No GitHub account is required and no token is sent.
 
-**How to disable:** in the control panel, turn off **Automatically check for updates**, or set `"autoUpdateEnabled": false` in `%LOCALAPPDATA%\AudioTaskbar\config.json`. You can still check manually from the tray or the Update tab. To prevent silent installs but still be notified, set `"autoUpdateSilentInstall": false`.
+**How to disable (portable / NSIS only):** in the control panel, turn off **Automatically check for updates**, or set `"autoUpdateEnabled": false` in `%LOCALAPPDATA%\AudioTaskbar\config.json`. You can still check manually from the tray or the Update tab. To prevent silent installs but still be notified, set `"autoUpdateSilentInstall": false`.
 
 ## What stays on your PC
 
-Settings, logs, and the extracted `TaskbarTap.dll` live under `%LOCALAPPDATA%\AudioTaskbar\`. The optional installer lives under `%LOCALAPPDATA%\Programs\AudioTaskbar\`. Uninstall can keep or delete your settings; see the uninstaller prompt and [docs/troubleshooting.md](docs/troubleshooting.md).
+Settings and logs live under `%LOCALAPPDATA%\AudioTaskbar\` (in the Microsoft Store edition this is the package's local data folder). The portable/NSIS edition may also extract `TaskbarTap.dll` there; the Store edition copies that DLL bit-identically into the package TempState folder so Explorer can load a Store-signed file. The optional NSIS installer lives under `%LOCALAPPDATA%\Programs\AudioTaskbar\`. Uninstall can keep or delete your settings; see the uninstaller prompt and [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Source and questions
 

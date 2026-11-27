@@ -220,9 +220,15 @@ src/app.manifest            # asInvoker, PerMonitorV2, supportedOS Win10/11
 src/app.ico                 # multi-size 16–256 (shared with the Setup wizard)
 scripts/build.ps1
 scripts/build-installer.ps1
+scripts/build-msix.ps1
+packaging/msix/
 installer/AudioTaskbar.nsi
 installer/stop-installed.ps1
 installer/assets/
 src/TaskbarTap/build-dll.ps1
 src/TaskbarTap/build.sh
 ```
+
+## Microsoft Store (MSIX)
+
+Gói Store dùng `-p:StoreBuild=true` (không single-file) và script `scripts/build-msix.ps1`. Chi tiết identity, cập nhật Store, và cách nộp Partner Center: [store.md](store.md). Kênh GitHub portable/NSIS (`scripts/build.ps1`) không đổi.

@@ -68,6 +68,9 @@ internal sealed class TaskbarTapHost : IDisposable
 
     public string EnsureDllDeployed()
     {
+        if (StoreEdition.IsStorePackage)
+            return DeployPackagedTapDll();
+
         var destDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AudioTaskbar");
         Directory.CreateDirectory(destDir);
 
@@ -135,6 +138,27 @@ internal sealed class TaskbarTapHost : IDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Store edition: copy the package-signed TaskbarTap.dll bit-identically out of WindowsApps
+    /// (Explorer cannot load from that folder) into the package TempState directory.
+    /// </summary>
+    private string DeployPackagedTapDll()
+    {
+        var src = Path.Combine(AppContext.BaseDirectory, "TaskbarTap.dll");
+        if (!File.Exists(src))
+            throw new FileNotFoundException("Không tìm thấy TaskbarTap.dll trong gói Microsoft Store (cạnh AudioTaskbar.exe).");
+        var destDir = StoreEdition.TapRuntimeFolder();
+        var dest = Path.Combine(destDir, "TaskbarTap.dll");
+        if (!TryCopyDll(src, dest))
+        {
+            dest = Path.Combine(destDir, "TaskbarTap-" + Guid.NewGuid().ToString("N")[..8] + ".dll");
+            if (!TryCopyDll(src, dest))
+                throw new IOException("Không ghi được TaskbarTap.dll vào " + destDir);
+        }
+        _dllPath = dest;
+        return dest;
     }
 
     public static int? FindTaskbarExplorerPid()
@@ -512,6 +536,11 @@ internal sealed class TaskbarTapHost : IDisposable
 
     public static void RestartExplorer(Action<string> log)
     {
+        if (StoreEdition.IsStorePackage)
+        {
+            RestartExplorerStoreSafe(log);
+            return;
+        }
         log("Restarting explorer.exe…");
         try
         {
@@ -525,6 +554,32 @@ internal sealed class TaskbarTapHost : IDisposable
             log("explorer.exe relaunched.");
         }
         catch (Exception ex) { log("Restart explorer failed: " + ex.Message); }
+    }
+
+    /// <summary>
+    /// Store edition: never kill Explorer. If the taskbar window is gone and no explorer
+    /// process is running, start explorer.exe once and let Windows rebuild the shell.
+    /// </summary>
+    public static void RestartExplorerStoreSafe(Action<string> log)
+    {
+        if (FindTaskbarExplorerPid() is not null)
+        {
+            log("TAP: taskbar is present — not restarting explorer.");
+            return;
+        }
+        if (Process.GetProcessesByName("explorer").Length > 0)
+        {
+            log("TAP: explorer is running but Shell_TrayWnd is missing — waiting for the shell (will not kill explorer).");
+            return;
+        }
+        log("Starting explorer.exe (no explorer process is running)…");
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true });
+            Thread.Sleep(1500);
+            log("explorer.exe started.");
+        }
+        catch (Exception ex) { log("Start explorer failed: " + ex.Message); }
     }
 
     public static (string state, int patched, string error) ReadStatus()
