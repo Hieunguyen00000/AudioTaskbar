@@ -1,10 +1,10 @@
-# Build an unsigned (or optionally test-signed) MSIX for Microsoft Store upload.
+﻿# Build an unsigned (or optionally test-signed) MSIX for Microsoft Store upload.
 # Usage (from repo root, on Windows):
 #   powershell -ExecutionPolicy Bypass -File scripts\build-msix.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\build-msix.ps1 -SignTestCert
 # Output:
 #   packaging\msix\out\AudioTaskbar_<version>_x64.msix
-# The Microsoft Store re-signs the package after certification — a CA cert is not required for upload.
+# The Microsoft Store re-signs the package after certification - a CA cert is not required for upload.
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
@@ -104,7 +104,7 @@ if (-not (Test-Path $tap)) {
         & $tapScript
         if (-not (Test-Path $tap)) { throw "TaskbarTap.dll was not produced by $tapScript" }
     } else {
-        throw "Missing $tap — build it first with src\TaskbarTap\build-dll.ps1"
+        throw "Missing $tap - build it first with src\TaskbarTap\build-dll.ps1"
     }
 }
 
@@ -180,7 +180,7 @@ if ($SignTestCert) {
         $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Audio Taskbar Test" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256 -KeyExportPolicy Exportable
         Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pwd | Out-Null
         Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-        Write-Host "Test cert exported to $cer — import it as Trusted People / Trusted Root on this machine to sideload."
+        Write-Host "Test cert exported to $cer - import it as Trusted People / Trusted Root on this machine to sideload."
     }
     & $signtool sign /fd SHA256 /a /f $pfx /p $pwdPlain $msix
     if ($LASTEXITCODE -ne 0) { throw "signtool sign failed." }
