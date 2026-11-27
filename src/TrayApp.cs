@@ -18,6 +18,8 @@ internal sealed class TrayApp : ApplicationContext
     private readonly EventWaitHandle _cmdFusionOff = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.FusionOff");
     private readonly EventWaitHandle _cmdToggle = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.Toggle");
     private readonly EventWaitHandle _cmdPreview = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.Preview");
+    // stop.ps1 signals this so the app exits cleanly (TAP detached from Explorer) instead of being killed.
+    private readonly EventWaitHandle _cmdExit = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.Exit");
 
     private readonly List<OverlayWindow> _overlays = new();
     private readonly Dictionary<IntPtr, TaskbarRegions> _regions = new();
@@ -546,6 +548,12 @@ internal sealed class TrayApp : ApplicationContext
     private void OnFrame()
     {
         if (_exiting) return;
+        if (_cmdExit.WaitOne(0))
+        {
+            Log("Exit requested (stop script) — detaching cleanly.");
+            ExitApp();
+            return;
+        }
         if (_cmdToggle.WaitOne(0))
             ToggleEffect();
         if (_cmdPreview.WaitOne(0))
@@ -1059,7 +1067,7 @@ internal sealed class TrayApp : ApplicationContext
         _transparency.Restore();
         Log("Taskbar appearance restored.");
         _weather.Dispose();
-        try { _cmdFusionOn.Dispose(); _cmdFusionOff.Dispose(); _cmdToggle.Dispose(); _cmdPreview.Dispose(); } catch { }
+        try { _cmdFusionOn.Dispose(); _cmdFusionOff.Dispose(); _cmdToggle.Dispose(); _cmdPreview.Dispose(); _cmdExit.Dispose(); } catch { }
 
         _capture.Dispose();
         _tray.Visible = false;

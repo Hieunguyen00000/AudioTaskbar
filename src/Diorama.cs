@@ -178,8 +178,8 @@ internal static class SceneClock
     {
         var preview = (cfg.WeatherPreview ?? "live").Trim().ToLowerInvariant();
         float hour = VirtualHour(cfg, local);
-        if (preview is "night" or "dem" or "đêm sao" && HourOverride is null && hour is > 5f and < 19.5f)
-            hour = 0.5f; // "Đêm sao" preview always shows a night sky
+        if (preview is "night" or "dem" or "đêm sao" && cfg.TimeMode == "real" && HourOverride is null && hour is > 5f and < 19.5f)
+            hour = 0.5f; // real-clock mode: "Đêm sao" preview shows a night sky (cycle mode keeps its own clock)
         DayPhase phase = PhaseAtHour(hour);
         bool cycle = cfg.TimeMode == "cycle" || HourOverride is not null;
         WeatherKind kind = live is { Ok: true } ? live.Kind : WeatherKind.Cloudy;
