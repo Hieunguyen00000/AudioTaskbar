@@ -9,7 +9,7 @@ Hiệu ứng nằm **phía sau** icon — Start, Search, ứng dụng và khay h
 
 ![Audio Taskbar — demo sống: chu kỳ ngày–đêm, tuyết rơi Tokyo, mưa rào Đà Nẵng, bình minh Paris và bảng điều khiển v5.3.2](docs/images/demo.gif)
 
-> Bản MP4 chất lượng cao hơn: [`docs/images/demo.mp4`](docs/images/demo.mp4) (1280×540, 30 fps).
+> Bản MP4 chất lượng cao hơn: [`docs/images/demo.mp4`](docs/images/demo.mp4) (1920×810, 30 fps, ~30 giây).
 
 ## Hình ảnh
 
