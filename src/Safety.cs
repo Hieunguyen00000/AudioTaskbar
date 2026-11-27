@@ -69,7 +69,7 @@ internal static class TapSafety
 /// into explorer.exe when SAC is on. A signed (or unknown-signature) DLL may be tried;
 /// <see cref="TaskbarTapHost"/> falls back to UIA if Code Integrity then blocks the load.
 /// </summary>
-internal enum SacTapDecision { Proceed, SkipUnsigned, TrySigned }
+public enum SacTapDecision { Proceed, SkipUnsigned, TrySigned }
 
 internal static class SacTapPolicy
 {

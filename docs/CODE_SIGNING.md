@@ -2,7 +2,7 @@
 
 Free code signing provided by SignPath.io, certificate by SignPath Foundation.
 
-**Status (November 2026):** we have applied to the [SignPath Foundation](https://signpath.org/) open-source program. Until that application is approved and a signed GitHub Release is published, `AudioTaskbar.exe`, `TaskbarTap.dll` and `AudioTaskbar-Setup-*.exe` are **not yet Authenticode-signed**. Windows 11 Smart App Control and SmartScreen may still treat downloads as an unknown publisher. This page will be updated once the first signed release ships.
+**Status (November 2026 — pending approval):** we have applied to the [SignPath Foundation](https://signpath.org/) open-source program. Until that application is approved and a signed GitHub Release is published, `AudioTaskbar.exe`, `TaskbarTap.dll` and `AudioTaskbar-Setup-*.exe` are **not yet Authenticode-signed**. Windows 11 Smart App Control and SmartScreen may still treat downloads as an unknown publisher. This page will be updated once the first signed release ships.
 
 > **Tiếng Việt:** Audio Taskbar đang xin chữ ký số miễn phí của SignPath Foundation. Khi được duyệt, mỗi bản phát hành trên GitHub Releases sẽ được ký bằng chứng chỉ của SignPath Foundation (người phát hành hiện trên Windows là *SignPath Foundation*). Cho đến lúc đó file tải về vẫn chưa có chữ ký Authenticode.
 
