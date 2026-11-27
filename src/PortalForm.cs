@@ -23,6 +23,7 @@ internal sealed class PortalForm : Form
     private readonly ComboBox _time = Combo();
     private readonly CheckBox _hud = Check("Hiện thông tin thời tiết && địa điểm");
     private readonly CheckBox _train = Check("Tàu hỏa");
+    private readonly NumericUpDown _cycleMin = new() { Minimum = (decimal)AppConfig.MinDayCycleMinutes, Maximum = (decimal)AppConfig.MaxDayCycleMinutes, DecimalPlaces = 1, Increment = 5m, Width = 72, TextAlign = HorizontalAlignment.Right };
     private readonly NumericUpDown _trainMin = new() { Minimum = 0.25m, Maximum = 240m, DecimalPlaces = 2, Increment = 0.25m, Width = 64, TextAlign = HorizontalAlignment.Right };
     private readonly CheckBox _traffic = Check("Phương tiện khu vực");
     private readonly CheckBox _ambient = Check("Chi tiết nền (chim, đèn phố)");
@@ -48,7 +49,7 @@ internal sealed class PortalForm : Form
         ("live", "Thực tế"), ("sunny", "Nắng đẹp"), ("cloudy", "Mây trôi"), ("rain", "Mưa rào"),
         ("storm", "Giông bão"), ("snow", "Tuyết rơi"), ("night", "Đêm sao")
     };
-    private static readonly (string Id, string Label)[] Times = { ("cycle", "Chu kỳ 30 phút"), ("real", "Theo giờ thật"), ("day", "Cố định ban ngày"), ("night", "Cố định ban đêm") };
+    private static readonly (string Id, string Label)[] Times = { ("cycle", "Theo chu kỳ tùy chỉnh"), ("real", "Theo giờ thật"), ("day", "Cố định ban ngày"), ("night", "Cố định ban đêm") };
     private static readonly string[] Hotkeys = { "F8", "F9", "Ctrl+Alt+F8", "Ctrl+Shift+F8" };
 
     public PortalForm(TrayApp host)
@@ -176,6 +177,11 @@ internal sealed class PortalForm : Form
         Row(g, "Khu vực", _region);
         Row(g, "Thời tiết", _weather);
         Row(g, "Ngày && đêm", _time);
+        var cycleRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
+        _cycleMin.Margin = new Padding(0, 1, 4, 0);
+        cycleRow.Controls.Add(_cycleMin);
+        cycleRow.Controls.Add(new Label { Text = "phút/ngày  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(0, 4, 0, 0) });
+        Row(g, "Độ dài chu kỳ", cycleRow);
         Full(g, _hud);
         var trainRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
         _train.Margin = new Padding(0, 3, 6, 0);
@@ -277,6 +283,12 @@ internal sealed class PortalForm : Form
         _time.SelectedIndexChanged += (_, _) => Apply(c => c.TimeMode = Times[Math.Max(0, _time.SelectedIndex)].Id);
         _hud.CheckedChanged += (_, _) => Apply(c => c.ShowWeatherHud = _hud.Checked);
         _train.CheckedChanged += (_, _) => Apply(c => c.ShowTrain = _train.Checked);
+        _cycleMin.ValueChanged += (_, _) =>
+        {
+            if (_syncing) return;
+            var v = (float)_cycleMin.Value;
+            _host.Mutate(c => SceneClock.SetCycleMinutes(c, v, DateTime.Now));
+        };
         _trainMin.ValueChanged += (_, _) => Apply(c => c.TrainCrossingMinutes = (float)_trainMin.Value);
         _traffic.CheckedChanged += (_, _) => Apply(c => c.ShowCyclist = _traffic.Checked);
         _ambient.CheckedChanged += (_, _) => Apply(c => c.ShowAmbientDetails = _ambient.Checked);
@@ -342,6 +354,9 @@ internal sealed class PortalForm : Form
             var m = (decimal)Math.Clamp(c.TrainCrossingMinutes, 0.25f, 240f);
             if (_trainMin.Value != m) _trainMin.Value = m;
             _trainMin.Enabled = c.ShowTrain;
+            var cm = (decimal)Math.Clamp(c.DayCycleMinutes, AppConfig.MinDayCycleMinutes, AppConfig.MaxDayCycleMinutes);
+            if (_cycleMin.Value != cm) _cycleMin.Value = cm;
+            _cycleMin.Enabled = c.TimeMode == "cycle";
             _traffic.Checked = c.ShowCyclist;
             _ambient.Checked = c.ShowAmbientDetails;
             _effects.Checked = c.ShowWeatherEffects;

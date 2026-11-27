@@ -36,7 +36,9 @@
   "weatherFollowsRegion": false,
   "tapMode": "auto",
   "tapTimeoutSeconds": 3.5,
+  // timeMode: "cycle" (theo chu kỳ tùy chỉnh) | "real" (giờ thật) | "day" (cố định ban ngày) | "night" (cố định ban đêm)
   "timeMode": "cycle",
+  // v5.3.1: độ dài 1 ngày ảo ở chế độ cycle, tùy chỉnh 0.5 – 10080 phút (mặc định 30)
   "dayCycleMinutes": 30,
   "dayCycleOffsetHours": 0,
   // v5.3: bảng điều khiển + tự động cập nhật

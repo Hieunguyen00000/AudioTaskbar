@@ -1,13 +1,15 @@
-# Audio Taskbar v5.3.0
+# Audio Taskbar v5.3.1
 
 Ứng dụng Windows nhỏ vẽ một **diorama thời tiết sống** (48px) ngay trên nền thanh taskbar: bầu trời đổi theo giờ trong ngày, mây/mưa/sấm, tàu hỏa chạy trái → phải, người đi xe đạp, chim, đèn phố, đom đóm… Hiệu ứng nằm **phía sau** icon nên nút Start, Search, app đang chạy và khay hệ thống vẫn sắc, bấm bình thường.
+
+**Mới ở v5.3.1 — Tự chỉnh độ dài chu kỳ ngày–đêm:** không còn giới hạn 30 phút. Trong bảng điều khiển chọn *Ngày & đêm → Theo chu kỳ tùy chỉnh* rồi nhập **Độ dài chu kỳ** bất kỳ từ **0,5 phút đến 10080 phút (7 ngày)** — ví dụ 15, 30, 90 hoặc 1440 phút/ngày (`dayCycleMinutes`). Ô nhập chỉ bật khi ở chế độ chu kỳ; đổi giá trị áp dụng ngay, bầu trời **không nhảy** (giữ nguyên giờ cảnh hiện tại, chỉ đổi tốc độ) và được lưu vào `config.json`. Menu khay hiện *Theo chu kỳ (N phút/ngày)*.
 
 **Mới ở v5.3.0 — Bảng điều khiển kiểu UniKey + tự động cập nhật:**
 
 - **Bảng điều khiển (portal):** nhấp đúp icon khay (hoặc mở `AudioTaskbar.exe` lần nữa) để mở cửa sổ gọn giống UniKey. Có nút lớn **Bật / Tắt** (đồng bộ với F8 và menu khay), thẻ *Cảnh vật & Thời tiết* (khu vực, xem trước thời tiết, ngày & đêm, thẻ thời tiết, tàu hỏa + số phút/lượt, phương tiện, chi tiết nền, hiệu ứng thời tiết), thẻ *Hệ thống* (phím tắt F8 / F9 / Ctrl+Alt+F8 / Ctrl+Shift+F8, Khởi động cùng Windows, Mở ẩn xuống khay, Tự động kiểm tra cập nhật) và thẻ *Cập nhật* (chỉ hiện *Phiên bản hiện tại*).
 - **Một file duy nhất:** phát hành dạng **một** `AudioTaskbar.exe` tự chứa (đã gồm .NET 8 + `TaskbarTap.dll`) — tải về, double-click là chạy, không cần cài.
 - **Chặn ảnh nền desktop luôn bật** (không còn tùy chọn): nền đặc phía sau icon, wallpaper không xuyên qua taskbar.
-- **Ngày & đêm có 4 chế độ:** *Chu kỳ 30 phút* (mặc định), *Theo giờ thật*, *Cố định ban ngày* (~10:30–12:00, mặt trời cao), *Cố định ban đêm* (~23:30–00:00, trăng, sao, đèn phố). Chọn trong portal, menu khay hoặc `timeMode` trong config. Mọi thay đổi áp dụng ngay và được lưu.
+- **Ngày & đêm có 4 chế độ:** *Theo chu kỳ tùy chỉnh* (mặc định 30 phút/ngày), *Theo giờ thật*, *Cố định ban ngày* (~10:30–12:00, mặt trời cao), *Cố định ban đêm* (~23:30–00:00, trăng, sao, đèn phố). Chọn trong portal, menu khay hoặc `timeMode` trong config. Mọi thay đổi áp dụng ngay và được lưu.
 - **Đóng (✕) chỉ ẩn xuống khay**, ứng dụng vẫn chạy; nút **Kết thúc (Thoát)** mới thoát hẳn và trả lại taskbar gốc. Chỉ chạy **một** bản: mở lần hai sẽ đưa bảng điều khiển lên. `--minimized` (dùng khi khởi động cùng Windows) chạy im lặng dưới khay.
 - **Tự động cập nhật:** 10 giây sau khi mở và mỗi 6 giờ, app đọc GitHub Release mới nhất (hoặc `updateFeedUrl`), so SemVer, tải `AudioTaskbar.exe` mới vào `%LOCALAPPDATA%\AudioTaskbar\updates`, **bắt buộc khớp SHA-256** (`SHA256SUMS.txt` / `latest.json`), rồi `apply-update.cmd` chờ app thoát sạch (trả taskbar gốc, không đụng Explorer), sao lưu file cũ thành `AudioTaskbar.exe.old`, thay **đúng file đang chạy** (lỗi thì khôi phục), mở lại dưới khay kèm thông báo *“Đã cập nhật lên Audio Taskbar vX.Y.Z”*. Thông báo cho người dùng không hiển thị địa chỉ repo; chi tiết kỹ thuật ghi trong `app.log`. Xem [Phát hành & tự cập nhật](docs/development.md#6-phát-hành--tự-động-cập-nhật).
 - **Bộ test hồi quy** `tests/AudioTaskbar.Tests` (xUnit, `dotnet test`) chặn các lỗi khi dùng: config hỏng, mạng lỗi, nhảy vị trí, toán khoét icon / DPI, phím tắt, cập nhật giả mạo, TAP chèn hai lần.
@@ -128,7 +130,7 @@ Hỗ trợ tổ hợp `Ctrl`, `Alt`, `Shift`, `Win` với phím F1–F24 hoặc 
 - **Mở bảng điều khiển** (in đậm, = nhấp đúp icon)
 - **Bật/tắt hiệu ứng (F8)**
 - **Hoạt ảnh:** Tàu lửa, Giao thông địa phương, Chim & đèn phố, Hiệu ứng thời tiết
-- **Ngày & đêm (mặt trời / mặt trăng):** Chu kỳ 30 phút (1 ngày), Theo giờ thật, Cố định ban ngày, Cố định ban đêm
+- **Ngày & đêm (mặt trời / mặt trăng):** Theo chu kỳ (N phút/ngày), Theo giờ thật, Cố định ban ngày, Cố định ban đêm
 - **Khu vực & Cảnh vật:** Tự động theo máy, TP. Hồ Chí Minh, Bà Rịa – Vũng Tàu, Hà Nội, Đà Nẵng – Hội An, Tokyo / Nhật Bản, Paris / Pháp, Mặc định; *Thời tiết theo khu vực đã chọn*
 - **Hiện thông tin thời tiết & địa điểm** (thẻ trên nền taskbar)
 - **Xem trước thời tiết:** Thực tế, Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Tuyết rơi, Đêm sao

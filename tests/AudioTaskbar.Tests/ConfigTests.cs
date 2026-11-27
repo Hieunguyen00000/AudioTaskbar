@@ -85,10 +85,13 @@ public class ConfigTests
     }
 
     [Theory]
-    [InlineData(0f, 2f)]
-    [InlineData(-1f, 2f)]
-    [InlineData(100000f, 1440f)]
+    [InlineData(0f, 30f)]
+    [InlineData(-1f, 30f)]
+    [InlineData(0.1f, 0.5f)]
+    [InlineData(100000f, 10080f)]
     [InlineData(float.NaN, 30f)]
+    [InlineData(float.PositiveInfinity, 30f)]
+    [InlineData(float.NegativeInfinity, 30f)]
     public void Day_cycle_minutes_are_clamped(float input, float expected)
     {
         var c = new AppConfig { DayCycleMinutes = input };

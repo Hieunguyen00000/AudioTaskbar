@@ -114,7 +114,7 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 |------|------|----------|---------|
 | `trainCrossingMinutes` | float | `1` | Số phút để đoàn tàu đi hết chiều rộng taskbar, trái → phải (0.25–240). v5.0 mặc định 25; config cũ còn `25` được tự đổi thành `1` một lần khi nâng lên v5.1. |
 | `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy; `day` = cố định ban ngày (~10:30–12:00, dao động nhẹ); `night` = cố định ban đêm (~23:30–00:00). Giá trị lạ → `cycle`. Đổi trong portal hoặc menu khay *Ngày & đêm*. |
-| `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ (2–1440). 30 → mỗi giờ ảo = 75 giây. |
+| `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ, **tùy chỉnh 0,5–10080** (30 giây – 7 ngày; v5.3.1 bỏ giới hạn cũ 2–1440). 30 → mỗi giờ ảo = 75 giây; 1440 → nhịp như giờ thật nhưng lệch pha. Giá trị ≤ 0 / NaN / vô hạn → `30`; ngoài khoảng bị kẹp về 0,5 hoặc 10080. Đổi trong portal (*Độ dài chu kỳ*) áp dụng ngay, không nhảy cảnh (app tự chỉnh `dayCycleOffsetHours`). |
 | `dayCycleOffsetHours` | float | `0` | Dịch đồng hồ ảo (giờ, 0–24), ví dụ `6` để chu kỳ bắt đầu gần bình minh. |
 | `configVersion` | int | `51` | Phiên bản schema để migrate một lần (app tự ghi, không cần sửa). |
 | `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `default`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |

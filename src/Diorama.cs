@@ -102,7 +102,7 @@ internal static class SceneClock
         if (cfg.TimeMode is "day" or "night")
         {
             // Fixed day / night: a slow ping-pong inside a narrow window so the sun / moon still drift a little.
-            double period = Math.Max(60.0, cfg.DayCycleMinutes * 60.0);
+            const double period = FixedDriftMinutes * 60.0; // independent of the custom cycle length
             double secs = (local - DateTime.UnixEpoch).TotalSeconds;
             double frac = ((secs % period) + period) % period / period;
             float pp = (float)(0.5 - 0.5 * Math.Cos(2 * Math.PI * frac)); // 0 → 1 → 0
@@ -112,12 +112,50 @@ internal static class SceneClock
         }
         if (cfg.TimeMode == "cycle")
         {
-            double period = Math.Max(60.0, cfg.DayCycleMinutes * 60.0);
+            double period = CyclePeriodSeconds(cfg);
             double secs = (local - DateTime.UnixEpoch).TotalSeconds + cfg.DayCycleOffsetHours / 24.0 * period;
             double frac = ((secs % period) + period) % period / period;
             return (float)(frac * 24.0);
         }
         return local.Hour + local.Minute / 60f + local.Second / 3600f + local.Millisecond / 3_600_000f;
+    }
+
+    /// <summary>Fixed day / night drift period (minutes) — the sun / moon wobble slowly inside their window.</summary>
+    public const double FixedDriftMinutes = 30.0;
+
+    public static double CyclePeriodSeconds(AppConfig cfg)
+        => Math.Clamp(float.IsFinite(cfg.DayCycleMinutes) && cfg.DayCycleMinutes > 0 ? cfg.DayCycleMinutes : 30f,
+                      AppConfig.MinDayCycleMinutes, AppConfig.MaxDayCycleMinutes) * 60.0;
+
+    /// <summary>
+    /// v5.3.1: change the cycle length without the sky jumping — re-anchors <c>DayCycleOffsetHours</c> so the
+    /// scene hour at <paramref name="now"/> is the same before and after; only the speed changes.
+    /// </summary>
+    public static void SetCycleMinutes(AppConfig cfg, float minutes, DateTime now)
+    {
+        float before = VirtualHourCycle(cfg, now);
+        cfg.DayCycleMinutes = minutes;
+        cfg.Normalize();
+        double period = CyclePeriodSeconds(cfg);
+        double secs = (now - DateTime.UnixEpoch).TotalSeconds;
+        double baseFrac = ((secs % period) + period) % period / period;
+        double off = (before / 24.0 - baseFrac) * 24.0;
+        cfg.DayCycleOffsetHours = (float)(((off % 24.0) + 24.0) % 24.0);
+    }
+
+    private static float VirtualHourCycle(AppConfig cfg, DateTime local)
+    {
+        double period = CyclePeriodSeconds(cfg);
+        double secs = (local - DateTime.UnixEpoch).TotalSeconds + cfg.DayCycleOffsetHours / 24.0 * period;
+        return (float)((((secs % period) + period) % period / period) * 24.0);
+    }
+
+    /// <summary>"30 phút", "1,5 giờ", "1 ngày" style label for a cycle length in minutes.</summary>
+    public static string CycleLabel(float minutes)
+    {
+        var vi = System.Globalization.CultureInfo.InvariantCulture;
+        if (minutes < 1f) return (minutes * 60f).ToString("0", vi) + " giây";
+        return minutes.ToString("0.##", vi) + " phút";
     }
 
     public static DayPhase PhaseAtHour(float h)

@@ -402,7 +402,7 @@ internal sealed class TrayApp : ApplicationContext
             it.Paint += (_, _) => { try { it.Checked = _cfg.TimeMode == id; } catch { } };
             timeMenu.DropDownItems.Add(it);
         }
-        addTime("cycle", () => "Chu kỳ " + _cfg.DayCycleMinutes.ToString("0.#") + " phút (1 ngày)");
+        addTime("cycle", () => "Theo chu kỳ (" + SceneClock.CycleLabel(_cfg.DayCycleMinutes) + "/ngày)");
         addTime("real", () => "Theo giờ thật");
         addTime("day", () => "Cố định ban ngày");
         addTime("night", () => "Cố định ban đêm");

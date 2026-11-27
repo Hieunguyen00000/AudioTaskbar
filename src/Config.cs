@@ -85,6 +85,8 @@ public sealed class AppConfig
     public string TimeMode { get; set; } = "cycle";
     /// <summary>Real minutes for one full virtual day in cycle mode.</summary>
     public float DayCycleMinutes { get; set; } = 30f;
+    public const float MinDayCycleMinutes = 0.5f;
+    public const float MaxDayCycleMinutes = 10080f;
     /// <summary>Shift of the virtual clock in hours (cycle mode), e.g. 6 to start a cycle near dawn.</summary>
     public float DayCycleOffsetHours { get; set; } = 0f;
     /// <summary>Config schema version used for one-time migrations (51 = v5.1).</summary>
@@ -137,7 +139,9 @@ public sealed class AppConfig
         WeatherRefreshMinutes = Math.Clamp(WeatherRefreshMinutes, 5, 120);
         TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 0.25f, 240f) : 1f;
         TimeMode = NormalizeTimeMode(TimeMode);
-        DayCycleMinutes = float.IsFinite(DayCycleMinutes) ? Math.Clamp(DayCycleMinutes, 2f, 1440f) : 30f;
+        // v5.3.1: any custom cycle length from 30 s to 7 days; only invalid values (<= 0, NaN, ∞) fall back to 30.
+        DayCycleMinutes = float.IsFinite(DayCycleMinutes) && DayCycleMinutes > 0f
+            ? Math.Clamp(DayCycleMinutes, MinDayCycleMinutes, MaxDayCycleMinutes) : 30f;
         DayCycleOffsetHours = float.IsFinite(DayCycleOffsetHours) ? ((DayCycleOffsetHours % 24f) + 24f) % 24f : 0f;
         RegionMode = RegionCatalog.NormalizeMode(RegionMode);
         TapMode = (TapMode ?? "auto").Trim().ToLowerInvariant() is "off" or "safe" or "false" ? "off" : "auto";
