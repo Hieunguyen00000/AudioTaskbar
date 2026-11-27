@@ -86,6 +86,11 @@ internal static class SceneClock
 
     public const float SunRise = 5.5f, SunSet = 18.5f;
 
+    /// <summary>timeMode "day": pleasant late-morning sky, sun drifting 10:30 → 12:00 → 10:30.</summary>
+    public const float FixedDayFrom = 10.5f, FixedDayTo = 12f;
+    /// <summary>timeMode "night": starry sky, moon near its peak, 23:30 → 23:59 → 23:30.</summary>
+    public const float FixedNightFrom = 23.5f, FixedNightTo = 23.98f;
+
     /// <summary>
     /// Scene hour 0..24. timeMode "cycle": one full virtual day every
     /// <c>dayCycleMinutes</c> real minutes (default 30), advancing smoothly.
@@ -94,6 +99,17 @@ internal static class SceneClock
     public static float VirtualHour(AppConfig cfg, DateTime local)
     {
         if (HourOverride is { } ho) return ((ho % 24f) + 24f) % 24f;
+        if (cfg.TimeMode is "day" or "night")
+        {
+            // Fixed day / night: a slow ping-pong inside a narrow window so the sun / moon still drift a little.
+            double period = Math.Max(60.0, cfg.DayCycleMinutes * 60.0);
+            double secs = (local - DateTime.UnixEpoch).TotalSeconds;
+            double frac = ((secs % period) + period) % period / period;
+            float pp = (float)(0.5 - 0.5 * Math.Cos(2 * Math.PI * frac)); // 0 → 1 → 0
+            return cfg.TimeMode == "day"
+                ? FixedDayFrom + (FixedDayTo - FixedDayFrom) * pp
+                : FixedNightFrom + (FixedNightTo - FixedNightFrom) * pp;
+        }
         if (cfg.TimeMode == "cycle")
         {
             double period = Math.Max(60.0, cfg.DayCycleMinutes * 60.0);
@@ -185,7 +201,7 @@ internal static class SceneClock
         if (preview is "night" or "dem" or "đêm sao" && cfg.TimeMode == "real" && HourOverride is null && hour is > 5f and < 19.5f)
             hour = 0.5f; // real-clock mode: "Đêm sao" preview shows a night sky (cycle mode keeps its own clock)
         DayPhase phase = PhaseAtHour(hour);
-        bool cycle = cfg.TimeMode == "cycle" || HourOverride is not null;
+        bool cycle = cfg.TimeMode is "cycle" or "day" or "night" || HourOverride is not null;
         WeatherKind kind = live is { Ok: true } ? live.Kind : WeatherKind.Cloudy;
         bool isDay = phase is DayPhase.Day or DayPhase.Dawn or DayPhase.Golden;
         float cloud = live is { Ok: true } ? Math.Clamp(live.CloudCover / 100f, 0f, 1f) : 0.55f;

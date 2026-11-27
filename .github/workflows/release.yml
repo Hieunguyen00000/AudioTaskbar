@@ -1,6 +1,7 @@
 # Build, test and publish a release when a tag vX.Y.Z is pushed:
 #   git tag v5.3.0 && git push origin v5.3.0
-# Produces: AudioTaskbar-Setup-X.Y.Z.exe, SHA256SUMS.txt, latest.json (read by the in-app updater).
+# Produces: AudioTaskbar.exe (single self-contained exe, primary asset — the in-app updater swaps it in place),
+#           SHA256SUMS.txt, latest.json (read by the updater) and an optional AudioTaskbar-Setup-X.Y.Z.exe.
 name: release
 
 on:
@@ -81,13 +82,14 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ steps.ver.outputs.version }}"
-          ./scripts/make-release-manifest.ps1 -Version $v -SetupPath "installer-output/AudioTaskbar-Setup-$v.exe" -ExePath release/AudioTaskbar.exe -OutDir installer-output -Repo "${{ github.repository }}" -Notes "Audio Taskbar v$v"
+          ./scripts/make-release-manifest.ps1 -Version $v -ExePath release/AudioTaskbar.exe -SetupPath "installer-output/AudioTaskbar-Setup-$v.exe" -OutDir installer-output -Repo "${{ github.repository }}" -Notes "Audio Taskbar v$v"
 
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
           name: AudioTaskbar-${{ steps.ver.outputs.version }}
           path: |
+            release/AudioTaskbar.exe
             installer-output/AudioTaskbar-Setup-*.exe
             installer-output/SHA256SUMS.txt
             installer-output/latest.json
@@ -99,6 +101,7 @@ jobs:
           name: Audio Taskbar ${{ github.ref_name }}
           generate_release_notes: true
           files: |
-            installer-output/AudioTaskbar-Setup-${{ steps.ver.outputs.version }}.exe
+            release/AudioTaskbar.exe
             installer-output/SHA256SUMS.txt
             installer-output/latest.json
+            installer-output/AudioTaskbar-Setup-${{ steps.ver.outputs.version }}.exe

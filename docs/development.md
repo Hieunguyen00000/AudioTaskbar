@@ -118,6 +118,8 @@ python tests\test_analyzer.py
 | `LayoutTests` | khoét icon chồng nhau / trùng / ra ngoài thanh / phủ kín; màn hình phụ; DPI 100/125/150/200 %; thẻ thời tiết không bao giờ đè icon, ẩn khi không đủ chỗ |
 | `HotkeyTests` | F8/F9/Ctrl+Alt+F8/Ctrl+Shift+F8…, phím sai, rỗng → F8, 3000 chuỗi ngẫu nhiên không ném lỗi |
 | `UpdaterTests` | SemVer (5.3.0 < 5.3.1, 5.10.0 > 5.2.0, tiền tố v, pre-release, chuỗi sai); 404 (repo Private) / 401 / 403 / 429 / 5xx / offline / timeout; SHA-256 khớp → giữ, sai / file cụt → xóa và từ chối; thiếu asset Setup; SHA256SUMS thiếu dòng; tên file không phải .exe / path traversal; tham số NSIS bản cài vs portable; bản dev không tự cài; end-to-end qua HTTP server cục bộ |
+| `PortableUpdateTests` | Ưu tiên asset `AudioTaskbar.exe` hơn Setup; tải về tên `AudioTaskbar-<ver>.exe` + kiểm SHA; file giả bị xóa; thông báo lỗi không lộ repo/URL (404/403/429/5xx/offline/JSON hỏng); nội dung `apply-update.cmd` (chờ PID, `.old`, rollback, `--minimized --updated`, thoát `%`); chạy thật script: đổi exe sau khi process thoát, rollback khi thiếu file mới; kiểm quyền ghi |
+| `ModeTests` | `timeMode` cycle/real/day/night + alias tiếng Việt; *Cố định ban ngày* luôn 10:30–12:00 (Day), *ban đêm* 23:30–00:00 (Night, trăng giữa trời) bất kể giờ máy; render được; `blockWallpaper=false` / `backdropOpacity=0.5` trong config bị ép về `true` / `1.0` |
 | `TapSafetyTests` | chống chèn TAP hai lần (tái dùng v3, từ chối khi có TAP cũ), cầu dao 90 s khi Explorer thoát sau khi gắn |
 
 CI (`.github/workflows/release.yml`) chạy bộ test này trên mọi pull request và **trước** khi đóng gói release — test đỏ thì không phát hành.
@@ -132,7 +134,7 @@ Không có test UI / TAP tự động (cần Explorer trên Windows 11 thật). 
 
 ## 4. Đóng gói trình cài đặt (NSIS)
 
-File phát hành cho người dùng là **một** `AudioTaskbar-Setup-<version>.exe` (version đọc từ `<Version>` trong `src\AudioTaskbar.csproj`) (cài theo user, không UAC, không cần .NET SDK).
+File phát hành chính (v5.3) là **một** `AudioTaskbar.exe` tự chứa — người dùng tải về và double-click. Tùy chọn kèm `AudioTaskbar-Setup-<version>.exe` (version đọc từ `<Version>` trong `src\AudioTaskbar.csproj`) (cài theo user, không UAC, không cần .NET SDK).
 
 Yêu cầu: [NSIS 3.x](https://nsis.sourceforge.io/) (`makensis` trong PATH). Trên Linux/WSL: `sudo apt-get install nsis`. Trên Windows: `winget install --id NSIS.NSIS --scope user` hoặc `scoop install nsis`.
 
@@ -173,7 +175,7 @@ Cờ của trình cài (v5.3): `/S` im lặng; `/NORUN` không mở app sau khi 
 ## 5. Đóng gói / phát hành
 
 - Đưa lên git: mã nguồn, scripts (kể cả `installer\AudioTaskbar.nsi`), tests, docs — **không** commit `release\*.exe`, `*.dll`, hay `AudioTaskbar-Setup-*.exe`.
-- Phát hành cho người dùng: gửi `AudioTaskbar-Setup-<version>.exe`, hoặc phát hành GitHub Release (mục 6) để mọi máy tự cập nhật. (Vẫn có thể zip `release\AudioTaskbar.exe` nếu cần bản portable.)
+- Phát hành cho người dùng: gửi `release\AudioTaskbar.exe` (một file), hoặc phát hành GitHub Release (mục 6) để mọi máy tự cập nhật. Setup là tùy chọn.
 - Config người dùng luôn ở `%LOCALAPPDATA%\AudioTaskbar\`, tách khỏi bản phân phối.
 - Tự khởi động: tùy chọn trong Setup (HKCU Run, mặc định tắt), hoặc `scripts\enable-autostart.ps1` tạo shortcut trong thư mục Startup của user.
 
@@ -183,15 +185,15 @@ Mọi bản cài v5.3+ tự cập nhật lên **đúng version bạn phát hành
 
 1. Nâng `<Version>` trong `src\AudioTaskbar.csproj` (ví dụ `5.3.1`), commit.
 2. Chọn một cách phát hành:
-   - **GitHub Actions (khuyên dùng):** `git tag v5.3.1` rồi `git push origin main v5.3.1`. Workflow `release.yml` (windows-latest) chạy `dotnet test`, build `TaskbarTap.dll` (MSYS2 mingw-w64), `scripts\build.ps1`, NSIS, tạo `SHA256SUMS.txt` + `latest.json` và đăng Release `v5.3.1` với 3 file. Tag phải trùng `<Version>`, nếu không workflow dừng.
-   - **Máy dev:** `.\scripts\publish-release.ps1` (test → build → Setup → SHA256SUMS + latest.json → `gh release create`, hoặc REST API với `$env:GITHUB_TOKEN`). `-NoUpload` chỉ build.
-3. App của người dùng: 10 s sau khi mở và mỗi 6 giờ gọi `https://api.github.com/repos/<updateRepo>/releases/latest` → so SemVer với version đang chạy → tải Setup vào `%LOCALAPPDATA%\AudioTaskbar\updates\` → kiểm SHA-256 (sai thì xóa file, không cài) → chạy `Setup.exe /S /UPDATED /NODESKTOP /NOSTARTMENU` (bản portable thêm `/D=<thư mục exe>`). Trình cài tắt bản đang chạy bằng sự kiện `Local\AudioTaskbar.Cmd.Exit` (không đụng Explorer), cài đè, mở lại `--minimized --updated` và hiện thông báo.
+   - **GitHub Actions (khuyên dùng):** `git tag v5.3.1` rồi `git push origin main v5.3.1`. Workflow `release.yml` (windows-latest) chạy `dotnet test`, build `TaskbarTap.dll` (MSYS2 mingw-w64), `scripts\build.ps1`, NSIS, tạo `SHA256SUMS.txt` + `latest.json` và đăng Release `v5.3.1` với `AudioTaskbar.exe` (file chính), `SHA256SUMS.txt`, `latest.json` và Setup (tùy chọn). Tag phải trùng `<Version>`, nếu không workflow dừng.
+   - **Máy dev:** `.\scripts\publish-release.ps1` (test → build `AudioTaskbar.exe` → SHA256SUMS + latest.json → `gh release create`, hoặc REST API với `$env:GITHUB_TOKEN`). `-NoUpload` chỉ build; `-WithSetup` kèm Setup.
+3. App của người dùng: 10 s sau khi mở và mỗi 6 giờ gọi `https://api.github.com/repos/<updateRepo>/releases/latest` → so SemVer với version đang chạy → ưu tiên asset `AudioTaskbar.exe`, tải vào `%LOCALAPPDATA%\AudioTaskbar\updates\AudioTaskbar-<ver>.exe` → kiểm SHA-256 (sai thì xóa file, không cài) → kiểm quyền ghi cạnh exe → ghi `updates\apply-update.cmd` rồi app tự thoát sạch (TAP Restore, không đụng Explorer). Script chờ PID thoát (tối đa 60 s), `move` exe cũ → `AudioTaskbar.exe.old`, `copy` bản mới vào đúng `Environment.ProcessPath` (lỗi → khôi phục `.old`), mở lại `--minimized --updated` (thông báo) và tự xóa; lần chạy sau xóa `.old`. Nếu Release chỉ có Setup, app dùng đường cũ `Setup.exe /S /UPDATED`. Thông báo cho người dùng chỉ là câu tiếng Việt thân thiện (*Hiện chưa có bản phát hành mới.* / *Không thể kiểm tra cập nhật lúc này.*), không lộ repo/URL; chi tiết (HTTP code, Private repo, rate limit) ghi vào `app.log`.
 4. Bản chạy từ thư mục dev (cạnh `.git`) chỉ báo có bản mới, không tự cài. Người dùng tắt được ở *Hệ thống → Tự động kiểm tra cập nhật* hoặc `autoUpdateSilentInstall: false`.
 
 **Repo đang Private:** API GitHub trả 404 cho người không đăng nhập, app báo *“Không tìm thấy bản phát hành… Repo có thể đang Private”* và không làm gì thêm. Để người dùng nhận bản mới, chọn một trong hai:
 
 - (a) Chuyển repo sang **Public**, hoặc tạo repo **Public chỉ chứa Release** (ví dụ `Hieunguyen00000/AudioTaskbar-releases`) rồi đặt `updateRepo` trỏ tới đó (đổi mặc định trong `Config.cs` cho bản sau). Workflow có thể đăng lên repo khác bằng `softprops/action-gh-release` + `repository:` và một token có quyền ghi.
-- (b) Host `latest.json` + Setup ở chỗ công khai (GitHub Pages, Cloudflare R2, S3, máy chủ riêng) và đặt `updateFeedUrl` = URL của `latest.json`. `scripts\make-release-manifest.ps1 -BaseUrl https://…` tạo đúng file.
+- (b) Host `latest.json` + `AudioTaskbar.exe` ở chỗ công khai (GitHub Pages, Cloudflare R2, S3, máy chủ riêng) và đặt `updateFeedUrl` = URL của `latest.json`. `scripts\make-release-manifest.ps1 -BaseUrl https://…` tạo đúng file.
 
 GitHub API ẩn danh giới hạn 60 lượt/giờ/IP; app chỉ gọi 4 lần/ngày, 403/429 được báo nhẹ và thử lại lần sau.
 

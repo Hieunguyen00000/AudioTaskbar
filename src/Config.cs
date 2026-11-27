@@ -136,7 +136,7 @@ public sealed class AppConfig
         IconSafePadding = Math.Clamp(IconSafePadding, 0, 200);
         WeatherRefreshMinutes = Math.Clamp(WeatherRefreshMinutes, 5, 120);
         TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 0.25f, 240f) : 1f;
-        TimeMode = (TimeMode ?? "cycle").Trim().ToLowerInvariant() is "real" or "clock" or "thuc" or "that" ? "real" : "cycle";
+        TimeMode = NormalizeTimeMode(TimeMode);
         DayCycleMinutes = float.IsFinite(DayCycleMinutes) ? Math.Clamp(DayCycleMinutes, 2f, 1440f) : 30f;
         DayCycleOffsetHours = float.IsFinite(DayCycleOffsetHours) ? ((DayCycleOffsetHours % 24f) + 24f) % 24f : 0f;
         RegionMode = RegionCatalog.NormalizeMode(RegionMode);
@@ -186,7 +186,9 @@ public sealed class AppConfig
         Preset = (Preset ?? "aurora").Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(Hotkey)) Hotkey = "F8";
         else Hotkey = Hotkey.Trim();
-        BackdropOpacity = Math.Clamp(BackdropOpacity, 0.5f, 1f);
+        // v5.3: wallpaper blocking is always on (opaque backdrop behind the taskbar) — not user-configurable.
+        BlockWallpaper = true;
+        BackdropOpacity = 1f;
 
         RgbaLow = ParseColor(ColorLow, Color.FromArgb(255, 7, 21, 38));
         RgbaMid = ParseColor(ColorMid, Color.FromArgb(255, 46, 230, 166));
@@ -194,6 +196,19 @@ public sealed class AppConfig
         RgbaBar = ParseColor(BarColor, Color.FromArgb(255, 232, 244, 255));
         EffectiveOpacity = Math.Clamp(Opacity * Intensity, 0f, 1f);
         EffectiveBarOpacity = Math.Clamp(BarOpacity * Intensity, 0f, 1f);
+    }
+
+    /// <summary>cycle (default) | real | day (fixed daytime) | night (fixed night).</summary>
+    public static string NormalizeTimeMode(string? mode)
+    {
+        var m = (mode ?? "cycle").Trim().ToLowerInvariant();
+        return m switch
+        {
+            "real" or "clock" or "thuc" or "that" or "theo gio that" or "theo giờ thật" => "real",
+            "day" or "ngay" or "ngày" or "ban ngay" or "ban ngày" or "co dinh ban ngay" or "cố định ban ngày" or "fixed-day" => "day",
+            "night" or "dem" or "đêm" or "ban dem" or "ban đêm" or "co dinh ban dem" or "cố định ban đêm" or "fixed-night" => "night",
+            _ => "cycle"
+        };
     }
 
     public static Color ParseColor(string? text, Color fallback)

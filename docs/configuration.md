@@ -81,8 +81,8 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 | `fps` | int | `30` | Khung hình/giây, kẹp 15–90. |
 | `iconSafeFade` | bool | `true` | Khoét/mờ vùng Start, icon, khay khi **không** nằm chắc chắn phía sau taskbar. |
 | `iconSafePadding` | int | `28` | Độ rộng vùng an toàn quanh icon (0–200 px, đã scale theo DPI). |
-| `blockWallpaper` | bool | `true` | Chặn ảnh nền desktop: gắn TAP + vẽ nền đặc phía sau icon. Trùng menu *Chặn ảnh nền desktop*. |
-| `backdropOpacity` | float | `1.0` | Độ đặc của nền visualizer (0.5–1.0). `1` = kín hoàn toàn, wallpaper không xuyên. |
+| `blockWallpaper` | bool | `true` | **v5.3: luôn `true`, không tùy chỉnh** — giá trị khác trong file bị bỏ qua và ghi lại thành `true`. Gắn TAP + vẽ nền đặc phía sau icon. |
+| `backdropOpacity` | float | `1.0` | **v5.3: cố định `1.0`** (kín hoàn toàn, wallpaper không xuyên); giá trị khác bị bỏ qua. |
 | `fuseIntoTaskbar` | bool | `false` | Opt-in fusion vào nền XAML. Menu khay gán cùng `blockWallpaper` / `makeTaskbarTransparent`. Mặc định tắt khi migrate config cũ (sau sự cố Explorer lúc gỡ TAP). |
 | `makeTaskbarTransparent` | bool | `false` | Yêu cầu TAP làm `BackgroundFill` trong suốt. Nên bật cùng `blockWallpaper`. |
 
@@ -113,14 +113,14 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |------|------|----------|---------|
 | `trainCrossingMinutes` | float | `1` | Số phút để đoàn tàu đi hết chiều rộng taskbar, trái → phải (0.25–240). v5.0 mặc định 25; config cũ còn `25` được tự đổi thành `1` một lần khi nâng lên v5.1. |
-| `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy. Đổi trong menu khay *Ngày & đêm*. |
+| `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy; `day` = cố định ban ngày (~10:30–12:00, dao động nhẹ); `night` = cố định ban đêm (~23:30–00:00). Giá trị lạ → `cycle`. Đổi trong portal hoặc menu khay *Ngày & đêm*. |
 | `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ (2–1440). 30 → mỗi giờ ảo = 75 giây. |
 | `dayCycleOffsetHours` | float | `0` | Dịch đồng hồ ảo (giờ, 0–24), ví dụ `6` để chu kỳ bắt đầu gần bình minh. |
 | `configVersion` | int | `51` | Phiên bản schema để migrate một lần (app tự ghi, không cần sửa). |
 | `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `default`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |
 | `showWeatherHud` | bool | `true` | Hiện thẻ nhiệt độ / trạng thái / địa điểm trên nền taskbar. Tắt thì cảnh vật vẫn đổi theo thời tiết. |
 | `weatherFollowsRegion` | bool | `false` | Khi chọn khu vực bằng tay: lấy thời tiết theo tọa độ khu vực đó thay vì vị trí máy. |
-| `tapMode` | string | `"auto"` | `auto` thử gắn TAP (bỏ qua nếu có SAC); `off` luôn dùng chế độ an toàn. |
+| `tapMode` | string | `"auto"` | Khóa ẩn để khắc phục sự cố (không có trên giao diện): `auto` thử gắn TAP (bỏ qua nếu có SAC); `off` luôn dùng chế độ an toàn. |
 | `tapTimeoutSeconds` | float | `3.5` | Thời gian tối đa chờ TAP báo Ready (1.5–8). |
 
 Ghi chú:

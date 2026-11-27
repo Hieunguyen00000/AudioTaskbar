@@ -84,7 +84,8 @@ public class UpdaterTests
     {
         using var u = new AutoUpdater("5.3.0", new MockHandler(_ => MockHandler.Status(HttpStatusCode.NotFound)));
         var r = await u.CheckAsync(Cfg());
-        Assert.Contains("Private", r.Message);
+        Assert.Equal(AutoUpdater.MsgNoRelease, r.Message);   // friendly text for users
+        Assert.Contains("Private", r.Detail);                // technical reason goes to app.log
     }
 
     [Fact]

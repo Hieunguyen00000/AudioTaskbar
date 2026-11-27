@@ -187,6 +187,9 @@ internal sealed class TrayApp : ApplicationContext
         };
         _updateTimer.Start();
 
+        AutoUpdater.CleanupOldBackup(Environment.ProcessPath);
+        if (justUpdated)
+            AutoUpdater.StampInstalledVersion(Path.GetDirectoryName(Environment.ProcessPath ?? Application.ExecutablePath) ?? "", AutoUpdater.AppVersion());
         if (justUpdated)
             NotifyBalloon("Đã cập nhật lên Audio Taskbar v" + AutoUpdater.AppVersion());
         if (!startMinimized)
@@ -273,7 +276,7 @@ internal sealed class TrayApp : ApplicationContext
         try
         {
             var r = await _updater.CheckAsync(_cfg).ConfigureAwait(true);
-            Log("Update check: " + r.Status + " — " + r.Message);
+            Log("Update check: " + r.Status + " — " + r.Message + (r.Detail.Length > 0 ? " [" + r.Detail + "]" : ""));
             _updateStage = r.Message;
             if (r.Status == UpdateStatus.UpdateAvailable && r.Info is { } info)
             {
@@ -291,7 +294,7 @@ internal sealed class TrayApp : ApplicationContext
             else if (manual && r.Status != UpdateStatus.UpToDate)
                 NotifyBalloon(r.Message);
         }
-        catch (Exception ex) { _updateStage = "Lỗi cập nhật: " + ex.Message; Log("Update error: " + ex); }
+        catch (Exception ex) { _updateStage = AutoUpdater.MsgCannotCheck; Log("Update error: " + ex); }
         finally
         {
             _updateBusy = false; _updateProgress = -1;
@@ -308,7 +311,7 @@ internal sealed class TrayApp : ApplicationContext
         if (_updateBusy) return;
         _updateBusy = true;
         try { await InstallUpdateAsync(info, requireChecksum: true).ConfigureAwait(true); }
-        catch (Exception ex) { _updateStage = "Lỗi cập nhật: " + ex.Message; Log("Update error: " + ex); }
+        catch (Exception ex) { _updateStage = "Không thể cập nhật lúc này."; Log("Update error: " + ex); }
         finally { _updateBusy = false; _updateProgress = -1; RaiseStateChanged(); }
     }
 
@@ -318,6 +321,14 @@ internal sealed class TrayApp : ApplicationContext
         RaiseStateChanged();
         var progress = new Progress<double>(p => { _updateProgress = p; RaiseStateChanged(); });
         string setup;
+        string target = Environment.ProcessPath ?? Application.ExecutablePath;
+        if (info.IsPortable && !AutoUpdater.CanWriteNextTo(target))
+        {
+            _updateStage = "Không có quyền ghi vào thư mục của ứng dụng — hãy chép AudioTaskbar.exe ra thư mục khác (ví dụ Desktop) rồi cập nhật.";
+            Log("Update: target folder not writable: " + target);
+            RaiseStateChanged();
+            return;
+        }
         try
         {
             setup = await _updater.DownloadAndVerifyAsync(info, requireChecksum, progress).ConfigureAwait(true);
@@ -329,7 +340,24 @@ internal sealed class TrayApp : ApplicationContext
             NotifyBalloon(ex.Message);
             return;
         }
+        catch (HttpRequestException ex)
+        {
+            _updateStage = "Không tải được bản cập nhật lúc này.";
+            Log("Update download failed: " + ex.Message);
+            return;
+        }
         Log("Update: downloaded and verified " + setup + " (sha256 " + (info.Sha256 ?? "n/a") + ").");
+        if (info.IsPortable)
+        {
+            // v5.3 single-exe update: apply-update.cmd waits for this process to exit cleanly (TAP restore,
+            // Explorer untouched), swaps AudioTaskbar.exe atomically (.old backup + rollback) and relaunches it.
+            _updateStage = "Đang cập nhật lên v" + info.Version + " (app sẽ tự khởi động lại)…";
+            RaiseStateChanged();
+            var script = _updater.StartPortableApply(setup, target, _logPath);
+            Log("Update: " + script + " started for " + target + " — exiting for the swap.");
+            ExitApp();
+            return;
+        }
         string exeDir = Path.GetDirectoryName(Application.ExecutablePath) ?? AppContext.BaseDirectory;
         var args = AutoUpdater.BuildInstallerArguments(exeDir, AutoUpdater.InstalledLocation());
         _updateStage = "Đang cài v" + info.Version + " (app sẽ tự khởi động lại)…";
@@ -376,6 +404,8 @@ internal sealed class TrayApp : ApplicationContext
         }
         addTime("cycle", () => "Chu kỳ " + _cfg.DayCycleMinutes.ToString("0.#") + " phút (1 ngày)");
         addTime("real", () => "Theo giờ thật");
+        addTime("day", () => "Cố định ban ngày");
+        addTime("night", () => "Cố định ban đêm");
         menu.Items.Add(timeMenu);
 
         var region = new ToolStripMenuItem("Khu vực & Cảnh vật");
@@ -442,18 +472,7 @@ internal sealed class TrayApp : ApplicationContext
         };
         menu.Items.Add(refresh);
 
-        var fusion = MakeToggle("Chặn ảnh nền desktop",
-            () => _cfg.BlockWallpaper || (_cfg.FuseIntoTaskbar && _cfg.MakeTaskbarTransparent),
-            v =>
-            {
-                _cfg.BlockWallpaper = v;
-                _cfg.FuseIntoTaskbar = v;
-                _cfg.MakeTaskbarTransparent = v;
-                Persist();
-                if (v) TryEnableFusion(initial: false, force: true);
-                else DisableFusion();
-            });
-        menu.Items.Add(fusion);
+        // v5.3: wallpaper blocking is always on (not user-configurable) — no tray toggle.
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Tải lại cấu hình", null, (_, _) => ReloadConfig());

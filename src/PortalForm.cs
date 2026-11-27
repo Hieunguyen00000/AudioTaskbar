@@ -30,8 +30,6 @@ internal sealed class PortalForm : Form
     private readonly ComboBox _hotkey = Combo();
     private readonly Label _hotkeyNote = new() { AutoSize = true };
     private readonly CheckBox _autostart = Check("Khởi động cùng Windows");
-    private readonly CheckBox _tap = Check("Hòa nền phía sau icon (TAP)");
-    private readonly Label _tapNote = new() { AutoSize = true, MaximumSize = new Size(400, 0) };
     private readonly CheckBox _autoUpdate = Check("Tự động kiểm tra cập nhật");
     private readonly CheckBox _startMin = Check("Mở ẩn xuống khay (không hiện cửa sổ này)");
     private readonly Label _updVersion = new() { AutoSize = true };
@@ -50,7 +48,7 @@ internal sealed class PortalForm : Form
         ("live", "Thực tế"), ("sunny", "Nắng đẹp"), ("cloudy", "Mây trôi"), ("rain", "Mưa rào"),
         ("storm", "Giông bão"), ("snow", "Tuyết rơi"), ("night", "Đêm sao")
     };
-    private static readonly (string Id, string Label)[] Times = { ("cycle", "Chu kỳ 30 phút"), ("real", "Theo giờ thật") };
+    private static readonly (string Id, string Label)[] Times = { ("cycle", "Chu kỳ 30 phút"), ("real", "Theo giờ thật"), ("day", "Cố định ban ngày"), ("night", "Cố định ban đêm") };
     private static readonly string[] Hotkeys = { "F8", "F9", "Ctrl+Alt+F8", "Ctrl+Shift+F8" };
 
     public PortalForm(TrayApp host)
@@ -207,10 +205,7 @@ internal sealed class PortalForm : Form
         hk.Controls.Add(_hotkeyNote);
         Row(g, "Phím tắt bật/tắt", hk);
         Full(g, _autostart);
-        Full(g, _tap);
-        _tapNote.ForeColor = _p.Sub;
-        _tapNote.Font = new Font("Segoe UI", 8.5f);
-        Full(g, _tapNote);
+        // v5.3: wallpaper blocking / behind-icon blending is always on — no user toggle.
         Full(g, _autoUpdate);
         Full(g, _startMin);
         return card;
@@ -298,11 +293,6 @@ internal sealed class PortalForm : Form
             catch (Exception ex) { MessageBox.Show(this, "Không ghi được khóa khởi động: " + ex.Message, "Audio Taskbar"); }
             SyncFromHost();
         };
-        _tap.CheckedChanged += (_, _) =>
-        {
-            if (_syncing) return;
-            _host.Mutate(c => c.TapMode = _tap.Checked ? "auto" : "off", fusion: true);
-        };
         _autoUpdate.CheckedChanged += (_, _) => Apply(c => c.AutoUpdateEnabled = _autoUpdate.Checked);
         _startMin.CheckedChanged += (_, _) => Apply(c => c.StartMinimized = _startMin.Checked);
         _updCheck.Click += async (_, _) => await _host.CheckForUpdatesAsync(manual: true);
@@ -362,20 +352,10 @@ internal sealed class PortalForm : Form
             _hotkeyNote.ForeColor = _host.HotkeyOk ? _p.Ok : _p.Danger;
 
             _autostart.Checked = AutoStart.IsEnabled();
-            var blocker = _host.TapBlocker;
-            bool sac = blocker is not null && blocker.Contains("smart", StringComparison.OrdinalIgnoreCase);
-            _tap.Checked = c.TapMode != "off" && !sac;
-            _tap.Enabled = !sac;
-            _tapNote.Text = sac
-                ? "Smart App Control đang bật: Windows chặn DLL chưa ký trong Explorer, app dùng chế độ an toàn (khoét quanh icon)."
-                : blocker is not null
-                    ? "TAP tạm tắt cho phiên này (" + blocker + "). Bật lại sau khi khởi động lại app."
-                    : "Cảnh vật nằm sau icon, nền taskbar trong suốt. Tắt để dùng chế độ an toàn.";
             _autoUpdate.Checked = c.AutoUpdateEnabled;
             _startMin.Checked = c.StartMinimized;
 
-            _updVersion.Text = "Phiên bản hiện tại: v" + AutoUpdater.AppVersion()
-                               + (c.UpdateFeedUrl.Length > 0 ? "  ·  feed riêng" : "  ·  github.com/" + c.UpdateRepo);
+            _updVersion.Text = "Phiên bản hiện tại: v" + AutoUpdater.AppVersion();
             var last = _host.Updater.LastResult;
             _updStatus.Text = _host.UpdateBusy || _host.UpdateStage.Length > 0 && last is null
                 ? _host.UpdateStage

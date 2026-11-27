@@ -1,5 +1,6 @@
 # One-command local release (run on the dev PC from the repo root):
-#   .\scripts\publish-release.ps1                 # build + test + installer + SHA256SUMS + latest.json, then upload
+#   .\scripts\publish-release.ps1                 # test + AudioTaskbar.exe (+ optional Setup) + SHA256SUMS + latest.json, then upload
+# Primary asset (v5.3): the single self-contained AudioTaskbar.exe — users double-click it, the app updates itself.
 #   .\scripts\publish-release.ps1 -NoUpload       # everything except creating the GitHub Release
 #
 # Version = <Version> in src\AudioTaskbar.csproj (bump it first and commit).
@@ -13,6 +14,7 @@ param(
     [switch]$NoUpload,
     [switch]$SkipTests,
     [switch]$Draft,
+    [switch]$WithSetup,
     [string]$Notes = ""
 )
 $ErrorActionPreference = "Stop"
@@ -35,15 +37,20 @@ if (-not $SkipTests) {
 }
 & powershell -ExecutionPolicy Bypass -File "scripts\build.ps1"
 if ($LASTEXITCODE -ne 0) { throw "build.ps1 failed" }
-& powershell -ExecutionPolicy Bypass -File "scripts\build-installer.ps1" -Version $version
-if ($LASTEXITCODE -ne 0) { throw "build-installer.ps1 failed" }
+if ($WithSetup) {
+    & powershell -ExecutionPolicy Bypass -File "scripts\build-installer.ps1" -Version $version
+    if ($LASTEXITCODE -ne 0) { throw "build-installer.ps1 failed" }
+}
 
 $out = Join-Path $root "installer-output"
 $setup = Join-Path $out "AudioTaskbar-Setup-$version.exe"
 $exe = Join-Path $root "release\AudioTaskbar.exe"
 if ([string]::IsNullOrWhiteSpace($Notes)) { $Notes = "Audio Taskbar $tag" }
-& powershell -ExecutionPolicy Bypass -File "scripts\make-release-manifest.ps1" -Version $version -SetupPath $setup -ExePath $exe -OutDir $out -Repo $Repo -Notes $Notes
-$assets = @($setup, (Join-Path $out "SHA256SUMS.txt"), (Join-Path $out "latest.json"))
+$mArgs = @("-Version", $version, "-ExePath", $exe, "-OutDir", $out, "-Repo", $Repo, "-Notes", $Notes)
+if ($WithSetup) { $mArgs += @("-SetupPath", $setup) }
+& powershell -ExecutionPolicy Bypass -File "scripts\make-release-manifest.ps1" @mArgs
+$assets = @($exe, (Join-Path $out "SHA256SUMS.txt"), (Join-Path $out "latest.json"))
+if ($WithSetup) { $assets += $setup }
 
 if ($NoUpload) {
     Write-Host "`nBuilt (not uploaded):"; $assets | ForEach-Object { Write-Host "  $_" }
