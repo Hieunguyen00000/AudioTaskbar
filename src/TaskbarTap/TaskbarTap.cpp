@@ -1,5 +1,5 @@
 // TaskbarTap.cpp
-// Clean-room helper for Audio Taskbar v3.
+// Clean-room helper for Audio Taskbar (v2 protocol since 5.1.1: persistent, reusable).
 // Uses the documented XAML Diagnostics API (xamlom.h / InitializeXamlDiagnosticsEx)
 // to make the Windows 11 taskbar background fill transparent.
 //
@@ -35,6 +35,12 @@ static const wchar_t kStopEvent[]    = L"Local\\AudioTaskbar.Tap.Stop";
 static const wchar_t kStoppedEvent[] = L"Local\\AudioTaskbar.Tap.Stopped";
 static const wchar_t kAppliedEvent[] = L"Local\\AudioTaskbar.Tap.Applied";
 static const wchar_t kApplyEvent[]    = L"Local\\AudioTaskbar.Tap.Apply";
+// v2 (AudioTaskbar 5.1.1): the TAP is a persistent in-Explorer service. While this event
+// exists the watcher is alive and can be re-enabled with Apply — the host must NOT call
+// InitializeXamlDiagnosticsEx again for this Explorer.
+static const wchar_t kAliveEvent[]    = L"Local\\AudioTaskbar.Tap.Alive2";
+static const wchar_t kRestoredEvent[] = L"Local\\AudioTaskbar.Tap.Restored";
+static HANDLE g_alive = nullptr;
 
 static LONG g_locks = 0;
 static HINSTANCE g_hinst = nullptr;
@@ -115,6 +121,7 @@ struct PatchRecord
     bool originalWasNull;
     bool isFill;          // else Visibility
     bool active;
+    bool removed;         // element left the tree: never touch its handle again
 };
 
 static const int kMaxPatches = 32;
@@ -126,7 +133,7 @@ class TreeWatcher : public IVisualTreeServiceCallback2
 {
 public:
     TreeWatcher() : m_ref(1), m_diag(nullptr), m_svc(nullptr),
-                    m_patchCount(0), m_loggedNames(0), m_advised(false) {}
+                    m_patchCount(0), m_loggedNames(0), m_advised(false), m_enabled(true) {}
 
     void Init(IXamlDiagnostics* diag, IVisualTreeService* svc)
     {
@@ -146,13 +153,16 @@ public:
         return hr;
     }
 
+    bool Enabled() const { return m_enabled; }
+
     void RestoreAll()
     {
+        m_enabled = false; // new BackgroundFill elements are only remembered until Apply
         if (!m_svc) return;
         for (int i = 0; i < m_patchCount; ++i)
         {
             PatchRecord& r = m_patches[i];
-            if (!r.active) continue;
+            if (!r.active || r.removed) continue;
             if (r.originalWasNull)
                 m_svc->ClearProperty(r.element, r.propIndex);
             else
@@ -161,15 +171,19 @@ public:
         }
         Log(L"Restored %d patched element(s).", m_patchCount);
         WriteStatus(L"restored", 0, L"");
+        HANDLE ev = OpenEventW(EVENT_MODIFY_STATE, FALSE, kRestoredEvent);
+        if (ev) { SetEvent(ev); CloseHandle(ev); }
     }
 
     void ReapplyAll()
     {
+        m_enabled = true;
         if (!m_svc) return;
         int n = 0;
         for (int i = 0; i < m_patchCount; ++i)
         {
             PatchRecord& r = m_patches[i];
+            if (r.removed) continue;
             InstanceHandle val = 0;
             HRESULT hr = r.isFill
                 ? CreateTransparentBrush(L"Windows.UI.Xaml.Shapes.Rectangle", &val)
@@ -242,7 +256,10 @@ public:
             for (int i = 0; i < m_patchCount; ++i)
             {
                 if (m_patches[i].element == element.Handle)
+                {
                     m_patches[i].active = false;
+                    m_patches[i].removed = true;
+                }
             }
             return S_OK;
         }
@@ -265,6 +282,17 @@ public:
         bool isFill = (lstrcmpiW(name, L"BackgroundFill") == 0);
         bool isStroke = (lstrcmpiW(name, L"BackgroundStroke") == 0);
         if (!isFill && !isStroke) return S_OK;
+
+        if (!m_enabled)
+        {
+            // Host is not running (or asked for restore): remember the element so a later
+            // Apply can patch it, but leave the stock taskbar background untouched.
+            unsigned int idx = 0;
+            HRESULT fh = FindProperty(element.Handle, isFill ? L"Fill" : L"Visibility", &idx);
+            if (SUCCEEDED(fh)) RememberOnly(element.Handle, idx, isFill);
+            Log(L"Remembered %s while disabled.", name);
+            return S_OK;
+        }
 
         HRESULT hr = isFill ? PatchFill(element, type) : PatchStroke(element);
         if (SUCCEEDED(hr))
@@ -357,13 +385,39 @@ private:
         return hr;
     }
 
+    void Compact()
+    {
+        int w = 0;
+        for (int i = 0; i < m_patchCount; ++i)
+            if (!m_patches[i].removed) m_patches[w++] = m_patches[i];
+        m_patchCount = w;
+    }
+
+    void RememberOnly(InstanceHandle element, unsigned int index, bool isFill)
+    {
+        for (int i = 0; i < m_patchCount; ++i)
+            if (m_patches[i].element == element && m_patches[i].propIndex == index && !m_patches[i].removed)
+                return;
+        if (m_patchCount >= kMaxPatches) Compact();
+        if (m_patchCount >= kMaxPatches) return;
+        PatchRecord rec{};
+        rec.element = element;
+        rec.propIndex = index;
+        rec.originalWasNull = true;
+        rec.isFill = isFill;
+        rec.active = false;
+        rec.removed = false;
+        m_patches[m_patchCount++] = rec;
+    }
+
     HRESULT RememberAndSet(InstanceHandle element, unsigned int index, InstanceHandle newValue, bool isFill)
     {
+        if (m_patchCount >= kMaxPatches) Compact();
         if (m_patchCount >= kMaxPatches) return E_OUTOFMEMORY;
         // Avoid double-patching the same element.
         for (int i = 0; i < m_patchCount; ++i)
         {
-            if (m_patches[i].element == element && m_patches[i].propIndex == index)
+            if (m_patches[i].element == element && m_patches[i].propIndex == index && !m_patches[i].removed)
             {
                 if (!m_patches[i].active)
                 {
@@ -461,6 +515,7 @@ private:
     int m_patchCount;
     int m_loggedNames;
     bool m_advised;
+    volatile bool m_enabled;
 };
 
 class TapSite : public IObjectWithSite
@@ -598,6 +653,9 @@ private:
         HANDLE evApply = CreateEventW(nullptr, TRUE, FALSE, kApplyEvent);
         HANDLE evStop = CreateEventW(nullptr, TRUE, FALSE, kStopEvent);
         HANDLE handles[3] = { evRestore, evApply, evStop };
+        // Persistent-service marker: lives as long as this worker (and Explorer) does.
+        if (!g_alive) g_alive = CreateEventW(nullptr, TRUE, FALSE, kAliveEvent);
+        Log(L"TAP service alive (v2, reusable across host restarts).");
         for (;;)
         {
             DWORD w = WaitForMultipleObjects(3, handles, FALSE, 500);
@@ -620,6 +678,7 @@ private:
                 break;
             }
         }
+        if (g_alive) { CloseHandle(g_alive); g_alive = nullptr; }
         Log(L"Watcher shutdown before detach.");
         if (self->m_watcher) self->m_watcher->Shutdown();
         if (evRestore) CloseHandle(evRestore);

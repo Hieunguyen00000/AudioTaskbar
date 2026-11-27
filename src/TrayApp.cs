@@ -80,7 +80,7 @@ internal sealed class TrayApp : ApplicationContext
         _cfg.Normalize();
         _layout = new TaskbarLayoutProbe(Log);
         _layout.Changed += () => _layoutDirty = true;
-        Log("Start v5.1. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
+        Log("Start v5.1.1. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
             + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) traffic=" + _cfg.ShowCyclist
             + " region=" + _cfg.RegionMode + " hud=" + _cfg.ShowWeatherHud
@@ -770,13 +770,6 @@ internal sealed class TrayApp : ApplicationContext
             SafeMode();
             return;
         }
-        if (pidNow != 0 && TaskbarTapHost.ExplorerHasTapModule(pidNow))
-        {
-            _tapFailedPid = pidNow;
-            Log("Fusion: Explorer PID " + pidNow + " already holds a TaskbarTap copy from an earlier run — not loading a second copy (it can crash Explorer). UIA icon-safe mode; restart Explorer or sign out to re-enable fused mode.");
-            SafeMode();
-            return;
-        }
         if (_attachInFlight) return;
         _attachInFlight = true;
         SafeMode(); // icon-safe immediately while we try, never a blank/blocked bar
@@ -820,7 +813,7 @@ internal sealed class TrayApp : ApplicationContext
             _fused = true;
             _tapAttachedAt = DateTime.Now;
             _transparency.Effective = true;
-            Log("Fusion: TAP attached — visualizer will sit behind the taskbar.");
+            Log("Fusion: TAP " + (_tap.Reused ? "re-enabled (reused in-Explorer service, explorer PID " + _tap.LastExplorerPid + ")" : "attached (first injection, explorer PID " + _tap.LastExplorerPid + ")") + " — visualizer sits behind the taskbar.");
             foreach (var o in _overlays) o.ReassertZ(true);
             HideBackdrops();
             WatchBehindZ();

@@ -19,6 +19,9 @@ internal sealed class TaskbarTapHost : IDisposable
     private const string StoppedName = "Local\\AudioTaskbar.Tap.Stopped";
     private const string AppliedName = "Local\\AudioTaskbar.Tap.Applied";
     private const string ApplyName = "Local\\AudioTaskbar.Tap.Apply";
+    /// <summary>Created by a v2 TAP worker inside Explorer; exists while that service is alive.</summary>
+    private const string AliveName = "Local\\AudioTaskbar.Tap.Alive2";
+    private const string RestoredName = "Local\\AudioTaskbar.Tap.Restored";
 
     private EventWaitHandle? _ready;
     private EventWaitHandle? _restore;
@@ -26,6 +29,7 @@ internal sealed class TaskbarTapHost : IDisposable
     private EventWaitHandle? _stopped;
     private EventWaitHandle? _applied;
     private EventWaitHandle? _apply;
+    private EventWaitHandle? _restored;
     private int _explorerPid;
     private bool _attached;
     private string _status = "idle";
@@ -34,6 +38,15 @@ internal sealed class TaskbarTapHost : IDisposable
     private ManualResetEventSlim? _diagKeepAlive;
 
     public bool IsAttached => _attached;
+    /// <summary>True when the current attach reused a TAP already living in Explorer (no new injection).</summary>
+    public bool Reused { get; private set; }
+
+    /// <summary>A reusable (v2) TaskbarTap service is alive inside the current Explorer.</summary>
+    public static bool TapServiceAlive()
+    {
+        if (EventWaitHandle.TryOpenExisting(AliveName, out var ev)) { ev.Dispose(); return true; }
+        return false;
+    }
     public string Status => _status;
     public int LastExplorerPid => _explorerPid;
 
@@ -189,7 +202,9 @@ internal sealed class TaskbarTapHost : IDisposable
 
     public bool Attach(Action<string> log)
     {
-        DetachInternal(restoreFirst: false, log, fast: true);
+        // Never stop/unload a living TAP: just drop our handles from any previous attach.
+        ReleaseHandles();
+        Reused = false;
         var blocker = DetectTapBlocker();
         if (blocker is not null)
         {
@@ -210,6 +225,17 @@ internal sealed class TaskbarTapHost : IDisposable
             }
             _explorerPid = pid.Value;
             log("TAP: explorer PID " + _explorerPid);
+
+            // v2: a TAP service from an earlier run is still inside this Explorer → re-enable it
+            // over IPC. Calling InitializeXamlDiagnosticsEx a second time can crash Explorer.
+            if (TapServiceAlive())
+                return ReuseExisting(log);
+            if (ExplorerHasTapModule(_explorerPid))
+            {
+                _status = "stale-legacy-tap";
+                log("TAP: Explorer holds an older (non-reusable) TaskbarTap copy — not injecting again. Restart Explorer once to enable the reusable TAP.");
+                return false;
+            }
 
             _ready = CreateOrOpen(ReadyName, out _);
             _restore = CreateOrOpen(RestoreName, out _);
@@ -330,13 +356,49 @@ internal sealed class TaskbarTapHost : IDisposable
         }
     }
 
+    private bool ReuseExisting(Action<string> log)
+    {
+        try
+        {
+            _restore = CreateOrOpen(RestoreName, out _);
+            _apply = CreateOrOpen(ApplyName, out _);
+            _applied = CreateOrOpen(AppliedName, out _);
+            _restored = CreateOrOpen(RestoredName, out _);
+            _applied.Reset();
+            _restore.Reset();
+            var sw = Stopwatch.StartNew();
+            _apply.Set();
+            bool acked = _applied.WaitOne(TimeSpan.FromSeconds(2.5));
+            Thread.Sleep(150);
+            var (state, patched, error) = ReadStatus();
+            log($"TAP: reused existing in-Explorer TAP (no new injection) — ack={acked} in {sw.ElapsedMilliseconds} ms, state={state} patched={patched} {error}");
+            if (patched <= 0)
+            {
+                _status = "reuse-unpatched";
+                return false;
+            }
+            _attached = true;
+            Reused = true;
+            _status = "reused-patched-" + patched;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _status = "reuse-exception";
+            log("TAP reuse exception: " + ex.Message);
+            return false;
+        }
+    }
+
     public void RequestRestore(Action<string> log)
     {
         try
         {
+            _restored ??= CreateOrOpen(RestoredName, out _);
+            _restored.Reset();
             _restore?.Set();
-            Thread.Sleep(300);
-            log("TAP: restore signaled.");
+            bool ok = _restored.WaitOne(TimeSpan.FromSeconds(1.5));
+            log(ok ? "TAP: taskbar background restored (TAP stays loaded for the next run)." : "TAP: restore signaled.");
         }
         catch (Exception ex) { log("TAP restore: " + ex.Message); }
     }
@@ -354,27 +416,23 @@ internal sealed class TaskbarTapHost : IDisposable
 
     public void Detach(Action<string> log) => DetachInternal(restoreFirst: true, log);
 
+    /// <summary>
+    /// v2: "detach" restores the stock taskbar fill but leaves the TAP service running inside
+    /// Explorer (it cannot be unloaded safely anyway). The next app start re-enables it over IPC.
+    /// Stop is never signalled any more.
+    /// </summary>
     private void DetachInternal(bool restoreFirst, Action<string> log, bool fast = false)
     {
         try
         {
-            if (fast)
-            {
-                _stop?.Set();
-                _diagKeepAlive?.Set();
-            }
-            else
-            {
-                if (restoreFirst) RequestRestore(log);
-                Thread.Sleep(400); // let Explorer paint the restored fill before we unadvise
-                _stop?.Set();
-                _stopped?.WaitOne(TimeSpan.FromSeconds(2.5));
-                Thread.Sleep(150);
-                _diagKeepAlive?.Set();
-            }
+            if (restoreFirst && !fast) RequestRestore(log);
         }
         catch (Exception ex) { log("TAP detach: " + ex.Message); }
-        finally
+        finally { ReleaseHandles(); }
+    }
+
+    private void ReleaseHandles()
+    {
         {
             _attached = false;
             _ready?.Dispose(); _ready = null;
@@ -383,6 +441,7 @@ internal sealed class TaskbarTapHost : IDisposable
             _stopped?.Dispose(); _stopped = null;
             _applied?.Dispose(); _applied = null;
             _apply?.Dispose(); _apply = null;
+            _restored?.Dispose(); _restored = null;
         }
     }
 

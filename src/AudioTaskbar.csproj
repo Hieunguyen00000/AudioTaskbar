@@ -11,7 +11,7 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
     <AssemblyName>AudioTaskbar</AssemblyName>
     <RootNamespace>AudioTaskbar</RootNamespace>
-    <Version>5.1.0</Version>
+    <Version>5.1.1</Version>
     <Product>Audio Taskbar</Product>
     <Description>Living regional weather diorama for the Windows taskbar (icon-safe at any DPI). Toggle with F8.</Description>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

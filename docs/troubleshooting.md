@@ -40,12 +40,15 @@ Không chạy đồng thời Windhawk Taskbar Styler, TranslucentTB, hoặc Visu
 ## TAP không gắn / log báo `blocked-smart-app-control` hoặc `blocked-code-integrity`
 Smart App Control (hoặc chính sách WDAC) chặn `TaskbarTap.dll` chưa ký trong Explorer. v5 tự chuyển chế độ an toàn ngay (không còn chờ 15–20 s mỗi lần F8). Nếu bản exe mới cũng bị chặn chạy (Event Viewer → Applications and Services Logs → Microsoft → Windows → CodeIntegrity → Operational, sự kiện 3077/3033): ký số exe, hoặc tắt SAC trong Windows Security → App & browser control → Smart App Control (không bật lại được nếu không reset Windows).
 
-## Explorer bị khởi động lại khi bật lại app (TaskbarTap trong Explorer)
-Nạp **bản thứ hai** của `TaskbarTap.dll` vào cùng một Explorer (tắt app rồi bật lại khi Explorer vẫn còn bản cũ) có thể làm Explorer crash (`Application Error` 1000, module `TaskbarTap-xxxx.dll`). Từ v5.1:
-- App kiểm tra module của Explorer; nếu đã có `TaskbarTap*` thì **không** nạp thêm, dùng chế độ an toàn (khoét icon bằng UIA + nền chặn wallpaper). Log: `already holds a TaskbarTap copy`.
+## Dải xám che cảnh vật ở giữa taskbar / Explorer khởi động lại khi bật lại app
+**Triệu chứng (v5.1.0):** sau khi tắt rồi bật lại app, cảnh vật bị một dải nền xám của Windows cắt ngang quanh Start/Search/icon và khay hệ thống.
+**Nguyên nhân:** `TaskbarTap.dll` không gỡ được khỏi Explorer. Nạp thêm một bản thứ hai (`InitializeXamlDiagnosticsEx` lần nữa) có thể làm Explorer crash, nên v5.1.0 rơi về chế độ an toàn: khoét cả cụm icon, để lộ nền xám.
+**Từ v5.1.1 (giao thức TAP v2):**
+- TAP là một dịch vụ thường trú trong Explorer, đánh dấu bằng sự kiện `Local\AudioTaskbar.Tap.Alive2`.
+- Khi app khởi động mà dịch vụ đã sống: app **không** inject lại, chỉ gửi `Apply`, chờ `Applied` (`state=patched`), rồi đặt cảnh ngay sau `Shell_TrayWnd`. Log: `reused existing in-Explorer TAP`.
+- Khi app thoát (Thoát / `stop.ps1`): gửi `Restore` (nền taskbar gốc trở lại, chờ `Restored`), **không** gửi `Stop`, DLL ở lại để lần sau dùng tiếp.
+- Mỗi Explorer chỉ inject đúng **một lần**. Nếu Explorer đang giữ bản TAP cũ (trước 5.1.1, không tái sử dụng được) app ghi `stale-legacy-tap` và dùng chế độ an toàn; khởi động lại Explorer **một lần** (Task Manager → Windows Explorer → Restart) là xong.
 - Nếu Explorer thoát trong 90 s sau khi gắn TAP, app tắt TAP cho phiên đó (không lặp crash).
-- `stop.bat` / `scripts\stop.ps1` yêu cầu app thoát sạch (sự kiện `Local\AudioTaskbar.Cmd.Exit`) thay vì kill.
-Muốn quay lại chế độ hòa nền: khởi động lại Explorer (Task Manager → Windows Explorer → Restart) hoặc đăng xuất/đăng nhập, rồi bật app.
 
 ## Phím F8 không bật/tắt được
 

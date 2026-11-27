@@ -1,6 +1,8 @@
-# Audio Taskbar v5.1
+# Audio Taskbar v5.1.1
 
 Ứng dụng Windows nhỏ vẽ một **diorama thời tiết sống** (48px) ngay trên nền thanh taskbar: bầu trời đổi theo giờ trong ngày, mây/mưa/sấm, tàu hỏa chạy trái → phải, người đi xe đạp, chim, đèn phố, đom đóm… Hiệu ứng nằm **phía sau** icon nên nút Start, Search, app đang chạy và khay hệ thống vẫn sắc, bấm bình thường.
+
+**Mới ở v5.1.1:** `TaskbarTap.dll` thành dịch vụ thường trú tái sử dụng trong Explorer — tắt/bật app bao nhiêu lần cũng hòa nền liền mạch phía sau toàn bộ taskbar (không còn dải xám quanh icon), không inject lại, không làm Explorer khởi động lại. Xem [troubleshooting](docs/troubleshooting.md).
 
 **Mới ở v5.1:** tàu chạy nhanh hơn — 1 phút/lượt (`trainCrossingMinutes: 1`); **chu kỳ ngày–đêm tăng tốc** mặc định 30 phút thật = 1 ngày 24 giờ (`timeMode: "cycle"`, `dayCycleMinutes: 30`), bầu trời, ánh sáng, đèn cửa sổ / đèn phố / đèn tàu, sao và đom đóm chuyển mượt liên tục (đêm → bình minh → sáng → trưa → chiều → hoàng hôn → chạng vạng → đêm); **mặt trời và mặt trăng đi theo cung** từ trái (đông) lên đỉnh rồi xuống phải (tây) — mặt trời 05:30–18:30 (cam vàng lúc mọc/lặn, trắng ấm buổi trưa), mặt trăng 18:30–05:30 (đỉnh lúc 00:00, có quầng sáng). Chuyển giữa *Chu kỳ 30 phút* và *Theo giờ thật* trong menu khay.
 

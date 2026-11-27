@@ -1,4 +1,4 @@
-# Kiến trúc Audio Taskbar v5.1
+# Kiến trúc Audio Taskbar v5.1.1
 
 Audio Taskbar gồm hai phần:
 
@@ -115,6 +115,17 @@ v5 chạy `TaskbarLayoutProbe` trên một luồng MTA nền, mỗi ~400 ms:
 `Regions.cs` chứa 7 hồ sơ (`RegionCatalog`) với tọa độ, danh lam, skyline nền, bảng giao thông đường bộ / đường thủy. `Resolve` ưu tiên: chọn tay → `weatherCity` → tên địa điểm thời tiết (bỏ dấu) → hộp tọa độ. `Scenery.cs` dựng skyline + danh lam vào khoảng trống theo độ ưu tiên và vẽ: nền xa, mặt nước & thuyền, danh lam (đèn, cửa sổ, hiệu ứng như hải đăng quét, cầu Rồng phun lửa mỗi 45 s, Eiffel lấp lánh), làn xe gần (trái → phải) / xa (phải → trái), cánh hoa.
 
 Đoàn tàu: `x = phase0 + t / (trainCrossingMinutes·60)`, `phase0` đặt vào khoảng trống rộng nhất để thấy ngay; bánh xe quay theo quãng đường, khói nhẹ 0,45 s/lần.
+
+## v5.1.1: TAP thường trú, tái sử dụng (giao thức v2)
+
+| Sự kiện (Local\\) | Tạo bởi | Ý nghĩa |
+|---|---|---|
+| `AudioTaskbar.Tap.Alive2` | DLL (worker) | Dịch vụ TAP v2 còn sống trong Explorer → không được inject lại |
+| `AudioTaskbar.Tap.Apply` / `Applied` | DLL / host | Bật lại nền trong suốt (ReapplyAll) / xác nhận |
+| `AudioTaskbar.Tap.Restore` / `Restored` | DLL / host | Trả nền taskbar gốc (RestoreAll, tắt patch phần tử mới) / xác nhận |
+| `AudioTaskbar.Tap.Stop` | DLL | Chỉ còn để tương thích, host v5.1.1 không dùng |
+
+Khi đang ở trạng thái Restore, watcher vẫn theo dõi cây XAML và **ghi nhớ** `BackgroundFill`/`BackgroundStroke` mới (không patch), để lần Apply sau áp dụng đúng phần tử hiện tại; phần tử bị gỡ khỏi cây được đánh dấu `removed` và không bao giờ bị chạm lại. Host: `Attach()` → nếu `Alive2` tồn tại thì `ReuseExisting()`; nếu Explorer có module `TaskbarTap*` cũ thì từ chối (`stale-legacy-tap`); còn lại mới gọi `InitializeXamlDiagnosticsEx`.
 
 ## v5.1: đồng hồ cảnh và thiên thể
 
