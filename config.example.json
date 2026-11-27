@@ -38,5 +38,12 @@
   "tapTimeoutSeconds": 3.5,
   "timeMode": "cycle",
   "dayCycleMinutes": 30,
-  "dayCycleOffsetHours": 0
+  "dayCycleOffsetHours": 0,
+  // v5.3: bảng điều khiển + tự động cập nhật
+  "startMinimized": false,
+  "autoUpdateEnabled": true,
+  "autoUpdateSilentInstall": true,
+  "updateRepo": "Hieunguyen00000/AudioTaskbar",
+  // URL http(s) tới latest.json tĩnh; để trống = dùng GitHub Releases của updateRepo
+  "updateFeedUrl": ""
 }

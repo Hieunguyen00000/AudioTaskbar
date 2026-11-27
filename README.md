@@ -1,6 +1,13 @@
-# Audio Taskbar v5.2.0
+# Audio Taskbar v5.3.0
 
 Ứng dụng Windows nhỏ vẽ một **diorama thời tiết sống** (48px) ngay trên nền thanh taskbar: bầu trời đổi theo giờ trong ngày, mây/mưa/sấm, tàu hỏa chạy trái → phải, người đi xe đạp, chim, đèn phố, đom đóm… Hiệu ứng nằm **phía sau** icon nên nút Start, Search, app đang chạy và khay hệ thống vẫn sắc, bấm bình thường.
+
+**Mới ở v5.3.0 — Bảng điều khiển kiểu UniKey + tự động cập nhật:**
+
+- **Bảng điều khiển (portal):** nhấp đúp icon khay (hoặc mở `AudioTaskbar.exe` lần nữa) để mở cửa sổ gọn giống UniKey. Có nút lớn **Bật / Tắt** (đồng bộ với F8 và menu khay), thẻ *Cảnh vật & Thời tiết* (khu vực, xem trước thời tiết, ngày & đêm, thẻ thời tiết, tàu hỏa + số phút/lượt, phương tiện, chi tiết nền, hiệu ứng thời tiết), thẻ *Hệ thống* (phím tắt F8 / F9 / Ctrl+Alt+F8 / Ctrl+Shift+F8, Khởi động cùng Windows, Mở ẩn xuống khay, Hòa nền phía sau icon (TAP), Tự động kiểm tra cập nhật) và thẻ *Cập nhật*. Mọi thay đổi áp dụng ngay và được lưu.
+- **Đóng (✕) chỉ ẩn xuống khay**, ứng dụng vẫn chạy; nút **Kết thúc (Thoát)** mới thoát hẳn và trả lại taskbar gốc. Chỉ chạy **một** bản: mở lần hai sẽ đưa bảng điều khiển lên. `--minimized` (dùng khi khởi động cùng Windows) chạy im lặng dưới khay.
+- **Tự động cập nhật:** 10 giây sau khi mở và mỗi 6 giờ, app đọc GitHub Release mới nhất (hoặc `updateFeedUrl`), so SemVer, tải `AudioTaskbar-Setup-x.y.z.exe` vào `%LOCALAPPDATA%\AudioTaskbar\updates`, **bắt buộc khớp SHA-256** (`SHA256SUMS.txt` / `latest.json`), rồi cài im lặng (`/S`) và tự mở lại dưới khay kèm thông báo *“Đã cập nhật lên Audio Taskbar vX.Y.Z”*. Bản portable được nâng cấp tại chỗ. Xem [Phát hành & tự cập nhật](docs/development.md#6-phát-hành--tự-động-cập-nhật).
+- **Bộ test hồi quy** `tests/AudioTaskbar.Tests` (xUnit, `dotnet test`) chặn các lỗi khi dùng: config hỏng, mạng lỗi, nhảy vị trí, toán khoét icon / DPI, phím tắt, cập nhật giả mạo, TAP chèn hai lần.
 
 **Mới ở v5.2.0 — Tuyết rơi ❄:** thời tiết tuyết thật (mã WMO 71/73/75/77/85/86 → *Tuyết nhẹ* / *Tuyết rơi* / *Tuyết dày*, thẻ thời tiết có biểu tượng bông tuyết 6 cánh) hoặc chọn *Xem trước thời tiết → Tuyết rơi* trong menu khay. Tuyết rơi 3 lớp chiều sâu (hạt xa li ti trôi chậm, hạt giữa đung đưa, hạt gần sắc nét lắc theo gió và thỉnh thoảng lấp lánh, ửng vàng ấm khi bay qua đèn phố / đèn pha tàu ban đêm); bầu trời mùa đông xanh xám nhạt ban ngày, chàm sâu ban đêm, hồng phấn lúc bình minh/hoàng hôn; lớp tuyết mỏng trên mái nhà, skyline, danh lam, mặt đất và nóc tàu, sương mờ sát chân trời. Màu trời giữ ở mức trung tính để icon sáng vẫn dễ đọc. Chạy với cả chu kỳ ngày–đêm 30 phút và 7 khu vực.
 
@@ -90,9 +97,21 @@ Cấu hình, log và cache nằm ở `%LOCALAPPDATA%\AudioTaskbar\` (`config.jso
 
 Chỉ một instance được chạy (mutex `Local\Hieunv1.AudioTaskbar.Singleton`).
 
+## Bảng điều khiển (v5.3)
+
+| Thao tác | Kết quả |
+|---|---|
+| Nhấp đúp icon khay / menu *Mở bảng điều khiển* / chạy lại `AudioTaskbar.exe` | Mở bảng điều khiển |
+| Nút lớn **Đang bật / Đang tắt**, F8, menu khay | Bật/tắt hiệu ứng (đồng bộ cả 3 nơi) |
+| ✕ hoặc **Đóng (Ẩn xuống khay)** | Ẩn cửa sổ, app vẫn chạy |
+| **Kết thúc (Thoát)** | Thoát hẳn, khôi phục taskbar gốc |
+| *Khởi động cùng Windows* | Ghi `HKCU\…\Run\AudioTaskbar = "…\AudioTaskbar.exe" --minimized` |
+
+Dòng trạng thái: *Đang bật · Hòa nền sau icon* (TAP đang hoạt động), *Đang bật · Chế độ an toàn* (không TAP, ví dụ Smart App Control bật) hoặc *Đang tắt*.
+
 ## Phím tắt
 
-- **F8** (mặc định, toàn cục): bật/tắt hiệu ứng. Tắt sẽ ẩn diorama; lớp TAP (nếu đang gắn) được **giữ nguyên** để tránh Explorer khởi động lại khi gỡ giữa chừng. Thoát app thì nền taskbar được khôi phục.
+- **F8** (mặc định, toàn cục): bật/tắt hiệu ứng. Tắt sẽ ẩn diorama và trả lại nền taskbar gốc (TAP v3 thường trú chỉ khôi phục nền, không gỡ DLL nên Explorer không khởi động lại). Thoát app thì nền taskbar được khôi phục.
 - Đổi phím trong `%LOCALAPPDATA%\AudioTaskbar\config.json`, ví dụ:
 
 ```json
@@ -103,6 +122,7 @@ Hỗ trợ tổ hợp `Ctrl`, `Alt`, `Shift`, `Win` với phím F1–F24 hoặc 
 
 ## Menu khay hệ thống
 
+- **Mở bảng điều khiển** (in đậm, = nhấp đúp icon)
 - **Bật/tắt hiệu ứng (F8)**
 - **Hoạt ảnh:** Tàu lửa, Giao thông địa phương, Chim & đèn phố, Hiệu ứng thời tiết
 - **Ngày & đêm (mặt trời / mặt trăng):** Chu kỳ 30 phút (1 ngày), Theo giờ thật
@@ -111,7 +131,8 @@ Hỗ trợ tổ hợp `Ctrl`, `Alt`, `Shift`, `Win` với phím F1–F24 hoặc 
 - **Xem trước thời tiết:** Thực tế, Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Tuyết rơi, Đêm sao
 - **Làm mới thời tiết & vị trí**
 - **Chặn ảnh nền desktop:** bật/tắt TAP + nền đặc phía sau icon
-- Tải lại cấu hình, mở thư mục cấu hình, Thoát
+- **Kiểm tra cập nhật**
+- Tải lại cấu hình, mở thư mục cấu hình, **Kết thúc (Thoát)**
 
 ## Cấu trúc dự án
 

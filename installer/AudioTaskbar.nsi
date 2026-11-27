@@ -1,4 +1,5 @@
-﻿# Audio Taskbar 5.2.0 — per-user NSIS installer (no admin / no UAC).
+﻿# Audio Taskbar — per-user NSIS installer (no admin / no UAC).
+# Version comes from -DAPP_VERSION=x.y.z (scripts/build-installer.ps1 reads src/AudioTaskbar.csproj).
 # Build:  makensis -INPUTCHARSET UTF8 installer\AudioTaskbar.nsi
 #      or scripts\build-installer.ps1
 #
@@ -7,7 +8,8 @@
 #   /NORUN        do not launch the app when finished
 #   /NODESKTOP    do not create a Desktop shortcut
 #   /NOSTARTMENU  do not create a Start Menu shortcut
-#   /AUTOSTART    add HKCU ...\Run autostart (off by default)
+#   /AUTOSTART    add HKCU ...\Run autostart (off by default; kept on upgrade if already set)
+#   /UPDATED      (auto-updater) relaunch with --minimized --updated after a silent upgrade
 #   /D=path       install directory
 # Uninstall:  Uninstall.exe /S          (keeps %LOCALAPPDATA%\AudioTaskbar)
 #             Uninstall.exe /S /PURGE   (also removes user config/logs)
@@ -33,8 +35,10 @@ RequestExecutionLevel user
 
 !define APP_NAME           "Audio Taskbar"
 !define APP_NAME_SHORT     "AudioTaskbar"
-!define APP_VERSION        "5.2.0"
-!define APP_VERSION_FULL   "5.2.0.0"
+!ifndef APP_VERSION
+  !define APP_VERSION      "5.3.0"
+!endif
+!define APP_VERSION_FULL   "${APP_VERSION}.0"
 !define APP_PUBLISHER      "Audio Taskbar"
 !define APP_EXE            "AudioTaskbar.exe"
 !define APP_ICO            "AudioTaskbar.ico"
@@ -194,7 +198,7 @@ Section "$(SEC_STARTMENU)" SecStartMenu
 SectionEnd
 
 Section /o "$(SEC_AUTOSTART)" SecAutostart
-  WriteRegStr HKCU "${RUN_KEY}" "${RUN_VALUE}" '"$INSTDIR\${APP_EXE}"'
+  WriteRegStr HKCU "${RUN_KEY}" "${RUN_VALUE}" '"$INSTDIR\${APP_EXE}" --minimized'
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
@@ -265,6 +269,13 @@ Function .onInit
   ${IfNot} ${Errors}
     !insertmacro SelectSection ${SecAutostart}
   ${EndIf}
+  # Upgrade: keep an existing autostart entry (rewritten with --minimized).
+  ClearErrors
+  ReadRegStr $R2 HKCU "${RUN_KEY}" "${RUN_VALUE}"
+  ${IfNot} ${Errors}
+  ${AndIf} $R2 != ""
+    !insertmacro SelectSection ${SecAutostart}
+  ${EndIf}
 FunctionEnd
 
 Function un.onInit
@@ -290,7 +301,13 @@ Function .onInstSuccess
   ${GetOptions} $R0 "/NORUN" $R1
   ${If} ${Errors}
     SetOutPath $INSTDIR
-    Exec '"$INSTDIR\${APP_EXE}"'
+    ClearErrors
+    ${GetOptions} $R0 "/UPDATED" $R1
+    ${If} ${Errors}
+      Exec '"$INSTDIR\${APP_EXE}" --minimized'
+    ${Else}
+      Exec '"$INSTDIR\${APP_EXE}" --minimized --updated'
+    ${EndIf}
   ${EndIf}
   skip_silent_run:
 FunctionEnd

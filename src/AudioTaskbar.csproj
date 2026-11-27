@@ -11,7 +11,7 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
     <AssemblyName>AudioTaskbar</AssemblyName>
     <RootNamespace>AudioTaskbar</RootNamespace>
-    <Version>5.2.0</Version>
+    <Version>5.3.0</Version>
     <Product>Audio Taskbar</Product>
     <Description>Living regional weather diorama for the Windows taskbar (icon-safe at any DPI). Toggle with F8.</Description>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -19,6 +19,9 @@
     <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="AudioTaskbar.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>

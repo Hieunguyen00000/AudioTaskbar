@@ -99,17 +99,7 @@ public sealed class WeatherService : IDisposable
     private WeatherSnapshot? _latest;
     private CancellationTokenSource? _loopCts;
     private int _refreshMinutes = 15;
-    private (double, double, string, string)? _stableLoc;
-    private (double, double, string, string)? _pendingLoc;
-    private int _pendingCount;
-
-    private static double DistanceKm(double lat1, double lon1, double lat2, double lon2)
-    {
-        double r = 6371, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
-        double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                   Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-        return 2 * r * Math.Asin(Math.Min(1, Math.Sqrt(a)));
-    }
+    private readonly LocationStabilizer _stabilizer = new();
 
     public event Action<WeatherSnapshot>? Updated;
 
@@ -118,11 +108,15 @@ public sealed class WeatherService : IDisposable
         get { lock (_lock) return _latest; }
     }
 
-    public WeatherService()
+    public WeatherService() : this(null, null) { }
+
+    /// <summary>Test seam: custom HTTP handler (mock network) and cache folder.</summary>
+    internal WeatherService(HttpMessageHandler? handler, string? cacheDir, TimeSpan? timeout = null)
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+        _http = handler is null ? new HttpClient() : new HttpClient(handler);
+        _http.Timeout = timeout ?? TimeSpan.FromSeconds(8);
         _http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "AudioTaskbar/2.0 (desktop weather)");
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AudioTaskbar");
+        var dir = cacheDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AudioTaskbar");
         Directory.CreateDirectory(dir);
         _cachePath = Path.Combine(dir, "weather-cache.json");
         _latest = LoadCache();
@@ -197,7 +191,54 @@ public sealed class WeatherService : IDisposable
         }
     }
 
-    private async Task<WeatherSnapshot> FetchAsync(AppConfig cfg, CancellationToken token)
+    /// <summary>
+    /// Never throws for network / server / JSON failures: returns a fresh snapshot, or the last good
+    /// one marked with <see cref="WeatherSnapshot.Error"/>, or an Ok=false snapshot.
+    /// </summary>
+    internal async Task<WeatherSnapshot> FetchSafeAsync(AppConfig cfg, CancellationToken token)
+    {
+        try
+        {
+            return await FetchAsync(cfg, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            var stale = Latest;
+            if (stale is { Ok: true })
+                return new WeatherSnapshot
+                {
+                    Ok = true, Source = stale.Source, LocationName = stale.LocationName, Country = stale.Country,
+                    Latitude = stale.Latitude, Longitude = stale.Longitude, TemperatureC = stale.TemperatureC,
+                    WeatherCode = stale.WeatherCode, IsDay = stale.IsDay, Precipitation = stale.Precipitation,
+                    CloudCover = stale.CloudCover, FetchedAt = stale.FetchedAt, Error = ex.Message
+                };
+            return new WeatherSnapshot { Ok = false, Error = ex.Message, FetchedAt = DateTime.Now };
+        }
+    }
+
+    internal static WeatherSnapshot ParseForecast(string json, string source, string name, string country, double lat, double lon)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var current = doc.RootElement.GetProperty("current");
+        return new WeatherSnapshot
+        {
+            Ok = true,
+            Source = source,
+            LocationName = name,
+            Country = country,
+            Latitude = lat,
+            Longitude = lon,
+            TemperatureC = current.GetProperty("temperature_2m").GetSingle(),
+            WeatherCode = current.GetProperty("weather_code").GetInt32(),
+            IsDay = current.TryGetProperty("is_day", out var dayEl) && dayEl.ValueKind == JsonValueKind.Number && dayEl.GetInt32() == 1,
+            Precipitation = current.TryGetProperty("precipitation", out var pr) && pr.ValueKind == JsonValueKind.Number ? pr.GetSingle() : 0,
+            CloudCover = current.TryGetProperty("cloud_cover", out var cc) && cc.ValueKind == JsonValueKind.Number ? cc.GetSingle() : 0,
+            FetchedAt = DateTime.Now
+        };
+    }
+
+    internal async Task<WeatherSnapshot> FetchAsync(AppConfig cfg, CancellationToken token)
     {
         double lat, lon;
         string name, country, source;
@@ -229,24 +270,11 @@ public sealed class WeatherService : IDisposable
             source = ip.source;
             // IP geolocation of Vietnamese ISPs hops between provinces (Bà Rịa ↔ Đà Nẵng ↔ HCMC).
             // Keep the last stable place unless the new one is confirmed by two lookups in a row.
-            var stable = _stableLoc ?? (Latest is { Ok: true } c && !c.Source.StartsWith("config") && !c.Source.StartsWith("region")
-                ? (c.Latitude, c.Longitude, c.LocationName, c.Country) : ((double, double, string, string)?)null);
-            if (stable is { } st && DistanceKm(st.Item1, st.Item2, lat, lon) > 80)
-            {
-                if (_pendingLoc is { } pd && DistanceKm(pd.Item1, pd.Item2, lat, lon) <= 80) _pendingCount++;
-                else { _pendingLoc = (lat, lon, name, country); _pendingCount = 1; }
-                if (_pendingCount < 2)
-                {
-                    (lat, lon, name, country) = st;
-                    source += "+stable";
-                }
-                else { _stableLoc = (lat, lon, name, country); _pendingLoc = null; _pendingCount = 0; }
-            }
-            else
-            {
-                _stableLoc = (lat, lon, name, country);
-                _pendingLoc = null; _pendingCount = 0;
-            }
+            var seed = Latest is { Ok: true } c && !c.Source.StartsWith("config") && !c.Source.StartsWith("region")
+                ? (c.Latitude, c.Longitude, c.LocationName, c.Country) : ((double, double, string, string)?)null;
+            var (place, kept) = _stabilizer.Apply(lat, lon, name, country, seed);
+            (lat, lon, name, country) = place;
+            if (kept) source += "+stable";
         }
 
         var url =
@@ -257,23 +285,7 @@ public sealed class WeatherService : IDisposable
             "&timezone=auto";
         using var resp = await _http.GetAsync(url, token).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(token).ConfigureAwait(false));
-        var current = doc.RootElement.GetProperty("current");
-        return new WeatherSnapshot
-        {
-            Ok = true,
-            Source = source,
-            LocationName = name,
-            Country = country,
-            Latitude = lat,
-            Longitude = lon,
-            TemperatureC = current.GetProperty("temperature_2m").GetSingle(),
-            WeatherCode = current.GetProperty("weather_code").GetInt32(),
-            IsDay = current.TryGetProperty("is_day", out var dayEl) && dayEl.GetInt32() == 1,
-            Precipitation = current.TryGetProperty("precipitation", out var pr) ? pr.GetSingle() : 0,
-            CloudCover = current.TryGetProperty("cloud_cover", out var cc) ? cc.GetSingle() : 0,
-            FetchedAt = DateTime.Now
-        };
+        return ParseForecast(await resp.Content.ReadAsStringAsync(token).ConfigureAwait(false), source, name, country, lat, lon);
     }
 
     private async Task<(double lat, double lon, string name, string country)> GeocodeAsync(string city, CancellationToken token)
@@ -354,7 +366,7 @@ public sealed class WeatherService : IDisposable
         return null;
     }
 
-    private void SetLatest(WeatherSnapshot snap)
+    internal void SetLatest(WeatherSnapshot snap)
     {
         lock (_lock) _latest = snap;
         try

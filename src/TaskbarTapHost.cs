@@ -236,11 +236,13 @@ internal sealed class TaskbarTapHost : IDisposable
 
             // v2: a TAP service from an earlier run is still inside this Explorer → re-enable it
             // over IPC. Calling InitializeXamlDiagnosticsEx a second time can crash Explorer.
-            if (TapServiceAlive())
-                return ReuseExisting(log);
             // A v3 copy whose XAML site was released (e.g. the session ended) is teardown-safe,
             // so a fresh injection is fine. Older copies (v1/v2) crash on a second injection.
-            if (!TapV3Loaded() && ExplorerHasTapModule(_explorerPid))
+            bool alive = TapServiceAlive();
+            var decision = TapSafety.Decide(alive, TapV3Loaded(), !alive && ExplorerHasTapModule(_explorerPid));
+            if (decision == TapAttachDecision.Reuse)
+                return ReuseExisting(log);
+            if (decision == TapAttachDecision.RefuseLegacy)
             {
                 _status = "stale-legacy-tap";
                 log("TAP: Explorer holds an older (non-reusable) TaskbarTap copy — not injecting again. Restart Explorer once to enable the reusable TAP.");

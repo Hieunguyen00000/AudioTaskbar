@@ -20,6 +20,18 @@ internal sealed class TrayApp : ApplicationContext
     private readonly EventWaitHandle _cmdPreview = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.Preview");
     // stop.ps1 signals this so the app exits cleanly (TAP detached from Explorer) instead of being killed.
     private readonly EventWaitHandle _cmdExit = new(false, EventResetMode.AutoReset, @"Local\AudioTaskbar.Cmd.Exit");
+    // v5.3: a second launch (shortcut double-click) signals this to bring the portal forward.
+    private readonly EventWaitHandle _cmdShowPortal = new(false, EventResetMode.AutoReset, Program.ShowPortalEventName);
+    private PortalForm? _portal;
+    private readonly AutoUpdater _updater = new(AutoUpdater.AppVersion());
+    private readonly System.Windows.Forms.Timer _updateTimer = new();
+    private readonly CrashLoopBreaker _breaker = new();
+    private bool _updateBusy;
+    private double _updateProgress = -1;
+    private string _updateStage = "";
+
+    /// <summary>Portal ↔ tray sync: raised on the UI thread whenever state or config changes.</summary>
+    public event Action? StateChanged;
 
     private readonly List<OverlayWindow> _overlays = new();
     private readonly Dictionary<IntPtr, TaskbarRegions> _regions = new();
@@ -56,7 +68,7 @@ internal sealed class TrayApp : ApplicationContext
     private string _regionLogged = "";
     private volatile bool _layoutDirty;
 
-    public TrayApp()
+    public TrayApp(bool startMinimized = true, bool justUpdated = false)
     {
         Directory.CreateDirectory(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AudioTaskbar"));
         _logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AudioTaskbar", "app.log");
@@ -80,7 +92,7 @@ internal sealed class TrayApp : ApplicationContext
         _cfg.Normalize();
         _layout = new TaskbarLayoutProbe(Log);
         _layout.Changed += () => _layoutDirty = true;
-        Log("Start v5.2.0. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
+        Log("Start v" + AutoUpdater.AppVersion() + (startMinimized ? " (tray)" : " (portal)") + ". Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
             + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) traffic=" + _cfg.ShowCyclist
             + " region=" + _cfg.RegionMode + " hud=" + _cfg.ShowWeatherHud
@@ -97,7 +109,8 @@ internal sealed class TrayApp : ApplicationContext
             Text = "Audio Taskbar (F8)"
         };
         _tray.ContextMenuStrip = BuildMenu();
-        _tray.DoubleClick += (_, _) => ToggleEffect();
+        _tray.BalloonTipClicked += (_, _) => ShowPortal();
+        _tray.DoubleClick += (_, _) => ShowPortal(); // UniKey-style: double-click opens the control panel
 
         _capture.StatusChanged += msg =>
         {
@@ -164,11 +177,182 @@ internal sealed class TrayApp : ApplicationContext
         {
             try { if (!_exiting) BeginInvoke(SyncOverlays); } catch { }
         };
+
+        // v5.3 auto-update: first check 10 s after start (startup stays instant), then every 6 h.
+        _updateTimer.Interval = 10_000;
+        _updateTimer.Tick += (_, _) =>
+        {
+            _updateTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
+            if (_cfg.AutoUpdateEnabled) _ = CheckForUpdatesAsync(manual: false);
+        };
+        _updateTimer.Start();
+
+        if (justUpdated)
+            NotifyBalloon("Đã cập nhật lên Audio Taskbar v" + AutoUpdater.AppVersion());
+        if (!startMinimized)
+            BeginInvoke(ShowPortal);
     }
+
+    #region v5.3 portal host API
+
+    public AppConfig Config { get { lock (_configLock) return _cfg; } }
+    public bool EffectOn => !_paused;
+    public bool Fused => _fused && _tap.IsAttached;
+    public string HotkeyDisplay => _hotkeyDisplay;
+    public bool HotkeyOk => _hotkeyRegistered;
+    public string? TapBlocker => _tapBlockedReason ?? TaskbarTapHost.DetectTapBlocker();
+    public string ConfigPath => _configPath;
+    public AutoUpdater Updater => _updater;
+    public bool UpdateBusy => _updateBusy;
+    public double UpdateProgress => _updateProgress;
+    public string UpdateStage => _updateStage;
+
+    public string StatusText => _paused ? "Đang tắt" : (Fused ? "Đang bật · Hòa nền sau icon" : "Đang bật · Chế độ an toàn");
+
+    public void SetEffect(bool on) => SetEffectEnabled(on);
+
+    /// <summary>Apply a portal change live, persist it, and run the matching side effect.</summary>
+    public void Mutate(Action<AppConfig> change, bool refreshWeather = false, bool hotkey = false, bool fusion = false)
+    {
+        lock (_configLock)
+        {
+            change(_cfg);
+            _cfg.Normalize();
+        }
+        Persist();
+        if (refreshWeather) _weather.RefreshNow(_cfg);
+        if (hotkey) RegisterConfiguredHotkey();
+        if (fusion)
+        {
+            if (_cfg.TapMode == "off")
+            {
+                Log("Portal: TAP off — restoring stock taskbar, UIA icon-safe mode.");
+                try { _tap.Detach(Log); } catch { }
+                SafeMode();
+            }
+            else if (!_paused) TryEnableFusion(initial: false, force: true);
+        }
+        UpdateTip();
+        RaiseStateChanged();
+    }
+
+    public void ShowPortal()
+    {
+        if (_exiting) return;
+        try
+        {
+            if (_portal is null || _portal.IsDisposed)
+            {
+                _portal = new PortalForm(this);
+                _portal.FormClosed += (_, _) => _portal = null;
+            }
+            _portal.ShowAndActivate();
+        }
+        catch (Exception ex) { Log("Portal: " + ex.Message); }
+    }
+
+    public void ExitFromPortal()
+    {
+        Log("Exit requested from portal (Kết thúc).");
+        ExitApp();
+    }
+
+    public void OpenConfigFolder()
+    {
+        var dir = Path.GetDirectoryName(_configPath);
+        if (dir is not null) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = dir, UseShellExecute = true });
+    }
+
+    private void RaiseStateChanged()
+    {
+        try { StateChanged?.Invoke(); } catch (Exception ex) { Log("StateChanged: " + ex.Message); }
+    }
+
+    /// <summary>Check the release feed; with silent install on, download + verify + install.</summary>
+    public async Task CheckForUpdatesAsync(bool manual, bool install = false)
+    {
+        if (_updateBusy || _exiting) return;
+        _updateBusy = true; _updateStage = "Đang kiểm tra…"; _updateProgress = -1;
+        RaiseStateChanged();
+        try
+        {
+            var r = await _updater.CheckAsync(_cfg).ConfigureAwait(true);
+            Log("Update check: " + r.Status + " — " + r.Message);
+            _updateStage = r.Message;
+            if (r.Status == UpdateStatus.UpdateAvailable && r.Info is { } info)
+            {
+                string exeDir = Path.GetDirectoryName(Application.ExecutablePath) ?? AppContext.BaseDirectory;
+                bool dev = AutoUpdater.IsDevCheckout(exeDir);
+                bool auto = !manual && _cfg.AutoUpdateSilentInstall && !dev;
+                if (install || auto)
+                    await InstallUpdateAsync(info, requireChecksum: true).ConfigureAwait(true);
+                else
+                {
+                    if (!manual) NotifyBalloon("Có bản mới Audio Taskbar v" + info.Version + " — mở bảng điều khiển để cập nhật.");
+                    if (dev && !manual) Log("Update: developer checkout — not self-installing (" + exeDir + ").");
+                }
+            }
+            else if (manual && r.Status != UpdateStatus.UpToDate)
+                NotifyBalloon(r.Message);
+        }
+        catch (Exception ex) { _updateStage = "Lỗi cập nhật: " + ex.Message; Log("Update error: " + ex); }
+        finally
+        {
+            _updateBusy = false; _updateProgress = -1;
+            RaiseStateChanged();
+        }
+    }
+
+    public Task InstallLatestAsync() => _updater.LastResult?.Info is { } info && _updater.LastResult.Status == UpdateStatus.UpdateAvailable
+        ? WrapInstall(info)
+        : CheckForUpdatesAsync(manual: true, install: true);
+
+    private async Task WrapInstall(UpdateInfo info)
+    {
+        if (_updateBusy) return;
+        _updateBusy = true;
+        try { await InstallUpdateAsync(info, requireChecksum: true).ConfigureAwait(true); }
+        catch (Exception ex) { _updateStage = "Lỗi cập nhật: " + ex.Message; Log("Update error: " + ex); }
+        finally { _updateBusy = false; _updateProgress = -1; RaiseStateChanged(); }
+    }
+
+    private async Task InstallUpdateAsync(UpdateInfo info, bool requireChecksum)
+    {
+        _updateStage = "Đang tải v" + info.Version + "…";
+        RaiseStateChanged();
+        var progress = new Progress<double>(p => { _updateProgress = p; RaiseStateChanged(); });
+        string setup;
+        try
+        {
+            setup = await _updater.DownloadAndVerifyAsync(info, requireChecksum, progress).ConfigureAwait(true);
+        }
+        catch (UpdateVerificationException ex)
+        {
+            _updateStage = ex.Message;
+            Log("Update refused: " + ex.Message);
+            NotifyBalloon(ex.Message);
+            return;
+        }
+        Log("Update: downloaded and verified " + setup + " (sha256 " + (info.Sha256 ?? "n/a") + ").");
+        string exeDir = Path.GetDirectoryName(Application.ExecutablePath) ?? AppContext.BaseDirectory;
+        var args = AutoUpdater.BuildInstallerArguments(exeDir, AutoUpdater.InstalledLocation());
+        _updateStage = "Đang cài v" + info.Version + " (app sẽ tự khởi động lại)…";
+        RaiseStateChanged();
+        Log("Update: launching installer " + args);
+        // The installer stops this process cleanly via Local\AudioTaskbar.Cmd.Exit (TAP restore, no Explorer
+        // restart), replaces AudioTaskbar.exe and relaunches it with --minimized --updated.
+        AutoUpdater.LaunchInstaller(setup, args);
+    }
+
+    #endregion
 
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
+        var open = new ToolStripMenuItem("Mở bảng điều khiển") { Font = new Font(SystemFonts.MenuFont ?? Control.DefaultFont, FontStyle.Bold) };
+        open.Click += (_, _) => ShowPortal();
+        menu.Items.Add(open);
+        menu.Items.Add(new ToolStripSeparator());
         var pause = new ToolStripMenuItem("Bật/tắt hiệu ứng (F8)");
         pause.Click += (_, _) => ToggleEffect();
         menu.Items.Add(pause);
@@ -286,8 +470,9 @@ internal sealed class TrayApp : ApplicationContext
                 UseShellExecute = true
             });
         });
+        menu.Items.Add("Kiểm tra cập nhật", null, (_, _) => _ = CheckForUpdatesAsync(manual: true));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Thoát", null, (_, _) => ExitApp());
+        menu.Items.Add("Kết thúc (Thoát)", null, (_, _) => ExitApp());
 
         menu.Opening += (_, _) =>
         {
@@ -347,6 +532,7 @@ internal sealed class TrayApp : ApplicationContext
                 copy = _cfg;
             }
             ConfigStore.Save(_configPath, copy);
+            RaiseStateChanged();
         }
         catch (Exception ex) { Log("Save config failed: " + ex.Message); }
         finally
@@ -382,9 +568,12 @@ internal sealed class TrayApp : ApplicationContext
             // the transparent bar while the effect is off. Exit still restores.
             if (_tap.IsAttached || _fused)
             {
-                Log("Effect OFF: hiding visualizer, TAP fills left in place (no restore).");
+                // v5.3: TAP protocol v3 runs Restore/Apply on Explorer's XAML thread, so the stock
+                // taskbar background can come back while the effect is off (verified across restarts).
+                Log("Effect OFF: hiding visualizer, restoring stock taskbar background (TAP stays loaded).");
                 _fused = false;
                 _transparency.Effective = false;
+                if (_tap.IsAttached) Task.Run(() => _tap.RequestRestore(Log));
             }
             ApplyTrayIcon(on: false);
             UpdateTip();
@@ -399,7 +588,7 @@ internal sealed class TrayApp : ApplicationContext
             _behindFailStreak = 0;
             if (_tap.IsAttached)
             {
-                // Fills were left patched on OFF, so just slip back under the taskbar.
+                _tap.RequestApply(Log);
                 _fused = true;
                 _transparency.Effective = true;
                 Log("Effect ON: TAP still attached — showing visualizer behind the taskbar.");
@@ -411,6 +600,7 @@ internal sealed class TrayApp : ApplicationContext
             SyncOverlays();
             NotifyBalloon("Đã bật hiệu ứng (" + _hotkeyDisplay + ")");
             Log("Effect ON via " + _hotkeyDisplay + ".");
+            RaiseStateChanged();
         }
     }
 
@@ -559,6 +749,8 @@ internal sealed class TrayApp : ApplicationContext
             ToggleEffect();
         if (_cmdPreview.WaitOne(0))
             TryApplyPreviewCommand();
+        if (_cmdShowPortal.WaitOne(0))
+            ShowPortal();
 
         _watchdogCounter++;
         if (_watchdogCounter >= Math.Max(1, _cfg.Fps * 2))
@@ -698,7 +890,7 @@ internal sealed class TrayApp : ApplicationContext
             {
                 // A new shell is already up (crash or user restart). Never kill it.
                 Log("TAP: explorer PID changed to " + pid + " — detached without restarting the new shell.");
-                if ((DateTime.Now - _tapAttachedAt).TotalSeconds < 90)
+                if (_breaker.OnExplorerExited(DateTime.Now))
                 {
                     // Explorer died soon after we attached: assume the TAP was involved and never
                     // retry automatically this session (no crash loops).
@@ -813,11 +1005,13 @@ internal sealed class TrayApp : ApplicationContext
         {
             _fused = true;
             _tapAttachedAt = DateTime.Now;
+            _breaker.RecordAttach(_tapAttachedAt);
             _transparency.Effective = true;
             Log("Fusion: TAP " + (_tap.Reused ? "re-enabled (reused in-Explorer service, explorer PID " + _tap.LastExplorerPid + ")" : "attached (first injection, explorer PID " + _tap.LastExplorerPid + ")") + " — visualizer sits behind the taskbar.");
             foreach (var o in _overlays) o.ReassertZ(true);
             HideBackdrops();
             WatchBehindZ();
+            RaiseStateChanged();
         }
         else
         {
@@ -836,6 +1030,7 @@ internal sealed class TrayApp : ApplicationContext
         _fused = false;
         _transparency.Effective = false;
         foreach (var o in _overlays) o.ReassertZ(false);
+        RaiseStateChanged();
     }
 
     private void HideBackdrops()
@@ -1055,12 +1250,15 @@ internal sealed class TrayApp : ApplicationContext
             _tray.Text = TrimTip($"Audio Taskbar {state} ({hk})" + weather + ( _cfg.WeatherPreview != "live" ? " [" + _cfg.WeatherPreview + "]" : ""));
         }
         catch { }
+        RaiseStateChanged();
     }
 
     private void ExitApp()
     {
         if (_exiting) return;
         _exiting = true;
+        try { _updateTimer.Stop(); _updateTimer.Dispose(); } catch { }
+        try { _portal?.ForceClose(); } catch { }
         _frameTimer.Stop();
         _layoutTimer.Stop();
         _watcher.EnableRaisingEvents = false;
@@ -1079,7 +1277,8 @@ internal sealed class TrayApp : ApplicationContext
         _transparency.Restore();
         Log("Taskbar appearance restored.");
         _weather.Dispose();
-        try { _cmdFusionOn.Dispose(); _cmdFusionOff.Dispose(); _cmdToggle.Dispose(); _cmdPreview.Dispose(); _cmdExit.Dispose(); } catch { }
+        try { _cmdFusionOn.Dispose(); _cmdFusionOff.Dispose(); _cmdToggle.Dispose(); _cmdPreview.Dispose(); _cmdExit.Dispose(); _cmdShowPortal.Dispose(); } catch { }
+        try { _updater.Dispose(); } catch { }
 
         _capture.Dispose();
         _tray.Visible = false;

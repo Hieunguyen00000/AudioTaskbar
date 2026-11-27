@@ -142,6 +142,27 @@ Ghi chú:
 - Tắt riêng hạt tuyết (giữ bầu trời / lớp tuyết trên mái) bằng `"showWeatherEffects": false`.
 - Không có khóa config mới; `configVersion` giữ nguyên 51.
 
+## Bảng điều khiển & tự động cập nhật (v5.3)
+
+| Khóa | Mặc định | Ý nghĩa |
+|---|---|---|
+| `startMinimized` | `false` | Mở app không hiện bảng điều khiển (chỉ icon khay). Khởi động cùng Windows luôn dùng `--minimized`. |
+| `autoUpdateEnabled` | `true` | Kiểm tra bản mới 10 s sau khi mở và mỗi 6 giờ. |
+| `autoUpdateSilentInstall` | `true` | Có bản mới (đã khớp SHA-256) thì tự tải + cài im lặng rồi mở lại dưới khay. `false` = chỉ báo, bấm *Cập nhật ngay* trong bảng điều khiển. |
+| `updateRepo` | `"Hieunguyen00000/AudioTaskbar"` | `owner/repo` GitHub để đọc `releases/latest`. Repo phải **Public** (người dùng không đăng nhập GitHub). Sai dạng → về mặc định. |
+| `updateFeedUrl` | `""` | Thay cho GitHub API: URL `http(s)` tới `latest.json` tĩnh (GitHub Pages, R2/S3, máy chủ riêng). Không phải http(s) → bỏ qua. |
+
+`latest.json`:
+
+```json
+{ "version": "5.3.1", "fileName": "AudioTaskbar-Setup-5.3.1.exe",
+  "downloadUrl": "https://…/AudioTaskbar-Setup-5.3.1.exe", "sha256": "<64 hex>", "notes": "…" }
+```
+
+`downloadUrl` có thể là đường dẫn tương đối so với `latest.json`. Thiếu / sai `sha256` thì **không** tự cài.
+
+Bảo vệ khi file config hỏng (v5.3): JSON lỗi / sai kiểu không làm app dừng — file cũ được giữ thành `config.json.corrupt-yyyyMMdd-HHmmss`, app chạy với cấu hình mặc định và ghi lại file sạch. Giá trị ngoài khoảng (âm, NaN, quá lớn) được kẹp về khoảng hợp lệ.
+
 ## Âm thanh / spectrum (tắt mặc định ở v4)
 
 Chỉ có hiệu lực khi `enableAudio` là `true`.

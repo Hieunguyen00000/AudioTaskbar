@@ -1,0 +1,104 @@
+# Build, test and publish a release when a tag vX.Y.Z is pushed:
+#   git tag v5.3.0 && git push origin v5.3.0
+# Produces: AudioTaskbar-Setup-X.Y.Z.exe, SHA256SUMS.txt, latest.json (read by the in-app updater).
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Version check (tag must match csproj)
+        id: ver
+        shell: pwsh
+        run: |
+          $csproj = Get-Content -Raw src/AudioTaskbar.csproj
+          if ($csproj -notmatch '<Version>([0-9]+\.[0-9]+\.[0-9]+)</Version>') { throw "No <Version> in csproj" }
+          $v = $Matches[1]
+          "version=$v" >> $env:GITHUB_OUTPUT
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$v") {
+            throw "Tag ${{ github.ref_name }} does not match csproj version v$v"
+          }
+
+      - name: Unit tests (block bad releases)
+        run: dotnet test tests/AudioTaskbar.Tests/AudioTaskbar.Tests.csproj -c Release --nologo --logger "trx;LogFileName=tests.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: tests/AudioTaskbar.Tests/TestResults/*.trx
+
+      - name: Set up MinGW-w64 (TaskbarTap.dll)
+        if: github.event_name != 'pull_request'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+
+      - name: Build TaskbarTap.dll
+        if: github.event_name != 'pull_request'
+        shell: msys2 {0}
+        run: |
+          cd src/TaskbarTap
+          g++ -shared -O2 -std=c++17 -s -fno-exceptions -fno-rtti \
+            -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE \
+            -o TaskbarTap.dll TaskbarTap.cpp TaskbarTap.def \
+            -static -static-libgcc -static-libstdc++ \
+            -lole32 -loleaut32 -lruntimeobject -luuid -lshlwapi -lshell32 -ladvapi32
+          objdump -p TaskbarTap.dll | grep -E 'DllGetClassObject|DllCanUnloadNow'
+
+      - name: Publish AudioTaskbar.exe
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: ./scripts/build.ps1
+
+      - name: Build installer
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          ./scripts/build-installer.ps1 -Version ${{ steps.ver.outputs.version }}
+
+      - name: SHA256SUMS.txt + latest.json
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          ./scripts/make-release-manifest.ps1 -Version $v -SetupPath "installer-output/AudioTaskbar-Setup-$v.exe" -ExePath release/AudioTaskbar.exe -OutDir installer-output -Repo "${{ github.repository }}" -Notes "Audio Taskbar v$v"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: AudioTaskbar-${{ steps.ver.outputs.version }}
+          path: |
+            installer-output/AudioTaskbar-Setup-*.exe
+            installer-output/SHA256SUMS.txt
+            installer-output/latest.json
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Audio Taskbar ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            installer-output/AudioTaskbar-Setup-${{ steps.ver.outputs.version }}.exe
+            installer-output/SHA256SUMS.txt
+            installer-output/latest.json

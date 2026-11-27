@@ -619,7 +619,9 @@ internal sealed class DioramaRenderer
     }
 
     /// <summary>Point on the celestial arc: rises at the left/east horizon, peaks near the top, sets right/west.</summary>
-    private (float X, float Y, float Elev) ArcPoint(float t, float r)
+    internal float GroundTop => _groundTop;
+
+    internal (float X, float Y, float Elev) ArcPoint(float t, float r)
     {
         t = Math.Clamp(t, -0.05f, 1.05f);
         float elev = MathF.Max(0f, MathF.Sin(MathF.PI * Math.Clamp(t, 0f, 1f)));
@@ -1031,8 +1033,7 @@ internal sealed class DioramaRenderer
             _trainSeeded = true;
             _trainSeedTime = time;
         }
-        double p = _trainPhase0 + time / period;
-        p -= Math.Floor(p);
+        double p = SceneMath.TrainProgress(_trainPhase0, time, period);
         _trainX = (float)(-trainW + p * track);
         float y = _railY - 1.2f;
         float lk = mood.LightsK;

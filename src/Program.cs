@@ -3,6 +3,8 @@ namespace AudioTaskbar;
 internal static class Program
 {
     private const string MutexName = "Local\\Hieunv1.AudioTaskbar.Singleton";
+    /// <summary>v5.3: set by a second launch so the running instance brings its portal forward.</summary>
+    public const string ShowPortalEventName = "Local\\AudioTaskbar.Cmd.ShowPortal";
 
     [STAThread]
     private static void Main(string[] args)
@@ -14,9 +16,21 @@ internal static class Program
             return;
         }
         using var mutex = new Mutex(true, MutexName, out bool created);
+        bool minimizedArg = args.Any(a => a.Equals("--minimized", StringComparison.OrdinalIgnoreCase) || a.Equals("/minimized", StringComparison.OrdinalIgnoreCase));
+        bool updatedArg = args.Any(a => a.Equals("--updated", StringComparison.OrdinalIgnoreCase));
         if (!created)
         {
-            // Already running — nothing to do.
+            // Already running (UniKey-style): a manual launch brings the portal to the front;
+            // autostart / updater relaunches (--minimized) stay silent.
+            if (!minimizedArg)
+            {
+                try
+                {
+                    using var ev = EventWaitHandle.OpenExisting(ShowPortalEventName);
+                    ev.Set();
+                }
+                catch { /* older instance without a portal */ }
+            }
             return;
         }
 
@@ -35,7 +49,13 @@ internal static class Program
 
         try
         {
-            Application.Run(new TrayApp());
+            bool startMinimized = minimizedArg;
+            if (!startMinimized)
+            {
+                try { startMinimized = ConfigStore.Load(ConfigStore.LocalConfigPath()).StartMinimized && File.Exists(ConfigStore.LocalConfigPath()); }
+                catch { }
+            }
+            Application.Run(new TrayApp(startMinimized, updatedArg));
         }
         catch (Exception ex)
         {

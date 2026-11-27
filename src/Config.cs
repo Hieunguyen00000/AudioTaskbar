@@ -89,6 +89,18 @@ public sealed class AppConfig
     public float DayCycleOffsetHours { get; set; } = 0f;
     /// <summary>Config schema version used for one-time migrations (51 = v5.1).</summary>
     public int ConfigVersion { get; set; } = 0;
+
+    // v5.3 portal + auto-update
+    /// <summary>Show the control portal when the user launches the app manually (autostart always uses --minimized).</summary>
+    public bool StartMinimized { get; set; } = false;
+    /// <summary>Check for new releases on startup (after 10 s) and every 6 hours.</summary>
+    public bool AutoUpdateEnabled { get; set; } = true;
+    /// <summary>Download, verify (SHA-256) and install a newer release silently, then relaunch.</summary>
+    public bool AutoUpdateSilentInstall { get; set; } = true;
+    /// <summary>GitHub "owner/repo" whose public Releases feed the updater (must be public for anonymous users).</summary>
+    public string UpdateRepo { get; set; } = "Hieunguyen00000/AudioTaskbar";
+    /// <summary>Optional static latest.json manifest URL; overrides the GitHub Releases API when set.</summary>
+    public string UpdateFeedUrl { get; set; } = "";
     public const int CurrentConfigVersion = 51;
 
     [JsonIgnore] public Color RgbaLow { get; private set; }
@@ -130,6 +142,13 @@ public sealed class AppConfig
         RegionMode = RegionCatalog.NormalizeMode(RegionMode);
         TapMode = (TapMode ?? "auto").Trim().ToLowerInvariant() is "off" or "safe" or "false" ? "off" : "auto";
         TapTimeoutSeconds = float.IsFinite(TapTimeoutSeconds) ? Math.Clamp(TapTimeoutSeconds, 1.5f, 8f) : 3.5f;
+        Opacity = float.IsFinite(Opacity) ? Opacity : 0.52f;
+        BackdropOpacity = float.IsFinite(BackdropOpacity) ? BackdropOpacity : 1f;
+        UpdateRepo = (UpdateRepo ?? "").Trim().Trim('/');
+        if (UpdateRepo.Length == 0 || UpdateRepo.Count(c => c == '/') != 1) UpdateRepo = "Hieunguyen00000/AudioTaskbar";
+        UpdateFeedUrl = (UpdateFeedUrl ?? "").Trim();
+        if (UpdateFeedUrl.Length > 0 && !(Uri.TryCreate(UpdateFeedUrl, UriKind.Absolute, out var feed) && (feed.Scheme == Uri.UriSchemeHttps || feed.Scheme == Uri.UriSchemeHttp)))
+            UpdateFeedUrl = "";
 
         Mode = (Mode ?? "diorama").Trim().ToLowerInvariant();
         if (Mode is "diorama" or "scene")
@@ -255,13 +274,33 @@ public static class ConfigStore
         return (fresh, File.Exists(local) ? local : (File.Exists(legacy) ? legacy : local), "new-local-config");
     }
 
+    /// <summary>Last parse error from <see cref="Load"/> (null when the file was fine).</summary>
+    public static string? LastLoadError { get; private set; }
+
     public static AppConfig Load(string path)
     {
+        LastLoadError = null;
         AppConfig cfg;
         if (File.Exists(path))
         {
-            var json = File.ReadAllText(path);
-            cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+            AppConfig? parsed = null;
+            try
+            {
+                var json = File.ReadAllText(path);
+                parsed = string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
+            }
+            catch (Exception ex) when (ex is JsonException or NotSupportedException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // v5.3: a corrupted / hand-edited config must never stop the app. Keep a copy for
+                // the user, then continue with defaults (and rewrite a clean file).
+                LastLoadError = ex.GetType().Name + ": " + ex.Message;
+                try { File.Copy(path, path + ".corrupt-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"), overwrite: true); } catch { }
+                var fresh = new AppConfig { ConfigVersion = AppConfig.CurrentConfigVersion };
+                fresh.Normalize();
+                try { Save(path, fresh); } catch { }
+                return fresh;
+            }
+            cfg = parsed ?? new AppConfig { ConfigVersion = AppConfig.CurrentConfigVersion };
             if (cfg.ConfigVersion < AppConfig.CurrentConfigVersion)
             {
                 // v5.1 one-time migration: the train now crosses in 1 minute (was 25), and the

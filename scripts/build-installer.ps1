@@ -1,4 +1,4 @@
-# Build AudioTaskbar-Setup-5.2.0.exe (per-user NSIS installer).
+# Build AudioTaskbar-Setup-<version>.exe (per-user NSIS installer). Version = <Version> in src/AudioTaskbar.csproj.
 # Requires: NSIS 3.x (makensis) and release\AudioTaskbar.exe (scripts\build.ps1).
 #
 # Linux / WSL (after `sudo apt-get install nsis`):
@@ -10,7 +10,8 @@
 [CmdletBinding()]
 param(
     [string]$PayloadExe,
-    [string]$OutFile
+    [string]$OutFile,
+    [string]$Version
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +20,11 @@ if (-not $PayloadExe) { $PayloadExe = Join-Path $root "release\AudioTaskbar.exe"
 $nsi = Join-Path $root "installer\AudioTaskbar.nsi"
 $outDirA = Join-Path $root "installer-output"
 $outDirB = Join-Path $root "installer"
-$defaultName = "AudioTaskbar-Setup-5.2.0.exe"
+if (-not $Version) {
+    $csproj = Get-Content -Raw (Join-Path $root "src\AudioTaskbar.csproj")
+    if ($csproj -match '<Version>([0-9]+\.[0-9]+\.[0-9]+)</Version>') { $Version = $Matches[1] } else { throw "Cannot read <Version> from src\AudioTaskbar.csproj" }
+}
+$defaultName = "AudioTaskbar-Setup-$Version.exe"
 if (-not $OutFile) { $OutFile = Join-Path $outDirA $defaultName }
 
 if (-not (Test-Path -LiteralPath $nsi)) { throw "Missing $nsi" }
@@ -30,8 +35,8 @@ if (-not (Test-Path -LiteralPath $PayloadExe)) {
 # Refuse to pack a stale exe when FileVersion is available (Windows only).
 try {
     $ver = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($PayloadExe)
-    if ($ver.FileVersion -and $ver.FileVersion -notlike "5.2.0*") {
-        throw "Payload FileVersion is '$($ver.FileVersion)', expected 5.2.0.x ($PayloadExe)"
+    if ($ver.FileVersion -and $ver.FileVersion -notlike "$Version*") {
+        throw "Payload FileVersion is '$($ver.FileVersion)', expected $Version.x ($PayloadExe)"
     }
     Write-Host "Payload: $PayloadExe"
     Write-Host "  FileVersion    : $($ver.FileVersion)"
@@ -78,6 +83,7 @@ $outDef = ($OutFile -replace "\\", "/")
 $args = @(
     "-INPUTCHARSET", "UTF8",
     "-DPAYLOAD_EXE=$payloadDef",
+    "-DAPP_VERSION=$Version",
     "-DOUTFILE=$outDef",
     $nsi
 )

@@ -170,12 +170,35 @@ public static class RegionCatalog
         return null;
     }
 
+    // Vietnamese / Latin diacritics → ASCII. Explicit table because the app runs with
+    // InvariantGlobalization, where string.Normalize(FormD) does not decompose (found by v5.3 tests).
+    private const string FoldPairs = "àaáaảaãaạaăaằaắaẳaẵaặaâaầaấaẩaẫaậaäaåaÀaÁaẢaÃaẠaĂaẰaẮaẲaẴaẶaÂaẦaẤaẨaẪaẬaÄaÅaèeéeẻeẽeẹeêeềeếeểeễeệeëeÈeÉeẺeẼeẸeÊeỀeẾeỂeỄeỆeËeìiíiỉiĩiịiîiïiÌiÍiỈiĨiỊiÎiÏiòoóoỏoõoọoôoồoốoổoỗoộoơoờoớoởoỡoợoöoøoÒoÓoỎoÕoỌoÔoỒoỐoỔoỖoỘoƠoỜoỚoỞoỠoỢoÖoØoùuúuủuũuụuưuừuứuửuữuựuûuüuÙuÚuỦuŨuỤuƯuỪuỨuỬuỮuỰuÛuÜuỳyýyỷyỹyỵyÿyỲyÝyỶyỸyỴyŸyđdðdĐdÐdçcÇcñnÑn";
+    private static readonly Dictionary<char, char> FoldMap = BuildFoldMap();
+
+    private static Dictionary<char, char> BuildFoldMap()
+    {
+        var m = new Dictionary<char, char>();
+        for (int i = 0; i + 1 < FoldPairs.Length; i += 2) m[FoldPairs[i]] = FoldPairs[i + 1];
+        return m;
+    }
+
     public static string Fold(string s)
     {
-        var d = s.Replace('đ', 'd').Replace('Đ', 'D').Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(d.Length);
-        foreach (var ch in d)
-            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark) sb.Append(char.ToLowerInvariant(ch));
+        var sb = new StringBuilder(s.Length);
+        foreach (var ch0 in s)
+        {
+            char ch = FoldMap.TryGetValue(ch0, out var f) ? f : ch0;
+            if (ch is >= 'A' and <= 'Z') ch = (char)(ch + 32);
+            if (ch > 127)
+            {
+                // anything else: try canonical decomposition, drop combining marks
+                var d = ch.ToString().Normalize(NormalizationForm.FormD);
+                foreach (var c in d)
+                    if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) sb.Append(char.ToLowerInvariant(c));
+                continue;
+            }
+            sb.Append(ch);
+        }
         return sb.ToString().Replace('-', ' ').Replace(',', ' ');
     }
 }

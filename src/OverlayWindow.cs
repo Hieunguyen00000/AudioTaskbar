@@ -166,26 +166,7 @@ internal sealed class OverlayWindow : Form
         var spans = TaskbarService.FreeSpans(ctx.Regions, _rw, pad + feather, 6);
 
         // Column visibility: 0 inside (cutout + pad), smooth 6px (scaled) feather outside.
-        if (_colVis.Length != _rw) _colVis = new float[_rw];
-        for (int x = 0; x < _rw; x++) _colVis[x] = 1f;
-        foreach (var c in ctx.Regions.Cutouts)
-        {
-            int l = c.Left - ctx.Regions.Bounds.X - pad;
-            int r = c.Right - ctx.Regions.Bounds.X + pad;
-            int a = Math.Max(0, l - feather), b = Math.Min(_rw, r + feather);
-            for (int x = a; x < b; x++)
-            {
-                float v;
-                if (x >= l && x < r) v = 0f;
-                else
-                {
-                    float d = x < l ? (l - x) : (x - r + 1);
-                    float t = Math.Clamp(d / (feather + 1f), 0f, 1f);
-                    v = t * t * (3 - 2 * t);
-                }
-                if (v < _colVis[x]) _colVis[x] = v;
-            }
-        }
+        _colVis = LayoutMath.ColumnVisibility(ctx.Regions.Cutouts, ctx.Regions.Bounds, _rw, pad, feather);
 
         // Weather HUD: largest-fitting free span (left or right preference).
         _badgeRect = RectangleF.Empty;
@@ -196,11 +177,9 @@ internal sealed class OverlayWindow : Form
             for (int level = 0; level <= 2 && _badgeLevel < 0; level++)
             {
                 var size = DioramaRenderer.MeasureBadge(g, mood, _rh, level);
-                var fits = spans.Where(sp => sp.R - sp.L >= size.Width + 2 * margin).ToList();
-                if (fits.Count == 0) continue;
-                var span = ctx.Cfg.WeatherPosition == "right" ? fits[^1] : fits[0];
-                float bx = ctx.Cfg.WeatherPosition == "right" ? span.R - margin - size.Width : span.L + margin;
-                _badgeRect = new RectangleF(bx, (_rh - size.Height) / 2f, size.Width, size.Height);
+                var rect = LayoutMath.PlaceBadge(spans, size, margin, _rh, ctx.Cfg.WeatherPosition == "right");
+                if (rect.IsEmpty) continue;
+                _badgeRect = rect;
                 _badgeLevel = level;
             }
         }
