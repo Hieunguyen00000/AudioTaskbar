@@ -80,7 +80,6 @@ internal sealed class PortalForm : Form
         // Not Dock=Fill: a docked child of an AutoSize form makes the form size itself before the
         // cards finish their own layout (the update card ended up under the footer).
         stack.Controls.Add(BuildHeader());
-        stack.Controls.Add(BuildToggle());
         stack.Controls.Add(BuildSceneCard());
         stack.Controls.Add(BuildSystemCard());
         stack.Controls.Add(BuildUpdateCard());
@@ -117,17 +116,6 @@ internal sealed class PortalForm : Form
         return t;
     }
 
-    private Control BuildToggle()
-    {
-        _toggle.Width = CardWidth;
-        _toggle.Height = 46;
-        _toggle.FlatStyle = FlatStyle.Flat;
-        _toggle.FlatAppearance.BorderSize = 0;
-        _toggle.Font = new Font("Segoe UI Semibold", 12f);
-        _toggle.Margin = new Padding(0, 0, 0, 10);
-        _toggle.Cursor = Cursors.Hand;
-        return _toggle;
-    }
 
     private Card NewCard(string title, out TableLayoutPanel grid)
     {
@@ -235,25 +223,75 @@ internal sealed class PortalForm : Form
         return card;
     }
 
+    // v5.3.2: the on/off button lives in the footer (right), next to "Đóng" (left) and "Kết thúc" (middle).
+    private const int FooterHeight = 36;
+    private const int FooterGap = 8;
+    private readonly Button _close = new() { Text = "Đóng (Ẩn xuống khay)" };
+    private readonly Button _exit = new() { Text = "Kết thúc (Thoát)" };
+    private TableLayoutPanel? _footer;
+
     private Control BuildFooter()
     {
-        var t = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Width = CardWidth, BackColor = _p.Back, Margin = new Padding(0, 2, 0, 0) };
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        // v5.3: no "open config folder" link — end users get a clean UniKey-style panel.
-        var spacer = new Label { AutoSize = false, Size = new Size(1, 1), Margin = Padding.Empty };
-        var close = new Button { Text = "Đóng (Ẩn xuống khay)", AutoSize = true };
-        var exit = new Button { Text = "Kết thúc (Thoát)", AutoSize = true };
-        StyleButton(close, primary: false);
-        StyleButton(exit, primary: false, danger: true);
-        close.Click += (_, _) => Hide();
-        exit.Click += (_, _) => _host.ExitFromPortal();
-        t.Controls.Add(spacer, 0, 0);
-        t.Controls.Add(close, 1, 0);
-        t.Controls.Add(exit, 2, 0);
-        CancelButton = close;
+        var t = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, AutoSize = false, Size = new Size(CardWidth, FooterHeight + 2), BackColor = _p.Back, Margin = new Padding(0, 2, 0, 0), Padding = Padding.Empty };
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, FooterHeight + 2));
+        for (int i = 0; i < 3; i++) t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, CardWidth / 3f));
+        StyleButton(_close, primary: false);
+        StyleButton(_exit, primary: false, danger: true);
+        foreach (var b in new[] { _close, _exit, _toggle }) { b.AutoSize = false; b.Dock = DockStyle.Fill; b.Height = FooterHeight; b.Padding = new Padding(4, 0, 4, 0); b.TextAlign = ContentAlignment.MiddleCenter; b.UseMnemonic = false; }
+        _toggle.FlatStyle = FlatStyle.Flat;
+        _toggle.Font = new Font("Segoe UI Semibold", 9.5f);
+        _toggle.Cursor = Cursors.Hand;
+        _close.Margin = new Padding(0, 1, FooterGap / 2, 1);
+        _exit.Margin = new Padding(FooterGap / 2, 1, FooterGap / 2, 1);
+        _toggle.Margin = new Padding(FooterGap / 2, 1, 0, 1);
+        _close.Click += (_, _) => Hide();
+        _exit.Click += (_, _) => _host.ExitFromPortal();
+        t.Controls.Add(_close, 0, 0);
+        t.Controls.Add(_exit, 1, 0);
+        t.Controls.Add(_toggle, 2, 0);
+        CancelButton = _close;
+        _footer = t;
+        LayoutFooter();
         return t;
+    }
+
+    internal static string ToggleText(bool on, string hotkey) => (on ? "Tắt hiệu ứng (" : "Bật hiệu ứng (") + hotkey + ")";
+
+    /// <summary>
+    /// Column widths for the footer: each button gets at least its text width (+ padding); the space left over
+    /// is shared equally, so the three buttons look even and never clip (also with long hotkeys like Ctrl+Alt+F8).
+    /// </summary>
+    internal static int[] FooterColumns(int total, int gap, int[] needed)
+    {
+        int n = needed.Length, avail = total - gap * (n - 1);
+        int sum = needed.Sum();
+        var w = new int[n];
+        if (sum <= avail)
+        {
+            // Prefer equal widths when they all fit; otherwise grow the narrow ones until they meet.
+            int equal = avail / n;
+            if (needed.All(x => x <= equal)) { for (int i = 0; i < n; i++) w[i] = equal; }
+            else { int extra = (avail - sum) / n; for (int i = 0; i < n; i++) w[i] = needed[i] + extra; }
+        }
+        else
+        {
+            for (int i = 0; i < n; i++) w[i] = (int)Math.Floor(needed[i] * (double)avail / sum);
+        }
+        w[n - 1] += avail - w.Sum(); // rounding remainder → last column, so the right edge lines up with the cards
+        for (int i = 0; i < n; i++) w[i] += i == 0 || i == n - 1 ? gap / 2 : gap; // margins live inside the cells
+        return w;
+    }
+
+    private void LayoutFooter()
+    {
+        if (_footer is null) return;
+        string hk = _host.HotkeyDisplay;
+        int Need(Button b, params string[] texts) => texts.Max(x => TextRenderer.MeasureText(x, b.Font).Width) + b.Padding.Horizontal + 14;
+        var need = new[] { Need(_close, _close.Text), Need(_exit, _exit.Text), Need(_toggle, ToggleText(true, hk), ToggleText(false, hk)) };
+        var cols = FooterColumns(CardWidth, FooterGap, need);
+        _footer.SuspendLayout();
+        for (int i = 0; i < 3; i++) _footer.ColumnStyles[i] = new ColumnStyle(SizeType.Absolute, cols[i]);
+        _footer.ResumeLayout(true);
     }
 
     private void StyleButton(Button b, bool primary, bool danger = false)
@@ -340,11 +378,13 @@ internal sealed class PortalForm : Form
             bool on = _host.EffectOn;
             _status.Text = "● " + _host.StatusText;
             _status.ForeColor = !on ? _p.Sub : _host.Fused ? _p.Ok : _p.Warn;
-            _toggle.Text = on ? $"Tắt hiệu ứng  ({_host.HotkeyDisplay})" : $"Bật hiệu ứng  ({_host.HotkeyDisplay})";
+            var tt = ToggleText(on, _host.HotkeyDisplay);
+            if (_toggle.Text != tt) { _toggle.Text = tt; LayoutFooter(); }
+            // Primary accent either way so it is easy to spot: filled green when on, green outline when off.
             _toggle.BackColor = on ? _p.Accent : _p.Card;
-            _toggle.ForeColor = on ? Color.White : _p.Text;
-            _toggle.FlatAppearance.BorderSize = on ? 0 : 1;
-            _toggle.FlatAppearance.BorderColor = _p.Border;
+            _toggle.ForeColor = on ? Color.White : _p.Accent;
+            _toggle.FlatAppearance.BorderSize = 1;
+            _toggle.FlatAppearance.BorderColor = _p.Accent;
 
             SetIndex(_region, IndexOf(Regions, c.RegionMode));
             SetIndex(_weather, IndexOf(Weathers, c.WeatherPreview));
