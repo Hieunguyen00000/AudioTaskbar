@@ -21,7 +21,7 @@ internal sealed class PortalForm : Form
     private readonly ComboBox _region = Combo();
     private readonly ComboBox _weather = Combo();
     private readonly ComboBox _time = Combo();
-    private readonly CheckBox _hud = Check("Hiện thông tin thời tiết & địa điểm");
+    private readonly CheckBox _hud = Check("Hiện thông tin thời tiết && địa điểm");
     private readonly CheckBox _train = Check("Tàu hỏa");
     private readonly NumericUpDown _trainMin = new() { Minimum = 0.25m, Maximum = 240m, DecimalPlaces = 2, Increment = 0.25m, Width = 64, TextAlign = HorizontalAlignment.Right };
     private readonly CheckBox _traffic = Check("Phương tiện khu vực");
@@ -75,8 +75,11 @@ internal sealed class PortalForm : Form
         var stack = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, BackColor = _p.Back, Margin = Padding.Empty
+            AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = _p.Back, Margin = Padding.Empty,
+            Location = new Point(Padding.Left, Padding.Top)
         };
+        // Not Dock=Fill: a docked child of an AutoSize form makes the form size itself before the
+        // cards finish their own layout (the update card ended up under the footer).
         stack.Controls.Add(BuildHeader());
         stack.Controls.Add(BuildToggle());
         stack.Controls.Add(BuildSceneCard());
@@ -160,14 +163,14 @@ internal sealed class PortalForm : Form
 
     private Control BuildSceneCard()
     {
-        var card = NewCard("Cảnh vật & Thời tiết", out var g);
+        var card = NewCard("Cảnh vật && Thời tiết", out var g);
         g.RowCount = 1;
         foreach (var r in Regions) _region.Items.Add(r.Label);
         foreach (var w in Weathers) _weather.Items.Add(w.Label);
         foreach (var t in Times) _time.Items.Add(t.Label);
         Row(g, "Khu vực", _region);
         Row(g, "Thời tiết", _weather);
-        Row(g, "Ngày & đêm", _time);
+        Row(g, "Ngày && đêm", _time);
         Full(g, _hud);
         var trainRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
         _train.Margin = new Padding(0, 3, 6, 0);
@@ -399,12 +402,32 @@ internal sealed class PortalForm : Form
     {
         SyncFromHost();
         if (!Visible) Show();
+        FitToScreen();
         if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
         // bring to front even when another app owns the foreground
         TopMost = true;
         Activate();
         TopMost = false;
         BringToFront();
+    }
+
+    /// <summary>High DPI / small screens: never taller than the work area — scroll instead.</summary>
+    private void FitToScreen()
+    {
+        try
+        {
+            var wa = Screen.FromControl(this).WorkingArea;
+            if (Height > wa.Height - 16)
+            {
+                AutoSize = false;
+                AutoScroll = true;
+                Size = new Size(Width + SystemInformation.VerticalScrollBarWidth, wa.Height - 16);
+            }
+            if (Bottom > wa.Bottom || Top < wa.Top) Top = Math.Max(wa.Top, wa.Bottom - Height);
+            if (Right > wa.Right) Left = Math.Max(wa.Left, wa.Right - Width);
+            if (Left < wa.Left) Left = wa.Left;
+        }
+        catch { }
     }
 
     public void ForceClose()
