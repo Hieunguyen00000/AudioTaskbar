@@ -97,7 +97,7 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 | `showCyclist` | bool | `true` | Người đi xe đạp (đèn đêm, dù khi mưa). *Cảnh vật → Xe đạp*. |
 | `showAmbientDetails` | bool | `true` | Chim, đom đóm, sao băng, khinh khí cầu, đèn phố. *Cảnh vật → Chim & đèn phố*. |
 | `showWeatherEffects` | bool | `true` | Mưa, gợn nước, sấm chớp, mây nhiều lớp. *Cảnh vật → Thời tiết*. |
-| `weatherPreview` | string | `"live"` | Scene xem trước: `live` (theo thời tiết thật + giờ hệ thống), `sunny`, `cloudy`, `rain`, `storm`, `night`. Chấp nhận alias tiếng Việt (`nắng đẹp`, `mây trôi`, `mưa rào`, `giông bão`, `đêm sao`, …). |
+| `weatherPreview` | string | `"live"` | Scene xem trước: `live` (theo thời tiết thật + giờ hệ thống), `sunny`, `cloudy`, `rain`, `storm`, `snow` (v5.2, *Tuyết rơi*), `night`. Chấp nhận alias tiếng Việt (`nắng đẹp`, `mây trôi`, `mưa rào`, `giông bão`, `tuyết rơi`/`tuyet`, `đêm sao`, …). |
 | `showWeather` | bool | `true` | Thẻ nhiệt độ + trạng thái trên taskbar. |
 | `showWeatherAmbient` | bool | `true` | (Tương thích cũ) hiệu ứng ambient thời tiết trên overlay. |
 | `weatherPosition` | string | `"left"` | Vị trí thẻ: `left` hoặc `right`. |
@@ -134,6 +134,13 @@ Ghi chú:
 - Bảng màu trời / mặt đất / bóng công trình nội suy mượt giữa các mốc 00:00, 04:24, 05:18, 06:06, 07:18, 09:00, 12:30, 15:36, 17:00, 18:06, 19:00, 20:00. Ánh sáng ngày, đèn nhân tạo, sao và độ ấm hoàng hôn là các hệ số liên tục (smoothstep), không nhảy cóc.
 - Mặt trời: 05:30 → 18:30, mọc trái, cao nhất lúc 12:00, lặn phải. Mặt trăng: 18:30 → 05:30, cao nhất lúc 00:00. Ở chế độ an toàn (icon được khoét), cung chạy qua các khoảng trống giữa nhóm icon để không bị icon che hàng giờ; khi TAP gắn (cảnh nằm sau taskbar) cung chạy hết chiều rộng. Đi ngang thẻ thời tiết thì tự mờ đi.
 - Thẻ thời tiết vẫn hiển thị thời tiết **thật**; chỉ cảnh vật đi theo giờ ảo.
+
+### Tuyết rơi (v5.2)
+
+- Tự bật khi Open-Meteo trả mã tuyết: `71` (Tuyết nhẹ), `73` (Tuyết rơi), `75` (Tuyết dày), `77` hạt tuyết (Tuyết nhẹ), `85` / `86` mưa tuyết rào (nhẹ / dày). Mật độ hạt theo mã: nhẹ ≈ 45 %, vừa ≈ 70 %, dày 100 %.
+- Xem trước: menu khay *Xem trước thời tiết → Tuyết rơi*, hoặc `"weatherPreview": "snow"`, hoặc `AudioTaskbar.exe --render out.png --preview snow --hour 12 --region tokyo`.
+- Tắt riêng hạt tuyết (giữ bầu trời / lớp tuyết trên mái) bằng `"showWeatherEffects": false`.
+- Không có khóa config mới; `configVersion` giữ nguyên 51.
 
 ## Âm thanh / spectrum (tắt mặc định ở v4)
 

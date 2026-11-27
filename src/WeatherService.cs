@@ -48,6 +48,16 @@ public static class WeatherCodes
         return WeatherKind.Clear;
     }
 
+    /// <summary>Snowfall intensity 0..1 for WMO snow codes (71/73/75 fall, 77 grains, 85/86 showers).</summary>
+    public static float SnowAmount(int code) => code switch
+    {
+        71 or 77 => 0.45f,
+        85 => 0.55f,
+        73 => 0.7f,
+        75 or 86 => 1f,
+        _ => 0f
+    };
+
     public static string DescribeVi(int code, bool isDay) => code switch
     {
         0 => isDay ? "Nắng" : "Đêm quang",
@@ -57,7 +67,9 @@ public static class WeatherCodes
         45 or 48 => "Sương mù",
         51 or 53 or 55 or 56 or 57 => "Mưa phùn",
         61 or 63 or 65 or 66 or 67 or 80 or 81 or 82 => "Mưa",
-        71 or 73 or 75 or 77 or 85 or 86 => "Tuyết",
+        71 or 77 or 85 => "Tuyết nhẹ",
+        73 => "Tuyết rơi",
+        75 or 86 => "Tuyết dày",
         95 or 96 or 99 => "Dông",
         _ => "Thời tiết"
     };
@@ -71,7 +83,9 @@ public static class WeatherCodes
         45 or 48 => "Fog",
         51 or 53 or 55 or 56 or 57 => "Drizzle",
         61 or 63 or 65 or 66 or 67 or 80 or 81 or 82 => "Rain",
-        71 or 73 or 75 or 77 or 85 or 86 => "Snow",
+        71 or 77 or 85 => "Light snow",
+        73 => "Snow",
+        75 or 86 => "Heavy snow",
         95 or 96 or 99 => "Storm",
         _ => "Weather"
     };

@@ -42,6 +42,10 @@ internal readonly struct SceneMood
     public float SunT { get; init; }      // 0..1 along the day arc, <0 or >1 = below horizon
     public float MoonT { get; init; }     // 0..1 along the night arc, <0 or >1 = below horizon
 
+    // v5.2 snowfall
+    public bool IsSnow => Kind == WeatherKind.Snow;
+    public float SnowAmt { get; init; }   // 0..1 (light 0.45, moderate 0.7, heavy 1)
+
     public SceneMood(
         DayPhase phase, WeatherKind kind, bool isDay,
         float cloudiness, float rainAmt,
@@ -54,7 +58,7 @@ internal readonly struct SceneMood
         Kind = kind;
         IsDay = isDay;
         IsNight = phase is DayPhase.Night or DayPhase.Dusk && !isDay || phase == DayPhase.Night;
-        IsRainy = kind is WeatherKind.Rain or WeatherKind.Storm or WeatherKind.Snow;
+        IsRainy = kind is WeatherKind.Rain or WeatherKind.Storm; // v5.2: snow has its own renderer
         IsStorm = kind == WeatherKind.Storm;
         IsFog = kind == WeatherKind.Fog;
         IsCloudy = kind is WeatherKind.Cloudy or WeatherKind.Fog or WeatherKind.Storm
@@ -189,6 +193,7 @@ internal static class SceneClock
         if (live is { Ok: true })
             rain = kind is WeatherKind.Storm ? 1f : kind is WeatherKind.Rain ? 0.7f : Math.Clamp(live.Precipitation / 6f, 0f, 1f);
 
+        float snow = live is { Ok: true } && kind == WeatherKind.Snow ? WeatherCodes.SnowAmount(live.WeatherCode) : 0f;
         string cond = live is { Ok: true } ? live.ConditionVi : "…";
         string temp = live is { Ok: true }
             ? live.TemperatureText(cfg.WeatherUnits == "fahrenheit")
@@ -221,6 +226,12 @@ internal static class SceneClock
                 kind = WeatherKind.Storm;
                 cloud = 1f; rain = 1f; cond = "Giông bão";
                 break;
+            case "snow":
+            case "tuyet":
+            case "tuyết rơi":
+                kind = WeatherKind.Snow;
+                cloud = 0.85f; rain = 0f; snow = 0.75f; cond = "Tuyết rơi";
+                break;
             case "night":
             case "dem":
             case "đêm sao":
@@ -241,7 +252,27 @@ internal static class SceneClock
               ground = pal[4], groundHi = pal[5], sil = pal[6], accent = pal[7];
 
         // Weather tints
-        if (kind is WeatherKind.Cloudy or WeatherKind.Rain or WeatherKind.Storm or WeatherKind.Fog or WeatherKind.Snow)
+        if (kind == WeatherKind.Snow)
+        {
+            // v5.2 winter sky: pale icy blue-gray by day (kept mid-tone so light taskbar icons
+            // stay readable), deep cozy indigo at night, pastel frost-pink at dawn / sunset.
+            float dk = Smooth(5.2f, 7.0f, hour) * (1f - Smooth(17.6f, 19.4f, hour));
+            float wk = Math.Max(Bump(hour, 6.1f, 0.9f), Bump(hour, 17.7f, 0.9f));
+            var sTop = Mix(C(255, 16, 20, 48), C(255, 98, 118, 144), dk);
+            var sMid = Mix(C(255, 28, 34, 72), C(255, 122, 140, 162), dk);
+            var sBot = Mix(C(255, 48, 56, 98), C(255, 150, 166, 186), dk);
+            top = Mix(top, sTop, 0.8f);
+            mid = Mix(mid, sMid, 0.82f);
+            bot = Mix(bot, sBot, 0.85f);
+            mid = Mix(mid, C(255, 168, 140, 170), 0.35f * wk);
+            bot = Mix(bot, C(255, 212, 166, 186), 0.5f * wk);
+            glow = Mix(glow, Mix(C(255, 150, 170, 230), C(255, 236, 214, 226), Math.Max(dk, wk)), 0.55f);
+            groundHi = Mix(C(255, 70, 80, 116), C(255, 160, 172, 190), dk);
+            ground = Mix(C(255, 40, 46, 76), C(255, 116, 128, 148), dk);
+            groundHi = Mix(groundHi, C(255, 196, 160, 180), 0.3f * wk);
+            sil = Mix(sil, C(255, 34, 40, 62), 0.35f);
+        }
+        else if (kind is WeatherKind.Cloudy or WeatherKind.Rain or WeatherKind.Storm or WeatherKind.Fog)
         {
             float k = kind == WeatherKind.Storm ? 0.72f : kind == WeatherKind.Fog ? 0.45f : 0.50f;
             top = Mix(top, C(255, 70, 80, 96), k);
@@ -268,14 +299,14 @@ internal static class SceneClock
             WeatherKind.Clear or WeatherKind.Night => Math.Min(cloud, 0.25f),
             WeatherKind.Cloudy => Math.Max(cloud, 0.65f),
             WeatherKind.Fog => 0.8f,
-            WeatherKind.Rain or WeatherKind.Storm or WeatherKind.Snow => Math.Max(cloud, 0.8f),
+            WeatherKind.Rain or WeatherKind.Storm => Math.Max(cloud, 0.8f),
+            WeatherKind.Snow => Math.Max(cloud, 0.7f),
             _ => cloud
         };
         float rainAmt = kind switch
         {
             WeatherKind.Storm => 1f,
             WeatherKind.Rain => Math.Max(0.55f, rain),
-            WeatherKind.Snow => 0.4f,
             _ => 0f
         };
 
@@ -283,6 +314,7 @@ internal static class SceneClock
         float lightsK = Math.Max(1f - Smooth(5.6f, 6.9f, hour), Smooth(17.3f, 18.8f, hour));
         if (kind is WeatherKind.Storm) lightsK = Math.Max(lightsK, 0.6f);
         else if (kind is WeatherKind.Rain or WeatherKind.Fog) lightsK = Math.Max(lightsK, 0.3f);
+        else if (kind is WeatherKind.Snow) lightsK = Math.Max(lightsK, 0.25f);
         float starsK = Math.Max(1f - Smooth(4.6f, 5.9f, hour), Smooth(18.7f, 19.9f, hour));
         float warmK = Math.Max(Bump(hour, 6.1f, 0.9f), Bump(hour, 17.7f, 0.9f));
         float sunT = SunArcT(hour), moonT = MoonArcT(hour);
@@ -294,7 +326,7 @@ internal static class SceneClock
             0.03f + 0.94f * bodyX, MoonAmount(local))
         {
             Hour = hour, DayK = dayK, LightsK = lightsK, StarsK = starsK, WarmK = warmK,
-            SunT = sunT, MoonT = moonT
+            SunT = sunT, MoonT = moonT, SnowAmt = kind == WeatherKind.Snow ? Math.Clamp(snow <= 0 ? 0.7f : snow, 0f, 1f) : 0f
         };
     }
 
@@ -380,6 +412,13 @@ internal sealed class DioramaRenderer
     private float _lastSteamEmit = -1;
     private const float TrainScale = 0.8f;
     private float _trainLights;
+    private float _frost;
+    private Color _frostCol;
+    private float _headX0 = -1, _headX1 = -1, _headY;
+    private Flake[] _snowFar = Array.Empty<Flake>();
+    private Flake[] _snowMid = Array.Empty<Flake>();
+    private Flake[] _snowNear = Array.Empty<Flake>();
+    private float _snowLast = -1;
     private const float TrainW = 176f * TrainScale;
     public string ActiveRegionId => _scenery.ActiveId;
     private float _balloonX = 0.35f;
@@ -391,6 +430,7 @@ internal sealed class DioramaRenderer
 
     private struct Cloud { public float X, Y, W, H, Speed, Alpha; public int Seed; }
     private struct Drop { public float X, Y, Vx, Vy, Len, Alpha; }
+    private struct Flake { public float X, Y, Vy, Phase, Freq, Sway, Size, Alpha, Glint; }
     private struct Ripple { public float X, Y, Life, Max; }
     private struct Puddle { public float X, W; }
     private struct Star { public float X, Y, Size, Phase, Speed; }
@@ -428,6 +468,7 @@ internal sealed class DioramaRenderer
 
     public void Draw(Graphics g, FrameContext ctx, SceneMood mood, float time)
     {
+        if (!ctx.Cfg.ShowTrain) { _headX0 = -1; _frost = 0; }
         _scenery.Build(_region, _w, _h, _groundTop, _spans);
 
         DrawSky(g, mood, time);
@@ -445,17 +486,23 @@ internal sealed class DioramaRenderer
         if (mood.IsRainy && ctx.Cfg.ShowWeatherEffects)
             DrawRain(g, mood, time, near: false);
 
+        bool snow = mood.IsSnow && ctx.Cfg.ShowWeatherEffects;
+        if (snow) StepSnow(time);
+
         if (ctx.Cfg.ShowAmbientDetails && mood.IsClear && mood.DayK > 0.05f)
             DrawBalloon(g, mood, time);
 
         // v5 regional horizon: far mountains/filler skyline, water + boats, landmarks.
         _scenery.DrawFar(g, mood, time);
+        if (snow) DrawSnowLayer(g, mood, time, _snowFar, 0); // distant flakes in front of far hills, behind landmarks
         _scenery.DrawWater(g, mood, time, 0);
         _scenery.DrawLandmarks(g, mood, time);
 
         DrawHorizon(g, mood, time);
+        if (mood.IsSnow) DrawSnowGround(g, mood, time);
         if (ctx.Cfg.ShowAmbientDetails)
             DrawLampsAndWindows(g, mood, time);
+        if (snow) DrawSnowLayer(g, mood, time, _snowMid, 1);
 
         if (ctx.Cfg.ShowWeatherEffects && mood.IsCloudy)
             DrawClouds(g, mood, time, far: false);
@@ -471,6 +518,8 @@ internal sealed class DioramaRenderer
             DrawRain(g, mood, time, near: true);
             DrawRipplesAndPuddles(g, mood, time);
         }
+
+        if (snow) DrawSnowLayer(g, mood, time, _snowNear, 2);
 
         if (mood.IsFog && ctx.Cfg.ShowWeatherEffects)
             DrawFog(g, mood, time);
@@ -593,7 +642,7 @@ internal sealed class DioramaRenderer
     }
 
     private float WeatherVeil(SceneMood mood)
-        => Math.Clamp(1f - mood.Cloudiness * 0.6f - (mood.IsRainy ? 0.25f : 0f) - (mood.IsStorm ? 0.25f : 0f), 0.12f, 1f);
+        => Math.Clamp(1f - mood.Cloudiness * 0.6f - (mood.IsRainy ? 0.25f : 0f) - (mood.IsSnow ? 0.2f : 0f) - (mood.IsStorm ? 0.25f : 0f), 0.12f, 1f);
 
     private void DrawSun(Graphics g, SceneMood mood, float time)
     {
@@ -931,6 +980,7 @@ internal sealed class DioramaRenderer
             using var pgb = new PathGradientBrush(cone);
             int ca = (int)(70 * lk);
             if (mood.IsRainy) ca = (int)(ca * 1.2f);
+            if (mood.IsSnow) ca = (int)(ca * 1.35f); // lamp light scatters in the falling snow
             pgb.CenterColor = Color.FromArgb(ca, 255, 214, 140);
             pgb.SurroundColors = new[] { Color.FromArgb(0, 255, 214, 140) };
             pgb.CenterPoint = new PointF(l.X, y1 - l.H + 2);
@@ -989,6 +1039,9 @@ internal sealed class DioramaRenderer
         bool night = lk > 0.5f;
         bool rain = mood.IsRainy;
         _trainLights = lk;
+        _frost = mood.IsSnow ? 0.55f + 0.45f * mood.SnowAmt : 0f;
+        _frostCol = mood.IsSnow ? RegionScenery.SnowTint(mood, 230) : Color.Empty;
+        _headX0 = _trainX + trainW - 3; _headX1 = _trainX + trainW + 60; _headY = y;
 
         // Headlight beam (fades in with dusk)
         if (lk > 0.03f)
@@ -1046,6 +1099,12 @@ internal sealed class DioramaRenderer
         // roof
         using var roof = new SolidBrush(Color.FromArgb(255, 36, 24, 26));
         g.FillRectangle(roof, x - 1, y - 20, 18, 3);
+        if (_frost > 0)
+            using (var fr = new SolidBrush(Color.FromArgb((int)(_frostCol.A * _frost), _frostCol)))
+            {
+                g.FillRectangle(fr, x - 1, y - 20.6f, 18, 1.4f);
+                g.FillRectangle(fr, x + 8, y - 13.6f, 24, 1.1f);
+            }
         // chimney
         g.FillRectangle(roof, x + 28, y - 21, 5, 9);
         // cowcatcher
@@ -1078,6 +1137,12 @@ internal sealed class DioramaRenderer
         using var roof = new SolidBrush(Color.FromArgb(255, 34, 24, 28));
         g.FillRectangle(body, x, y - 14, w, 12);
         g.FillRectangle(roof, x - 0.5f, y - 16, w + 1, 2.4f);
+        if (_frost > 0)
+            using (var fr = new SolidBrush(Color.FromArgb((int)(_frostCol.A * _frost), _frostCol)))
+            {
+                g.FillRectangle(fr, x - 0.5f, y - 16.7f, w + 1, 1.4f);
+                for (int i = 0; i < 4; i++) g.FillEllipse(fr, x + 2 + i * 10 + idx * 3 % 5, y - 17.4f, 4.5f, 1.8f);
+            }
         int wa = (int)(140 + 80 * Math.Max(_trainLights, rain ? 1f : 0f));
         using var win = new SolidBrush(Color.FromArgb(wa, 255, 210, 120));
         for (int i = 0; i < 3; i++)
@@ -1474,6 +1539,28 @@ internal sealed class DioramaRenderer
                     g.DrawLine(drop, r.X + r.Width * 0.55f, r.Y + r.Height * 0.58f, r.X + r.Width * 0.47f, r.Y + r.Height * 0.95f);
                 }
                 break;
+            case WeatherKind.Snow:
+            {
+                // crisp six-armed snowflake
+                float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f, R = Math.Min(r.Width, r.Height) * 0.46f;
+                using var arm = new Pen(Color.FromArgb(240, 226, 238, 255), Math.Max(1.1f, R * 0.16f)) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                using var tw = new Pen(Color.FromArgb(230, 200, 224, 255), Math.Max(0.9f, R * 0.12f)) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                for (int k = 0; k < 6; k++)
+                {
+                    float a = k * MathF.PI / 3f - MathF.PI / 2f;
+                    float ex = cx + MathF.Cos(a) * R, ey = cy + MathF.Sin(a) * R;
+                    g.DrawLine(arm, cx, cy, ex, ey);
+                    float bx = cx + MathF.Cos(a) * R * 0.58f, by = cy + MathF.Sin(a) * R * 0.58f;
+                    for (int sgn = -1; sgn <= 1; sgn += 2)
+                    {
+                        float b = a + sgn * 0.75f;
+                        g.DrawLine(tw, bx, by, bx + MathF.Cos(b) * R * 0.32f, by + MathF.Sin(b) * R * 0.32f);
+                    }
+                }
+                using var hub = new SolidBrush(Color.FromArgb(250, 245, 250, 255));
+                g.FillEllipse(hub, cx - R * 0.14f, cy - R * 0.14f, R * 0.28f, R * 0.28f);
+                break;
+            }
             case WeatherKind.Fog:
                 using (var f = new SolidBrush(Color.FromArgb(180, 200, 208, 214)))
                 {
@@ -1590,6 +1677,9 @@ internal sealed class DioramaRenderer
         for (int i = 0; i < _nearClouds.Length; i++)
             _nearClouds[i] = RandCloud(far: false, i + 10);
 
+        _snowFar = MakeSnow(Math.Max(90, _w / 8), 0);
+        _snowMid = MakeSnow(Math.Max(50, _w / 16), 1);
+        _snowNear = MakeSnow(Math.Max(28, _w / 30), 2);
         _farRain = MakeRain(70, far: true);
         _nearRain = MakeRain(50, far: false);
         _ripples = new Ripple[12];
@@ -1636,6 +1726,175 @@ internal sealed class DioramaRenderer
             Seed = seed
         };
     }
+
+    private Flake[] MakeSnow(int n, int layer)
+    {
+        var a = new Flake[n];
+        for (int i = 0; i < n; i++) a[i] = NewFlake(layer, (float)_rng.NextDouble() * (_h + 6) - 4);
+        return a;
+    }
+
+    private Flake NewFlake(int layer, float y)
+    {
+        float r() => (float)_rng.NextDouble();
+        return layer switch
+        {
+            0 => new Flake { X = r() * _w, Y = y, Vy = 2.6f + r() * 2.2f, Phase = r() * 6.28f, Freq = 0.35f + r() * 0.3f, Sway = 1.2f + r() * 1.4f, Size = 1.0f + r() * 0.45f, Alpha = 0.5f + r() * 0.25f },
+            1 => new Flake { X = r() * _w, Y = y, Vy = 6f + r() * 3.5f, Phase = r() * 6.28f, Freq = 0.55f + r() * 0.45f, Sway = 2.2f + r() * 2.2f, Size = 1.6f + r() * 0.6f, Alpha = 0.72f + r() * 0.23f },
+            _ => new Flake { X = r() * _w, Y = y, Vy = 10f + r() * 6f, Phase = r() * 6.28f, Freq = 0.7f + r() * 0.6f, Sway = 3.5f + r() * 3f, Size = 2.3f + r() * 0.9f, Alpha = 0.85f + r() * 0.15f, Glint = r() * 6.28f }
+        };
+    }
+
+    #endregion
+
+    #region snow (v5.2)
+
+    private float SnowWind(float time) => 2.2f + 3.2f * MathF.Sin(time * 0.11f) + 1.2f * MathF.Sin(time * 0.37f + 1.3f);
+
+    private void StepSnow(float time)
+    {
+        float dt = _snowLast < 0 || time < _snowLast ? 1f / 30f : Math.Min(0.25f, time - _snowLast);
+        _snowLast = time;
+        float wind = SnowWind(time);
+        Step(_snowFar, 0, 0.45f); Step(_snowMid, 1, 0.75f); Step(_snowNear, 2, 1f);
+
+        void Step(Flake[] arr, int layer, float windK)
+        {
+            for (int i = 0; i < arr.Length; i++)
+            {
+                ref var f = ref arr[i];
+                f.Y += f.Vy * dt;
+                f.X += wind * windK * dt;
+                if (f.Y > _h + 3) { var n = NewFlake(layer, -3 - (float)_rng.NextDouble() * 4); f = n; }
+                if (f.X > _w + 6) f.X -= _w + 12;
+                if (f.X < -6) f.X += _w + 12;
+            }
+        }
+    }
+
+    /// <summary>0..1 warm light on a flake from street lamps and the train headlight.</summary>
+    private float WarmLightAt(SceneMood mood, float x, float y)
+    {
+        float lk = mood.LightsK;
+        if (lk < 0.05f) return 0f;
+        float best = 0f;
+        float y1 = _groundTop + 2;
+        for (int i = 0; i < _lamps.Length; i++)
+        {
+            var l = _lamps[i];
+            float top = y1 - l.H - 2;
+            if (y < top - 2 || y > y1 + 2) continue;
+            float spread = 3f + (y - top) * 0.75f;
+            float dx = MathF.Abs(x - l.X);
+            if (dx < spread) best = Math.Max(best, 1f - dx / spread);
+        }
+        if (_headX0 >= 0 && x > _headX0 && x < _headX1)
+        {
+            float u = (x - _headX0) / (_headX1 - _headX0);
+            float cy = _headY - 6 - u * 2;
+            float half = 2 + u * 8;
+            float dy = MathF.Abs(y - cy);
+            if (dy < half) best = Math.Max(best, (1f - dy / half) * (1f - u * 0.6f));
+        }
+        return best * lk;
+    }
+
+    private void DrawSnowLayer(Graphics g, SceneMood mood, float time, Flake[] arr, int layer)
+    {
+        int n = (int)(arr.Length * (0.35f + 0.65f * mood.SnowAmt));
+        // Day flakes are white but kept slightly translucent; night flakes are moonlit blue.
+        var baseCol = SceneClock.Mix(Color.FromArgb(255, 186, 198, 232), Color.FromArgb(255, 246, 249, 255), mood.DayK);
+        baseCol = SceneClock.Mix(baseCol, Color.FromArgb(255, 255, 222, 232), 0.35f * mood.WarmK);
+        var warm = Color.FromArgb(255, 255, 214, 150);
+        float layerA = layer switch { 0 => 0.7f, 1 => 0.9f, _ => 1f };
+        using var br = new SolidBrush(baseCol);
+        using var halo = new SolidBrush(baseCol);
+        using var spark = new Pen(baseCol, 0.7f);
+        var prevSmooth = g.SmoothingMode;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        for (int i = 0; i < n; i++)
+        {
+            ref var f = ref arr[i];
+            float x = f.X + MathF.Sin(time * f.Freq + f.Phase) * f.Sway;
+            float y = f.Y;
+            // tiny flutter of the near flakes
+            float s = f.Size * (layer == 2 ? 0.9f + 0.1f * MathF.Sin(time * 4f + f.Phase) : 1f);
+            float wl = layer == 0 ? 0f : WarmLightAt(mood, x, y);
+            var col = wl > 0.01f ? SceneClock.Mix(baseCol, warm, Math.Min(1f, wl * 1.1f)) : baseCol;
+            int a = (int)(255 * f.Alpha * layerA * (1f + 0.6f * wl));
+            br.Color = Color.FromArgb(Math.Clamp(a, 0, 255), col);
+            if (layer == 0)
+            {
+                g.FillRectangle(br, x, y, s, s);
+                continue;
+            }
+            if (layer == 2)
+            {
+                halo.Color = Color.FromArgb(Math.Clamp((int)(a * 0.22f), 0, 255), col);
+                g.FillEllipse(halo, x - s * 0.7f, y - s * 0.7f, s * 2.4f, s * 2.4f);
+            }
+            g.FillEllipse(br, x, y, s, s);
+            if (layer == 2)
+            {
+                // occasional soft glint, brighter in lamp / headlight light
+                float gl = MathF.Sin(time * 2.3f + f.Glint * 5f);
+                if (gl > 0.93f || wl > 0.45f)
+                {
+                    float k = Math.Max((gl - 0.93f) / 0.07f, wl);
+                    spark.Color = Color.FromArgb(Math.Clamp((int)(200 * k), 0, 255), col);
+                    float cx = x + s / 2f, cy = y + s / 2f, r = s * 1.25f;
+                    g.DrawLine(spark, cx - r, cy, cx + r, cy);
+                    g.DrawLine(spark, cx, cy - r, cx, cy + r);
+                }
+            }
+        }
+        g.SmoothingMode = prevSmooth;
+    }
+
+    /// <summary>Snow blanket on the ground line + soft winter haze above the horizon.</summary>
+    private void DrawSnowGround(Graphics g, SceneMood mood, float time)
+    {
+        float amt = 0.55f + 0.45f * mood.SnowAmt;
+        // winter breath / haze hugging the horizon
+        var hazeCol = SceneClock.Mix(Color.FromArgb(255, 120, 136, 190), Color.FromArgb(255, 226, 234, 246), mood.DayK);
+        var hz = new RectangleF(0, _groundTop - 12, _w, 16);
+        using (var hb = new LinearGradientBrush(hz, Color.Transparent, Color.Transparent, LinearGradientMode.Vertical))
+        {
+            int ha = (int)((mood.DayK > 0.5f ? 46 : 34) * amt);
+            hb.InterpolationColors = new ColorBlend
+            {
+                Colors = new[] { Color.FromArgb(0, hazeCol), Color.FromArgb(ha, hazeCol), Color.FromArgb(ha / 2, hazeCol) },
+                Positions = new[] { 0f, 0.7f, 1f }
+            };
+            g.FillRectangle(hb, hz);
+        }
+        // drifting haze puffs
+        using (var pb = new SolidBrush(Color.FromArgb((int)(16 * amt), hazeCol)))
+            for (int i = 0; i < 4; i++)
+            {
+                float x = ((time * (2.5f + i) + i * 333) % (_w + 300)) - 150;
+                g.FillEllipse(pb, x, _groundTop - 8 + (i % 2) * 2, 220 + i * 30, 10);
+            }
+        // thin white blanket along the ground top with gentle drifts
+        var snowCol = RegionScenery.SnowTint(mood, (int)(200 * amt));
+        using var sb = new SolidBrush(snowCol);
+        g.FillRectangle(sb, 0, _groundTop - 0.6f, _w, 1.6f);
+        var rnd = new Random(77 + _w);
+        for (float x = -10; x < _w; )
+        {
+            float dw = 14 + (float)rnd.NextDouble() * 30;
+            float dh = 1.2f + (float)rnd.NextDouble() * 1.6f;
+            g.FillEllipse(sb, x, _groundTop - dh * 0.6f, dw, dh + 0.8f);
+            x += dw * (0.8f + (float)rnd.NextDouble() * 0.9f);
+        }
+        // snow along the road edge (bottom) — kept subtle so the running-app dashes stay visible
+        using var edge = new SolidBrush(RegionScenery.SnowTint(mood, (int)(90 * amt)));
+        g.FillRectangle(edge, 0, _h - 5.4f, _w, 0.9f);
+    }
+
+    #endregion
+
+    #region setup2
 
     private Drop[] MakeRain(int n, bool far)
     {

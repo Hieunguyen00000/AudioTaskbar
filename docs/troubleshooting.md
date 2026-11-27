@@ -116,7 +116,7 @@ Crash: xem `app.log` (dòng `CRASH:`). Thiếu Visual C++ redistributable hầu 
 
 ## Gỡ cài đặt
 
-### Nếu cài bằng `AudioTaskbar-Setup-5.1.1.exe`
+### Nếu cài bằng `AudioTaskbar-Setup-5.2.0.exe`
 
 1. *Settings → Apps → Installed apps → Audio Taskbar* (hoặc *Add or remove programs*) và chọn *Uninstall*. Có thể chạy `%LOCALAPPDATA%\Programs\AudioTaskbar\Uninstall.exe`.
 2. Trình gỡ tự tắt app nhẹ nhàng (sự kiện `Local\AudioTaskbar.Cmd.Exit` — khôi phục taskbar, **không** kill Explorer), rồi xóa file cài, shortcut Desktop/Start Menu và mục tự khởi động (`HKCU\...\Run\AudioTaskbar`).

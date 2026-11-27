@@ -1,4 +1,4 @@
-# Build AudioTaskbar-Setup-5.1.1.exe (per-user NSIS installer).
+# Build AudioTaskbar-Setup-5.2.0.exe (per-user NSIS installer).
 # Requires: NSIS 3.x (makensis) and release\AudioTaskbar.exe (scripts\build.ps1).
 #
 # Linux / WSL (after `sudo apt-get install nsis`):
@@ -19,7 +19,7 @@ if (-not $PayloadExe) { $PayloadExe = Join-Path $root "release\AudioTaskbar.exe"
 $nsi = Join-Path $root "installer\AudioTaskbar.nsi"
 $outDirA = Join-Path $root "installer-output"
 $outDirB = Join-Path $root "installer"
-$defaultName = "AudioTaskbar-Setup-5.1.1.exe"
+$defaultName = "AudioTaskbar-Setup-5.2.0.exe"
 if (-not $OutFile) { $OutFile = Join-Path $outDirA $defaultName }
 
 if (-not (Test-Path -LiteralPath $nsi)) { throw "Missing $nsi" }
@@ -30,8 +30,8 @@ if (-not (Test-Path -LiteralPath $PayloadExe)) {
 # Refuse to pack a stale exe when FileVersion is available (Windows only).
 try {
     $ver = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($PayloadExe)
-    if ($ver.FileVersion -and $ver.FileVersion -notlike "5.1.1*") {
-        throw "Payload FileVersion is '$($ver.FileVersion)', expected 5.1.1.x ($PayloadExe)"
+    if ($ver.FileVersion -and $ver.FileVersion -notlike "5.2.0*") {
+        throw "Payload FileVersion is '$($ver.FileVersion)', expected 5.2.0.x ($PayloadExe)"
     }
     Write-Host "Payload: $PayloadExe"
     Write-Host "  FileVersion    : $($ver.FileVersion)"

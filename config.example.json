@@ -19,6 +19,7 @@
   "showCyclist": true,
   "showAmbientDetails": true,
   "showWeatherEffects": true,
+  // live | sunny | cloudy | rain | storm | snow (v5.2: "Tuyết rơi") | night
   "weatherPreview": "live",
   "showWeather": true,
   "showWeatherAmbient": true,

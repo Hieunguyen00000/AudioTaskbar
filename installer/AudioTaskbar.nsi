@@ -1,4 +1,4 @@
-﻿# Audio Taskbar 5.1.1 — per-user NSIS installer (no admin / no UAC).
+﻿# Audio Taskbar 5.2.0 — per-user NSIS installer (no admin / no UAC).
 # Build:  makensis -INPUTCHARSET UTF8 installer\AudioTaskbar.nsi
 #      or scripts\build-installer.ps1
 #
@@ -33,8 +33,8 @@ RequestExecutionLevel user
 
 !define APP_NAME           "Audio Taskbar"
 !define APP_NAME_SHORT     "AudioTaskbar"
-!define APP_VERSION        "5.1.1"
-!define APP_VERSION_FULL   "5.1.1.0"
+!define APP_VERSION        "5.2.0"
+!define APP_VERSION_FULL   "5.2.0.0"
 !define APP_PUBLISHER      "Audio Taskbar"
 !define APP_EXE            "AudioTaskbar.exe"
 !define APP_ICO            "AudioTaskbar.ico"

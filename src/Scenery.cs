@@ -67,8 +67,43 @@ internal sealed class RegionScenery : IDisposable
 
     private struct Petal { public float X, Y, Vx, Vy, Phase, Size; }
 
+    // v5.2 snow caps: thin top-edge bands of each silhouette path, cached per geometry build.
+    private readonly Dictionary<GraphicsPath, Region> _caps = new();
+
+    private Region CapOf(GraphicsPath path, float depth)
+    {
+        if (_caps.TryGetValue(path, out var r)) return r;
+        r = new Region(path);
+        using (var shifted = (GraphicsPath)path.Clone())
+        using (var m = new Matrix())
+        {
+            m.Translate(0, depth);
+            shifted.Transform(m);
+            r.Exclude(shifted);
+        }
+        _caps[path] = r;
+        return r;
+    }
+
+    /// <summary>Snow colour for caps / ground: crisp white by day, moonlit blue at night, pink at dawn/dusk.</summary>
+    public static Color SnowTint(SceneMood mood, int alpha)
+    {
+        var c = SceneClock.Mix(Color.FromArgb(255, 150, 164, 206), Color.FromArgb(255, 236, 242, 252), mood.DayK);
+        c = SceneClock.Mix(c, Color.FromArgb(255, 246, 206, 220), 0.45f * mood.WarmK);
+        return Color.FromArgb(Math.Clamp(alpha, 0, 255), c);
+    }
+
+    private void SnowCap(Graphics g, SceneMood mood, GraphicsPath path, float depth, int alpha)
+    {
+        if (!mood.IsSnow || mood.SnowAmt <= 0.01f) return;
+        using var br = new SolidBrush(SnowTint(mood, (int)(alpha * (0.55f + 0.45f * mood.SnowAmt))));
+        g.FillRegion(br, CapOf(path, depth));
+    }
+
     public void Dispose()
     {
+        foreach (var r in _caps.Values) r.Dispose();
+        _caps.Clear();
         _far.Dispose(); _mid.Dispose(); _sil.Dispose();
         foreach (var a in _accents) a.Path.Dispose();
         _accents.Clear();
@@ -759,8 +794,10 @@ internal sealed class RegionScenery : IDisposable
         }
         var farCol = SceneClock.Mix(mood.Silhouette, mood.SkyBot, 0.45f);
         using (var br = new SolidBrush(farCol)) g.FillPath(br, _far);
+        SnowCap(g, mood, _far, 1.0f, 70);
         var midCol = SceneClock.Mix(mood.Silhouette, mood.SkyBot, 0.2f);
         using (var br = new SolidBrush(midCol)) g.FillPath(br, _mid);
+        SnowCap(g, mood, _mid, 1.2f, 115);
     }
 
     public void DrawWater(Graphics g, SceneMood mood, float time, float dt)
@@ -804,9 +841,11 @@ internal sealed class RegionScenery : IDisposable
             if (!a.Glow) c = SceneClock.Mix(c, mood.Silhouette, 0.25f * (1 - nightK));
             using var br = new SolidBrush(c);
             g.FillPath(br, a.Path);
+            if (!a.Glow) SnowCap(g, mood, a.Path, 1.1f, 150);
         }
         var silCol = SceneClock.Mix(mood.Silhouette, Color.FromArgb(255, 58, 66, 92), 0.35f * nightK);
         using (var br = new SolidBrush(silCol)) g.FillPath(br, _sil);
+        SnowCap(g, mood, _sil, 1.4f, 190);
         foreach (var s in _strokes)
         {
             var col = s.Color is { } sc ? SceneClock.Mix(sc, mood.Silhouette, nightK * 0.4f) : mood.Silhouette;

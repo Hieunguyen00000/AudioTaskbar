@@ -154,6 +154,7 @@ public sealed class AppConfig
             "rain" or "mua" or "mưa" or "mưa rào" or "mua rao" => "rain",
             "storm" or "giong" or "giông" or "giông bão" or "giong bao" => "storm",
             "night" or "dem" or "đêm" or "đêm sao" or "dem sao" => "night",
+            "snow" or "tuyet" or "tuyết" or "tuyết rơi" or "tuyet roi" => "snow",
             _ => "live"
         };
 

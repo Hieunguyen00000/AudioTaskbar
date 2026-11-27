@@ -80,7 +80,7 @@ internal sealed class TrayApp : ApplicationContext
         _cfg.Normalize();
         _layout = new TaskbarLayoutProbe(Log);
         _layout.Changed += () => _layoutDirty = true;
-        Log("Start v5.1.1. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
+        Log("Start v5.2.0. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
             + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) traffic=" + _cfg.ShowCyclist
             + " region=" + _cfg.RegionMode + " hud=" + _cfg.ShowWeatherHud
@@ -244,6 +244,7 @@ internal sealed class TrayApp : ApplicationContext
         addPreview("cloudy", "Mây trôi");
         addPreview("rain", "Mưa rào");
         addPreview("storm", "Giông bão");
+        addPreview("snow", "Tuyết rơi");
         addPreview("night", "Đêm sao");
         menu.Items.Add(preview);
 

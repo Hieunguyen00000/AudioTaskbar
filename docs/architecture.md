@@ -1,4 +1,4 @@
-# Kiến trúc Audio Taskbar v5.1.1
+# Kiến trúc Audio Taskbar v5.2.0
 
 Audio Taskbar gồm hai phần:
 

@@ -1,6 +1,8 @@
-# Audio Taskbar v5.1.1
+# Audio Taskbar v5.2.0
 
 Ứng dụng Windows nhỏ vẽ một **diorama thời tiết sống** (48px) ngay trên nền thanh taskbar: bầu trời đổi theo giờ trong ngày, mây/mưa/sấm, tàu hỏa chạy trái → phải, người đi xe đạp, chim, đèn phố, đom đóm… Hiệu ứng nằm **phía sau** icon nên nút Start, Search, app đang chạy và khay hệ thống vẫn sắc, bấm bình thường.
+
+**Mới ở v5.2.0 — Tuyết rơi ❄:** thời tiết tuyết thật (mã WMO 71/73/75/77/85/86 → *Tuyết nhẹ* / *Tuyết rơi* / *Tuyết dày*, thẻ thời tiết có biểu tượng bông tuyết 6 cánh) hoặc chọn *Xem trước thời tiết → Tuyết rơi* trong menu khay. Tuyết rơi 3 lớp chiều sâu (hạt xa li ti trôi chậm, hạt giữa đung đưa, hạt gần sắc nét lắc theo gió và thỉnh thoảng lấp lánh, ửng vàng ấm khi bay qua đèn phố / đèn pha tàu ban đêm); bầu trời mùa đông xanh xám nhạt ban ngày, chàm sâu ban đêm, hồng phấn lúc bình minh/hoàng hôn; lớp tuyết mỏng trên mái nhà, skyline, danh lam, mặt đất và nóc tàu, sương mờ sát chân trời. Màu trời giữ ở mức trung tính để icon sáng vẫn dễ đọc. Chạy với cả chu kỳ ngày–đêm 30 phút và 7 khu vực.
 
 **Mới ở v5.1.1:** `TaskbarTap.dll` thành dịch vụ thường trú tái sử dụng trong Explorer — tắt/bật app bao nhiêu lần cũng hòa nền liền mạch phía sau toàn bộ taskbar (không còn dải xám quanh icon), không inject lại, không làm Explorer khởi động lại. Xem [troubleshooting](docs/troubleshooting.md).
 
@@ -15,7 +17,7 @@ Bật/tắt toàn bộ hiệu ứng mọi lúc bằng phím **F8** (hotkey toàn
 ## Tính năng nổi bật
 
 - **Diorama 48px** chạy dọc taskbar, theo nhịp ngày đêm (bình minh → trưa → hoàng hôn → đêm).
-- **Thời tiết thật** từ [Open-Meteo](https://open-meteo.com/) (không cần API key): nhiệt độ, trạng thái tiếng Việt, hiệu ứng mưa/nắng/giông rất nhẹ. Vị trí tự dò theo IP, hoặc khóa thành phố / tọa độ trong config.
+- **Thời tiết thật** từ [Open-Meteo](https://open-meteo.com/) (không cần API key): nhiệt độ, trạng thái tiếng Việt, hiệu ứng mưa/nắng/giông/tuyết rơi. Vị trí tự dò theo IP, hoặc khóa thành phố / tọa độ trong config.
 - **Một đoàn tàu cố định** (đầu máy + 3 toa) chạy từ trái sang phải, đúng `trainCrossingMinutes` (mặc định 1 phút từ v5.1; v5.0 là 25 phút) cho một lượt; vị trí là hàm của thời gian nên mượt và luôn thấy ngay khi bật.
 - **Cảnh vật theo khu vực:** mỗi khu vực có danh lam + skyline + giao thông đặc trưng, ví dụ TP.HCM (Landmark 81, Bitexco, Nhà thờ Đức Bà, cầu Ba Son; xe máy, xe buýt, xích lô), Vũng Tàu (Tượng Chúa, hải đăng quét đèn, hàng dừa Bãi Sau; tàu cá), Hà Nội (Tháp Rùa, cầu Long Biên, Chùa Một Cột, cầu Thê Húc), Đà Nẵng – Hội An (cầu Rồng phun lửa, Cầu Vàng, đèn lồng, thuyền hoa đăng), Tokyo (Phú Sĩ, Tokyo Tower, torii, hoa anh đào; kei truck, mamachari), Paris (Eiffel lấp lánh đầu giờ, Khải Hoàn Môn; 2CV, taxi cổ).
 - **Khu vực tự động hoặc chọn tay:** `regionMode: "auto"` lấy theo vị trí thời tiết (IP / thành phố / tọa độ, có chống nhảy vị trí), hoặc chọn trong menu *Khu vực & Cảnh vật*.
@@ -31,7 +33,7 @@ Bật/tắt toàn bộ hiệu ứng mọi lúc bằng phím **F8** (hotkey toàn
 
 File Setup và `AudioTaskbar.exe` hiện **chưa ký số**, nên Windows có thể cảnh báo hoặc hạn chế:
 
-- **SmartScreen** khi mở `AudioTaskbar-Setup-5.1.1.exe`: bấm **More info** → **Run anyway**. Đây là cảnh báo bình thường với phần mềm mới, chưa có "reputation", chứ không phải Setup bị hỏng.
+- **SmartScreen** khi mở `AudioTaskbar-Setup-5.2.0.exe`: bấm **More info** → **Run anyway**. Đây là cảnh báo bình thường với phần mềm mới, chưa có "reputation", chứ không phải Setup bị hỏng.
 - Trên máy bật **Smart App Control** (Windows Security → App & browser control), Windows chặn file exe/DLL chưa ký số và chưa có "reputation". Ảnh hưởng:
   - `TaskbarTap.dll` không được nạp vào Explorer → v5 phát hiện SAC ngay khi khởi động và dùng chế độ an toàn (khoét chính xác vùng icon, không chờ, không treo F8).
   - Bản exe mới build (chưa ký) có thể bị chặn chạy hoàn toàn (Event Viewer → *Microsoft-Windows-CodeIntegrity/Operational*, sự kiện 3077/3033).
@@ -47,9 +49,9 @@ Cách xử lý: ký số exe bằng chứng chỉ code-signing tin cậy, hoặc
 
 ## Cài đặt nhanh bằng file Setup
 
-Gửi cho người khác **một file** `AudioTaskbar-Setup-5.1.1.exe` (khoảng 25–30 MB, nén LZMA). Họ chỉ cần double-click, không cần .NET SDK, không cần quyền admin, không cần clone repo.
+Gửi cho người khác **một file** `AudioTaskbar-Setup-5.2.0.exe` (khoảng 25–30 MB, nén LZMA). Họ chỉ cần double-click, không cần .NET SDK, không cần quyền admin, không cần clone repo.
 
-1. Mở `AudioTaskbar-Setup-5.1.1.exe`.
+1. Mở `AudioTaskbar-Setup-5.2.0.exe`.
 2. **Windows SmartScreen** (file chưa ký số) có thể hiện *Windows protected your PC*. Bấm **More info** → **Run anyway**.
 3. Chọn thư mục cài (mặc định `%LOCALAPPDATA%\Programs\AudioTaskbar`) và các tùy chọn:
    - Tạo shortcut trên Desktop (mặc định bật)
@@ -80,7 +82,7 @@ Cấu hình, log và cache nằm ở `%LOCALAPPDATA%\AudioTaskbar\` (`config.jso
 
 | Việc | Cách |
 |------|------|
-| Cài cho người khác | `AudioTaskbar-Setup-5.1.1.exe` (xem mục trên) |
+| Cài cho người khác | `AudioTaskbar-Setup-5.2.0.exe` (xem mục trên) |
 | Chạy từ dự án (máy dev) | `start.bat` / `stop.bat` |
 | Tự khởi động cùng Windows | Trong Setup, hoặc `scripts\enable-autostart.ps1` (tắt: `scripts\disable-autostart.ps1`). Mặc định **không** bật. |
 | Shortcut Desktop / Start Menu | Setup tạo sẵn; hoặc lối tắt trỏ tới `release\AudioTaskbar.exe` (working directory = thư mục `release`). |
@@ -106,7 +108,7 @@ Hỗ trợ tổ hợp `Ctrl`, `Alt`, `Shift`, `Win` với phím F1–F24 hoặc 
 - **Ngày & đêm (mặt trời / mặt trăng):** Chu kỳ 30 phút (1 ngày), Theo giờ thật
 - **Khu vực & Cảnh vật:** Tự động theo máy, TP. Hồ Chí Minh, Bà Rịa – Vũng Tàu, Hà Nội, Đà Nẵng – Hội An, Tokyo / Nhật Bản, Paris / Pháp, Mặc định; *Thời tiết theo khu vực đã chọn*
 - **Hiện thông tin thời tiết & địa điểm** (thẻ trên nền taskbar)
-- **Xem trước thời tiết:** Thực tế, Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Đêm sao
+- **Xem trước thời tiết:** Thực tế, Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Tuyết rơi, Đêm sao
 - **Làm mới thời tiết & vị trí**
 - **Chặn ảnh nền desktop:** bật/tắt TAP + nền đặc phía sau icon
 - Tải lại cấu hình, mở thư mục cấu hình, Thoát
@@ -127,7 +129,7 @@ AudioTaskbar/
       build-dll.ps1, build.sh
   scripts/
     build.ps1               # publish single-file exe → release/
-    build-installer.ps1     # đóng gói AudioTaskbar-Setup-5.1.1.exe (NSIS)
+    build-installer.ps1     # đóng gói AudioTaskbar-Setup-5.2.0.exe (NSIS)
     start.ps1, stop.ps1, enable-autostart.ps1, disable-autostart.ps1
   installer/
     AudioTaskbar.nsi        # script NSIS (cài theo user, không cần admin)
