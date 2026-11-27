@@ -140,6 +140,13 @@ internal sealed class PortalForm : Form
         var head = new Label { Text = title, AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = _p.Accent, Margin = new Padding(0, 0, 0, 6) };
         grid.Controls.Add(head, 0, 0); grid.SetColumnSpan(head, 2);
         card.Controls.Add(grid);
+        // The card follows the grid's real height (an AutoSize Panel mis-measures a Dock=Top child,
+        // which let the footer cover the bottom of the update card).
+        var g = grid;
+        void Fit() { int h = g.Height + card.Padding.Vertical; if (card.Height != h) card.Height = h; }
+        g.SizeChanged += (_, _) => Fit();
+        card.HandleCreated += (_, _) => Fit();
+        Fit();
         return card;
     }
 
@@ -485,8 +492,7 @@ internal sealed class PortalForm : Form
         public Card(Palette p)
         {
             _p = p;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            AutoSize = false;
             BackColor = p.Card;
             Padding = new Padding(1);
             DoubleBuffered = true;
