@@ -116,6 +116,14 @@ Crash: xem `app.log` (dòng `CRASH:`). Thiếu Visual C++ redistributable hầu 
 
 ## Gỡ cài đặt
 
+### Nếu cài bằng `AudioTaskbar-Setup-5.1.1.exe`
+
+1. *Settings → Apps → Installed apps → Audio Taskbar* (hoặc *Add or remove programs*) và chọn *Uninstall*. Có thể chạy `%LOCALAPPDATA%\Programs\AudioTaskbar\Uninstall.exe`.
+2. Trình gỡ tự tắt app nhẹ nhàng (sự kiện `Local\AudioTaskbar.Cmd.Exit` — khôi phục taskbar, **không** kill Explorer), rồi xóa file cài, shortcut Desktop/Start Menu và mục tự khởi động (`HKCU\...\Run\AudioTaskbar`).
+3. Khi hỏi, có thể xóa luôn cấu hình/log trong `%LOCALAPPDATA%\AudioTaskbar` (mặc định **giữ lại**; bản silent `/S` cũng giữ, thêm `/PURGE` nếu muốn xóa).
+
+### Nếu chạy từ thư mục dự án (máy dev)
+
 1. Tắt app (`stop.bat` hoặc *Thoát* trên khay) — bước này restore nền taskbar.
 2. `scripts\disable-autostart.ps1` nếu đã bật tự khởi động (xóa `Audio Taskbar.lnk` trong thư mục Startup).
 3. Xóa shortcut Desktop / Start Menu nếu có.
@@ -123,4 +131,4 @@ Crash: xem `app.log` (dòng `CRASH:`). Thiếu Visual C++ redistributable hầu 
 5. (Tùy chọn) xóa dữ liệu user: `%LOCALAPPDATA%\AudioTaskbar\`.
 6. (Tùy chọn) xóa bản cũ trên ổ C nếu còn: `C:\Users\<user>\AudioTaskbar\` và `C:\Users\<user>\audio-taskbar\`.
 
-Không sửa registry hệ thống, không cài service, không đòi reboot (trừ khi Explorer đang treo và bạn muốn chắc chắn khóa file đã nhả).
+Không sửa registry hệ thống (bản Setup chỉ ghi `HKCU`), không cài service, không đòi reboot (trừ khi Explorer đang treo và bạn muốn chắc chắn khóa file đã nhả).

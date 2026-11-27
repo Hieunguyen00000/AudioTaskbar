@@ -27,22 +27,45 @@ Bật/tắt toàn bộ hiệu ứng mọi lúc bằng phím **F8** (hotkey toàn
 - **Đa màn hình / DPI:** PerMonitor V2, tùy chọn hiện trên mọi màn hình; widget thời tiết mặc định chỉ trên màn hình chính.
 - **Một file chạy:** `release/AudioTaskbar.exe` (single-file .NET 8, win-x64, self-contained).
 
-## Smart App Control (SAC)
+## Smart App Control (SAC) và SmartScreen
 
-Trên máy bật **Smart App Control** (Windows Security → App & browser control), Windows chặn file exe/DLL chưa ký số và chưa có "reputation". Ảnh hưởng:
+File Setup và `AudioTaskbar.exe` hiện **chưa ký số**, nên Windows có thể cảnh báo hoặc hạn chế:
 
-- `TaskbarTap.dll` không được nạp vào Explorer → v5 phát hiện SAC ngay khi khởi động và dùng chế độ an toàn (không chờ, không treo F8).
-- Bản exe mới build (chưa ký) có thể bị chặn chạy hoàn toàn (Event Viewer → *Microsoft-Windows-CodeIntegrity/Operational*, sự kiện 3077/3033).
+- **SmartScreen** khi mở `AudioTaskbar-Setup-5.1.1.exe`: bấm **More info** → **Run anyway**. Đây là cảnh báo bình thường với phần mềm mới, chưa có "reputation", chứ không phải Setup bị hỏng.
+- Trên máy bật **Smart App Control** (Windows Security → App & browser control), Windows chặn file exe/DLL chưa ký số và chưa có "reputation". Ảnh hưởng:
+  - `TaskbarTap.dll` không được nạp vào Explorer → v5 phát hiện SAC ngay khi khởi động và dùng chế độ an toàn (khoét chính xác vùng icon, không chờ, không treo F8).
+  - Bản exe mới build (chưa ký) có thể bị chặn chạy hoàn toàn (Event Viewer → *Microsoft-Windows-CodeIntegrity/Operational*, sự kiện 3077/3033).
 
 Cách xử lý: ký số exe bằng chứng chỉ code-signing tin cậy, hoặc tắt SAC (Windows không cho bật lại SAC nếu không cài lại / reset Windows). App không tìm cách lách SAC.
 
 ## Yêu cầu
 
-- Windows 11 (đã kiểm tra trên bản 24H2/26H2, build 26300). Windows 10 có thể chạy phần diorama nhưng TAP XAML của taskbar 11 sẽ không gắn được — app tự rơi về overlay an toàn.
-- Không cần quyền Administrator (`asInvoker`).
+- Windows 11 64-bit (đã kiểm tra trên bản 24H2/26H2, build 26300). Windows 10 có thể chạy phần diorama nhưng TAP XAML của taskbar 11 sẽ không gắn được — app tự rơi về overlay an toàn.
+- Không cần quyền Administrator (`asInvoker`). File Setup cũng cài **theo user**, không hiện UAC.
+- Không cần cài .NET SDK / Runtime (exe self-contained .NET 8).
 - Kết nối mạng lần đầu để lấy thời tiết (có cache khi offline).
 
-## Bắt đầu nhanh
+## Cài đặt nhanh bằng file Setup
+
+Gửi cho người khác **một file** `AudioTaskbar-Setup-5.1.1.exe` (khoảng 25–30 MB, nén LZMA). Họ chỉ cần double-click, không cần .NET SDK, không cần quyền admin, không cần clone repo.
+
+1. Mở `AudioTaskbar-Setup-5.1.1.exe`.
+2. **Windows SmartScreen** (file chưa ký số) có thể hiện *Windows protected your PC*. Bấm **More info** → **Run anyway**.
+3. Chọn thư mục cài (mặc định `%LOCALAPPDATA%\Programs\AudioTaskbar`) và các tùy chọn:
+   - Tạo shortcut trên Desktop (mặc định bật)
+   - Tạo shortcut trên Start Menu (mặc định bật)
+   - Tự khởi động cùng Windows (mặc định **tắt**, đăng ký `HKCU\...\Run` nếu bật)
+   - Chạy Audio Taskbar ngay sau khi cài xong (mặc định bật)
+4. Tìm icon **Audio Taskbar** ở khay hệ thống (gần đồng hồ, có thể nằm trong mũi tên overflow). Nhấn **F8** để bật/tắt hiệu ứng.
+5. **Gỡ cài đặt:** *Settings → Apps → Installed apps → Audio Taskbar* (hoặc *Add or remove programs*). Trình gỡ tắt app nhẹ nhàng qua sự kiện thoát (khôi phục taskbar, **không** kill Explorer), rồi xóa file cài, shortcut và mục tự khởi động. Có hỏi trước khi xóa cấu hình/log trong `%LOCALAPPDATA%\AudioTaskbar` (mặc định giữ lại).
+
+Người dùng mới nhận cấu hình mặc định sạch — `regionMode: "auto"`, `showWeatherHud: true`, `trainCrossingMinutes: 1`, `timeMode: "cycle"`, `dayCycleMinutes: 30`, `tapMode: "auto"` — không dùng config cá nhân của máy build.
+
+**Smart App Control:** trên máy bật SAC, Windows có thể chặn file exe/DLL chưa ký. Nếu app vẫn chạy được, nó **tự chuyển sang chế độ khoét icon an toàn** (không hòa nền XAML phía sau icon). Xem mục [Smart App Control](#smart-app-control-sac) bên dưới.
+
+Tự tạo file Setup từ nguồn: `scripts\build-installer.ps1` (cần [NSIS](https://nsis.sourceforge.io/) 3.x và `release\AudioTaskbar.exe`). Script nằm ở `installer/AudioTaskbar.nsi`.
+
+## Bắt đầu nhanh (từ mã nguồn)
 
 1. Mở thư mục dự án rồi chạy `start.bat` (hoặc `scripts\start.bat`).
 2. Tìm icon **Audio Taskbar** ở khay hệ thống (gần đồng hồ, có thể nằm trong mũi tên overflow).
@@ -57,10 +80,11 @@ Cấu hình, log và cache nằm ở `%LOCALAPPDATA%\AudioTaskbar\` (`config.jso
 
 | Việc | Cách |
 |------|------|
-| Chạy từ dự án | `start.bat` / `stop.bat` |
-| Tự khởi động cùng Windows | `scripts\enable-autostart.ps1` (tắt: `scripts\disable-autostart.ps1`). Mặc định **không** bật. |
-| Shortcut Desktop / Start Menu | Tạo lối tắt trỏ tới `release\AudioTaskbar.exe` (working directory = thư mục `release`). |
-| Gỡ | Xem [docs/troubleshooting.md](docs/troubleshooting.md#gỡ-cài-đặt). |
+| Cài cho người khác | `AudioTaskbar-Setup-5.1.1.exe` (xem mục trên) |
+| Chạy từ dự án (máy dev) | `start.bat` / `stop.bat` |
+| Tự khởi động cùng Windows | Trong Setup, hoặc `scripts\enable-autostart.ps1` (tắt: `scripts\disable-autostart.ps1`). Mặc định **không** bật. |
+| Shortcut Desktop / Start Menu | Setup tạo sẵn; hoặc lối tắt trỏ tới `release\AudioTaskbar.exe` (working directory = thư mục `release`). |
+| Gỡ | *Settings → Apps → Audio Taskbar*, hoặc xem [docs/troubleshooting.md](docs/troubleshooting.md#gỡ-cài-đặt). |
 
 Chỉ một instance được chạy (mutex `Local\Hieunv1.AudioTaskbar.Singleton`).
 
@@ -103,13 +127,19 @@ AudioTaskbar/
       build-dll.ps1, build.sh
   scripts/
     build.ps1               # publish single-file exe → release/
+    build-installer.ps1     # đóng gói AudioTaskbar-Setup-5.1.1.exe (NSIS)
     start.ps1, stop.ps1, enable-autostart.ps1, disable-autostart.ps1
+  installer/
+    AudioTaskbar.nsi        # script NSIS (cài theo user, không cần admin)
+    stop-installed.ps1      # tắt nhẹ bản đang chạy trong thư mục cài
+    assets/                 # icon đa độ phân giải + ảnh wizard
   tests/test_analyzer.py    # kiểm tra FFT/analyzer (Python)
   docs/                     # tài liệu chi tiết
   config.example.json
   NOTICE.md
   start.bat, stop.bat
   release/                  # output khi build (exe không đưa lên git)
+  installer-output/         # file Setup đã đóng gói (không đưa lên git)
 ```
 
 ## Tài liệu

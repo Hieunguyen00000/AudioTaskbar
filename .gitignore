@@ -10,7 +10,11 @@ src/obj/
 *.cache
 *.pdb
 
-# Compiled outputs (rebuild with scripts/build.ps1 and src/TaskbarTap/build-dll.ps1)
+# Compiled outputs (rebuild with scripts/build.ps1, src/TaskbarTap/build-dll.ps1,
+# and scripts/build-installer.ps1). The installer *script* lives in installer/;
+# only the generated Setup exe is ignored (also covered by *.exe).
+installer-output/
+installer/*.exe
 release/
 src/TaskbarTap/*.dll
 native/

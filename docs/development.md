@@ -82,7 +82,7 @@ dotnet publish src\AudioTaskbar.csproj -c Release -r win-x64 --self-contained tr
     -o release
 ```
 
-Kết quả: `release\AudioTaskbar.exe` (single-file, self-contained, khoảng 70 MB, phiên bản assembly `4.0.0`). Không cần cài .NET Runtime trên máy chạy.
+Kết quả: `release\AudioTaskbar.exe` (single-file, self-contained, khoảng 70 MB, phiên bản assembly `5.1.1`). Không cần cài .NET Runtime trên máy chạy.
 
 Chạy nhanh khi đang dev (không single-file):
 
@@ -115,12 +115,50 @@ Test tái hiện thuật toán FFT/analyzer (Python), gồm:
 
 Không có test UI / TAP tự động (cần Explorer trên Windows 11 thật). Khi đổi TAP, kiểm tra tay: gắn fusion, bấm Start, F8 vài lần, thoát app — Explorer không được restart, icon không bị che.
 
-## 4. Đóng gói / phát hành
+## 4. Đóng gói trình cài đặt (NSIS)
 
-- Đưa lên git: mã nguồn, scripts, tests, docs — **không** commit `release\*.exe` hay `*.dll`.
-- Phát hành cho người dùng: zip `release\AudioTaskbar.exe` (+ tùy chọn `start.bat` / `stop.bat` / `config.example.json`), hoặc trỏ shortcut tới exe.
+File phát hành cho người dùng là **một** `AudioTaskbar-Setup-5.1.1.exe` (cài theo user, không UAC, không cần .NET SDK).
+
+Yêu cầu: [NSIS 3.x](https://nsis.sourceforge.io/) (`makensis` trong PATH). Trên Linux/WSL: `sudo apt-get install nsis`. Trên Windows: `winget install --id NSIS.NSIS --scope user` hoặc `scoop install nsis`.
+
+```powershell
+# 1) Publish exe (nếu chưa có release\AudioTaskbar.exe v5.1.1)
+.\scripts\build.ps1
+
+# 2) Đóng gói Setup
+.\scripts\build-installer.ps1
+```
+
+Tương đương thủ công:
+
+```text
+makensis -INPUTCHARSET UTF8 installer\AudioTaskbar.nsi
+```
+
+Kết quả (không commit file exe):
+
+- `installer-output\AudioTaskbar-Setup-5.1.1.exe`
+- bản sao tại `installer\AudioTaskbar-Setup-5.1.1.exe`
+
+Setup đóng gói `release\AudioTaskbar.exe` (self-contained, đã embed `TaskbarTap.dll` + .NET 8), `README.md`, `NOTICE.md`, `config.example.json` và icon đa độ phân giải. **Không** đóng gói `config.json` cá nhân. Người dùng mới nhận mặc định sạch: `regionMode=auto`, `showWeatherHud=true`, `trainCrossingMinutes=1`, `timeMode=cycle`, `dayCycleMinutes=30`, `tapMode=auto`.
+
+Cài mặc định vào `%LOCALAPPDATA%\Programs\AudioTaskbar`, tạo shortcut Desktop/Start Menu (tùy chọn), đăng ký gỡ cài chuẩn tại `HKCU\...\Uninstall\AudioTaskbar`. Trước khi ghi đè hoặc gỡ, Setup/Uninstall chỉ tắt `AudioTaskbar.exe` đang chạy **từ thư mục cài** (sự kiện `Local\AudioTaskbar.Cmd.Exit`) — không kill Explorer, không đụng bản đang chạy từ thư mục khác (ví dụ bản dev trên ổ D:).
+
+Cờ silent hữu ích khi kiểm tra (không đụng shortcut/app đang mở của máy dev):
+
+```text
+AudioTaskbar-Setup-5.1.1.exe /S /NORUN /NODESKTOP /NOSTARTMENU /D=%TEMP%\AudioTaskbar-InstallTest
+%TEMP%\AudioTaskbar-InstallTest\Uninstall.exe /S
+```
+
+`/D=` phải là tham số cuối và không đặt trong dấu ngoặc kép.
+
+## 5. Đóng gói / phát hành
+
+- Đưa lên git: mã nguồn, scripts (kể cả `installer\AudioTaskbar.nsi`), tests, docs — **không** commit `release\*.exe`, `*.dll`, hay `AudioTaskbar-Setup-*.exe`.
+- Phát hành cho người dùng: gửi `AudioTaskbar-Setup-5.1.1.exe`. (Vẫn có thể zip `release\AudioTaskbar.exe` nếu cần bản portable.)
 - Config người dùng luôn ở `%LOCALAPPDATA%\AudioTaskbar\`, tách khỏi bản phân phối.
-- Tự khởi động: `scripts\enable-autostart.ps1` tạo shortcut trong thư mục Startup của user.
+- Tự khởi động: tùy chọn trong Setup (HKCU Run, mặc định tắt), hoặc `scripts\enable-autostart.ps1` tạo shortcut trong thư mục Startup của user.
 
 ## Gợi ý khi sửa mã
 
@@ -141,8 +179,12 @@ Sau khi sửa C++, nhớ build lại DLL rồi `scripts\build.ps1` — exe chỉ
 ```
 src/AudioTaskbar.csproj     # net8.0-windows, WinForms, NAudio 2.2.1, embed TAP
 src/app.manifest            # asInvoker, PerMonitorV2, supportedOS Win10/11
-src/app.ico
+src/app.ico                 # multi-size 16–256 (shared with the Setup wizard)
 scripts/build.ps1
+scripts/build-installer.ps1
+installer/AudioTaskbar.nsi
+installer/stop-installed.ps1
+installer/assets/
 src/TaskbarTap/build-dll.ps1
 src/TaskbarTap/build.sh
 ```
