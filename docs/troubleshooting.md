@@ -43,11 +43,11 @@ Smart App Control (hoặc chính sách WDAC) chặn `TaskbarTap.dll` chưa ký t
 ## Dải xám che cảnh vật ở giữa taskbar / Explorer khởi động lại khi bật lại app
 **Triệu chứng (v5.1.0):** sau khi tắt rồi bật lại app, cảnh vật bị một dải nền xám của Windows cắt ngang quanh Start/Search/icon và khay hệ thống.
 **Nguyên nhân:** `TaskbarTap.dll` không gỡ được khỏi Explorer. Nạp thêm một bản thứ hai (`InitializeXamlDiagnosticsEx` lần nữa) có thể làm Explorer crash, nên v5.1.0 rơi về chế độ an toàn: khoét cả cụm icon, để lộ nền xám.
-**Từ v5.1.1 (giao thức TAP v2):**
-- TAP là một dịch vụ thường trú trong Explorer, đánh dấu bằng sự kiện `Local\AudioTaskbar.Tap.Alive2`.
+**Từ v5.1.1 (giao thức TAP v3):**
+- TAP là một dịch vụ thường trú trong Explorer, đánh dấu bằng sự kiện `Local\AudioTaskbar.Tap.Alive3`; mọi thao tác XAML (Restore/Apply) được chuyển về luồng UI của Explorer nên không làm Explorer crash.
 - Khi app khởi động mà dịch vụ đã sống: app **không** inject lại, chỉ gửi `Apply`, chờ `Applied` (`state=patched`), rồi đặt cảnh ngay sau `Shell_TrayWnd`. Log: `reused existing in-Explorer TAP`.
 - Khi app thoát (Thoát / `stop.ps1`): gửi `Restore` (nền taskbar gốc trở lại, chờ `Restored`), **không** gửi `Stop`, DLL ở lại để lần sau dùng tiếp.
-- Mỗi Explorer chỉ inject đúng **một lần**. Nếu Explorer đang giữ bản TAP cũ (trước 5.1.1, không tái sử dụng được) app ghi `stale-legacy-tap` và dùng chế độ an toàn; khởi động lại Explorer **một lần** (Task Manager → Windows Explorer → Restart) là xong.
+- Mỗi Explorer chỉ inject đúng **một lần**. Nếu Explorer đang giữ bản TAP cũ (trước bản v3, không tái sử dụng được) app ghi `stale-legacy-tap` và dùng chế độ an toàn; khởi động lại Explorer **một lần** (Task Manager → Windows Explorer → Restart) là xong.
 - Nếu Explorer thoát trong 90 s sau khi gắn TAP, app tắt TAP cho phiên đó (không lặp crash).
 
 ## Phím F8 không bật/tắt được

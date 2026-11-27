@@ -116,16 +116,19 @@ v5 chạy `TaskbarLayoutProbe` trên một luồng MTA nền, mỗi ~400 ms:
 
 Đoàn tàu: `x = phase0 + t / (trainCrossingMinutes·60)`, `phase0` đặt vào khoảng trống rộng nhất để thấy ngay; bánh xe quay theo quãng đường, khói nhẹ 0,45 s/lần.
 
-## v5.1.1: TAP thường trú, tái sử dụng (giao thức v2)
+## v5.1.1: TAP thường trú, tái sử dụng (giao thức v3)
 
 | Sự kiện (Local\\) | Tạo bởi | Ý nghĩa |
 |---|---|---|
-| `AudioTaskbar.Tap.Alive2` | DLL (worker) | Dịch vụ TAP v2 còn sống trong Explorer → không được inject lại |
+| `AudioTaskbar.Tap.Alive3` | DLL (worker) | Dịch vụ TAP v3 còn sống (site XAML còn giữ) → chỉ tái sử dụng, không inject lại |
+| `AudioTaskbar.Tap.Loaded3` | DLL (DllMain) | Một bản v3 đã nạp trong Explorer này (sống tới khi Explorer thoát); nếu `Alive3` mất mà `Loaded3` còn thì inject mới là an toàn |
 | `AudioTaskbar.Tap.Apply` / `Applied` | DLL / host | Bật lại nền trong suốt (ReapplyAll) / xác nhận |
 | `AudioTaskbar.Tap.Restore` / `Restored` | DLL / host | Trả nền taskbar gốc (RestoreAll, tắt patch phần tử mới) / xác nhận |
-| `AudioTaskbar.Tap.Stop` | DLL | Chỉ còn để tương thích, host v5.1.1 không dùng |
+| `AudioTaskbar.Tap.Stop` | DLL | Bị bỏ qua ở v3 (coi như Restore); host v5.1.1 không gửi |
 
-Khi đang ở trạng thái Restore, watcher vẫn theo dõi cây XAML và **ghi nhớ** `BackgroundFill`/`BackgroundStroke` mới (không patch), để lần Apply sau áp dụng đúng phần tử hiện tại; phần tử bị gỡ khỏi cây được đánh dấu `removed` và không bao giờ bị chạm lại. Host: `Attach()` → nếu `Alive2` tồn tại thì `ReuseExisting()`; nếu Explorer có module `TaskbarTap*` cũ thì từ chối (`stale-legacy-tap`); còn lại mới gọi `InitializeXamlDiagnosticsEx`.
+Khi đang ở trạng thái Restore, watcher vẫn theo dõi cây XAML và **ghi nhớ** `BackgroundFill`/`BackgroundStroke` mới (không patch), để lần Apply sau áp dụng đúng phần tử hiện tại; phần tử bị gỡ khỏi cây được đánh dấu `removed` và không bao giờ bị chạm lại. Host: `Attach()` → nếu `Alive3` tồn tại thì `ReuseExisting()`; nếu Explorer có module `TaskbarTap*` mà không có `Loaded3` (bản v1/v2 cũ) thì từ chối (`stale-legacy-tap`); còn lại mới gọi `InitializeXamlDiagnosticsEx`.
+
+**Luồng (quan trọng):** `IVisualTreeService`/`SetProperty` không an toàn đa luồng — gọi từ luồng worker làm Explorer crash (`Windows.UI.Xaml.dll` / `TaskbarTap` access violation, đã gặp với giao thức v2 khi phát triển). Ở v3, `SetSite` (chạy trên luồng UI XAML) tạo một cửa sổ message-only `AudioTaskbarTapMsg3`; worker chỉ chờ sự kiện rồi `PostMessage` `WM_APP+0x41` (Restore) / `WM_APP+0x42` (Apply), và `RestoreAll`/`ReapplyAll` luôn chạy trên luồng UI. Worker giữ một tham chiếu `TapSite`, không bao giờ gọi vào watcher; `Teardown` (SetSite(null), luồng UI) là nơi duy nhất `Shutdown` watcher.
 
 ## v5.1: đồng hồ cảnh và thiên thể
 
