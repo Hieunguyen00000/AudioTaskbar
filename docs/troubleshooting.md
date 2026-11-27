@@ -40,6 +40,13 @@ Không chạy đồng thời Windhawk Taskbar Styler, TranslucentTB, hoặc Visu
 ## TAP không gắn / log báo `blocked-smart-app-control` hoặc `blocked-code-integrity`
 Smart App Control (hoặc chính sách WDAC) chặn `TaskbarTap.dll` chưa ký trong Explorer. v5 tự chuyển chế độ an toàn ngay (không còn chờ 15–20 s mỗi lần F8). Nếu bản exe mới cũng bị chặn chạy (Event Viewer → Applications and Services Logs → Microsoft → Windows → CodeIntegrity → Operational, sự kiện 3077/3033): ký số exe, hoặc tắt SAC trong Windows Security → App & browser control → Smart App Control (không bật lại được nếu không reset Windows).
 
+## Explorer bị khởi động lại khi bật lại app (TaskbarTap trong Explorer)
+Nạp **bản thứ hai** của `TaskbarTap.dll` vào cùng một Explorer (tắt app rồi bật lại khi Explorer vẫn còn bản cũ) có thể làm Explorer crash (`Application Error` 1000, module `TaskbarTap-xxxx.dll`). Từ v5.1:
+- App kiểm tra module của Explorer; nếu đã có `TaskbarTap*` thì **không** nạp thêm, dùng chế độ an toàn (khoét icon bằng UIA + nền chặn wallpaper). Log: `already holds a TaskbarTap copy`.
+- Nếu Explorer thoát trong 90 s sau khi gắn TAP, app tắt TAP cho phiên đó (không lặp crash).
+- `stop.bat` / `scripts\stop.ps1` yêu cầu app thoát sạch (sự kiện `Local\AudioTaskbar.Cmd.Exit`) thay vì kill.
+Muốn quay lại chế độ hòa nền: khởi động lại Explorer (Task Manager → Windows Explorer → Restart) hoặc đăng xuất/đăng nhập, rồi bật app.
+
 ## Phím F8 không bật/tắt được
 
 Thường do hotkey bị app khác đăng ký trước (`RegisterHotKey` thất bại). Icon khay sẽ báo; `app.log` có `Hotkey: RegisterHotKey(...) failed`.

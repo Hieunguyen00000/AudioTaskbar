@@ -169,6 +169,24 @@ internal sealed class TaskbarTapHost : IDisposable
 
     public float ReadyTimeoutSeconds { get; set; } = 3.5f;
 
+    /// <summary>
+    /// True when Explorer already holds a TaskbarTap copy (from an earlier app run or an
+    /// earlier attach). Loading a second copy into the same Explorer can crash it, so the
+    /// host must not inject again until Explorer restarts.
+    /// </summary>
+    public static bool ExplorerHasTapModule(int pid)
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.GetProcessById(pid);
+            foreach (System.Diagnostics.ProcessModule m in p.Modules)
+                if (m.ModuleName.StartsWith("TaskbarTap", StringComparison.OrdinalIgnoreCase))
+                    return true;
+        }
+        catch { }
+        return false;
+    }
+
     public bool Attach(Action<string> log)
     {
         DetachInternal(restoreFirst: false, log, fast: true);

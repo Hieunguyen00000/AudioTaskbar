@@ -697,6 +697,14 @@ internal sealed class TrayApp : ApplicationContext
             {
                 // A new shell is already up (crash or user restart). Never kill it.
                 Log("TAP: explorer PID changed to " + pid + " — detached without restarting the new shell.");
+                if ((DateTime.Now - _tapAttachedAt).TotalSeconds < 90)
+                {
+                    // Explorer died soon after we attached: assume the TAP was involved and never
+                    // retry automatically this session (no crash loops).
+                    _tapBlockedReason = "explorer-exited-soon-after-attach";
+                    Log("Fusion: Explorer exited " + (int)(DateTime.Now - _tapAttachedAt).TotalSeconds + " s after TAP attach — TAP disabled for this session; UIA icon-safe mode.");
+                }
+                SafeMode();
             }
             else
             {
@@ -762,6 +770,13 @@ internal sealed class TrayApp : ApplicationContext
             SafeMode();
             return;
         }
+        if (pidNow != 0 && TaskbarTapHost.ExplorerHasTapModule(pidNow))
+        {
+            _tapFailedPid = pidNow;
+            Log("Fusion: Explorer PID " + pidNow + " already holds a TaskbarTap copy from an earlier run — not loading a second copy (it can crash Explorer). UIA icon-safe mode; restart Explorer or sign out to re-enable fused mode.");
+            SafeMode();
+            return;
+        }
         if (_attachInFlight) return;
         _attachInFlight = true;
         SafeMode(); // icon-safe immediately while we try, never a blank/blocked bar
@@ -775,6 +790,8 @@ internal sealed class TrayApp : ApplicationContext
             BeginInvoke(() => FinishAttach(ok, pidBefore));
         });
     }
+
+    private DateTime _tapAttachedAt = DateTime.MinValue;
 
     private void FinishAttach(bool ok, int pidBefore)
     {
@@ -801,6 +818,7 @@ internal sealed class TrayApp : ApplicationContext
         if (ok && !_paused)
         {
             _fused = true;
+            _tapAttachedAt = DateTime.Now;
             _transparency.Effective = true;
             Log("Fusion: TAP attached — visualizer will sit behind the taskbar.");
             foreach (var o in _overlays) o.ReassertZ(true);
