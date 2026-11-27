@@ -1,0 +1,35 @@
+/* VERSIONINFO for TaskbarTap.dll — keep File/Product version in sync with
+   src/AudioTaskbar.csproj <Version>. Compiled with windres (MinGW) or rc.exe (MSVC).
+   No winver.h include so a bare mingw-w64 cross toolchain can compile this. */
+#define VOS_NT_WINDOWS32  0x00040004L
+#define VFT_DLL           0x00000002L
+#define VFT2_UNKNOWN      0
+
+1 VERSIONINFO
+FILEVERSION     5,3,2,0
+PRODUCTVERSION  5,3,2,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_DLL
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "Hieunguyen00000"
+            VALUE "FileDescription",  "Audio Taskbar XAML Backdrop Helper"
+            VALUE "FileVersion",      "5.3.2.0"
+            VALUE "InternalName",     "TaskbarTap"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 Hieunguyen00000"
+            VALUE "OriginalFilename", "TaskbarTap.dll"
+            VALUE "ProductName",      "Audio Taskbar"
+            VALUE "ProductVersion",   "5.3.2"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

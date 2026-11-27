@@ -34,3 +34,10 @@ Thumbs.db
 
 # Test results
 TestResults/
+
+# Native resource / MSVC leftovers from TaskbarTap.dll builds
+src/TaskbarTap/*.res
+src/TaskbarTap/*.obj
+src/TaskbarTap/*.exp
+src/TaskbarTap/*.lib
+native/out/*.res

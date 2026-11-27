@@ -1,7 +1,12 @@
 # Build, test and publish a release when a tag vX.Y.Z is pushed:
-#   git tag v5.3.0 && git push origin v5.3.0
+#   git tag v5.3.2 && git push origin v5.3.2
 # Produces: AudioTaskbar.exe (single self-contained exe, primary asset — the in-app updater swaps it in place),
 #           SHA256SUMS.txt, latest.json (read by the updater) and an optional AudioTaskbar-Setup-X.Y.Z.exe.
+#
+# Code signing (SignPath Foundation) is OFF until repository variable SIGNPATH_ENABLED is set to
+# the exact string "true" (after SignPath approves the project and secrets/vars are configured).
+# When enabled, TaskbarTap.dll is signed first, then embedded, then AudioTaskbar.exe and the
+# Setup are signed; checksums and the GitHub Release are published from the signed files only.
 name: release
 
 on:
@@ -13,14 +18,17 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
     runs-on: windows-latest
+    # Two SignPath approval waits can take up to 60 minutes each, plus build time.
+    timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
 
@@ -41,7 +49,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: tests/AudioTaskbar.Tests/TestResults/*.trx
@@ -50,20 +58,58 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
-          install: mingw-w64-x86_64-gcc
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+          update: false
 
-      - name: Build TaskbarTap.dll
+      - name: Build TaskbarTap.dll (with VERSIONINFO)
         if: github.event_name != 'pull_request'
         shell: msys2 {0}
         run: |
           cd src/TaskbarTap
+          windres -i TaskbarTap.rc -o TaskbarTap.res -O coff
           g++ -shared -O2 -std=c++17 -s -fno-exceptions -fno-rtti \
             -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE \
-            -o TaskbarTap.dll TaskbarTap.cpp TaskbarTap.def \
+            -o TaskbarTap.dll TaskbarTap.cpp TaskbarTap.def TaskbarTap.res \
             -static -static-libgcc -static-libstdc++ \
             -lole32 -loleaut32 -lruntimeobject -luuid -lshlwapi -lshell32 -ladvapi32
+          rm -f TaskbarTap.res
           objdump -p TaskbarTap.dll | grep -E 'DllGetClassObject|DllCanUnloadNow'
+
+      # ── Phase 1: sign TaskbarTap.dll before it is embedded ──────────────
+      - name: Upload unsigned TaskbarTap.dll for SignPath
+        id: upload-unsigned-dll
+        if: github.event_name != 'pull_request' && vars.SIGNPATH_ENABLED == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: taskbartap-unsigned
+          path: src/TaskbarTap/TaskbarTap.dll
+          if-no-files-found: error
+
+      - name: Sign TaskbarTap.dll (SignPath)
+        if: github.event_name != 'pull_request' && vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_DLL_ARTIFACT_CONFIG_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-dll.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-dll
+          parameters: |
+            version: ${{ steps.ver.outputs.version }}
+
+      - name: Use the signed TaskbarTap.dll
+        if: github.event_name != 'pull_request' && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem -Recurse signed-dll -Filter TaskbarTap.dll -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $src) { throw "SignPath did not return a signed TaskbarTap.dll under signed-dll/" }
+          Copy-Item $src.FullName src/TaskbarTap/TaskbarTap.dll -Force
+          Write-Host "Using signed TAP DLL from $($src.FullName)"
 
       - name: Publish AudioTaskbar.exe
         if: github.event_name != 'pull_request'
@@ -72,12 +118,67 @@ jobs:
 
       - name: Build installer (optional asset)
         if: github.event_name != 'pull_request'
-        # The primary asset is the portable AudioTaskbar.exe; a Setup failure must not block the release.
+        # The primary asset is the portable AudioTaskbar.exe; a Setup failure must not block the release
+        # when signing is off. When SignPath is on, a missing Setup just means only the exe is signed.
         continue-on-error: true
         shell: pwsh
         run: |
           choco install nsis -y --no-progress
           ./scripts/build-installer.ps1 -Version ${{ steps.ver.outputs.version }}
+
+      # ── Phase 2: sign AudioTaskbar.exe and the Setup (if present) ───────
+      - name: Stage unsigned app artifacts for SignPath
+        if: github.event_name != 'pull_request' && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force unsigned-app | Out-Null
+          Copy-Item release/AudioTaskbar.exe unsigned-app/AudioTaskbar.exe -Force
+          $setup = Get-Item "installer-output/AudioTaskbar-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($setup) { Copy-Item $setup.FullName "unsigned-app/$($setup.Name)" -Force }
+          Get-ChildItem unsigned-app | Format-Table Name, Length
+
+      - name: Upload unsigned app artifacts for SignPath
+        id: upload-unsigned-app
+        if: github.event_name != 'pull_request' && vars.SIGNPATH_ENABLED == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: audiotaskbar-unsigned
+          path: unsigned-app/*
+          if-no-files-found: error
+
+      - name: Sign AudioTaskbar.exe and Setup (SignPath)
+        if: github.event_name != 'pull_request' && vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APP_ARTIFACT_CONFIG_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-app
+          parameters: |
+            version: ${{ steps.ver.outputs.version }}
+
+      - name: Use the signed app artifacts
+        if: github.event_name != 'pull_request' && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse signed-app -Filter AudioTaskbar.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "SignPath did not return a signed AudioTaskbar.exe under signed-app/" }
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item $exe.FullName release/AudioTaskbar.exe -Force
+          Write-Host "Using signed exe from $($exe.FullName)"
+          $setup = Get-ChildItem -Recurse signed-app -Filter "AudioTaskbar-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($setup) {
+            New-Item -ItemType Directory -Force installer-output | Out-Null
+            Copy-Item $setup.FullName "installer-output/$($setup.Name)" -Force
+            Write-Host "Using signed Setup from $($setup.FullName)"
+          } else {
+            Write-Host "No signed Setup returned (optional asset)."
+          }
 
       - name: SHA256SUMS.txt + latest.json
         if: github.event_name != 'pull_request'
@@ -86,7 +187,7 @@ jobs:
           $v = "${{ steps.ver.outputs.version }}"
           ./scripts/make-release-manifest.ps1 -Version $v -ExePath release/AudioTaskbar.exe -SetupPath "installer-output/AudioTaskbar-Setup-$v.exe" -OutDir installer-output -Repo "${{ github.repository }}" -Notes "Audio Taskbar v$v"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.event_name != 'pull_request'
         with:
           name: AudioTaskbar-${{ steps.ver.outputs.version }}

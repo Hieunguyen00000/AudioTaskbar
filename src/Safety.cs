@@ -65,6 +65,77 @@ internal static class TapSafety
 }
 
 /// <summary>
+/// Smart App Control decision for TaskbarTap.dll. An unsigned DLL must never be injected
+/// into explorer.exe when SAC is on. A signed (or unknown-signature) DLL may be tried;
+/// <see cref="TaskbarTapHost"/> falls back to UIA if Code Integrity then blocks the load.
+/// </summary>
+internal enum SacTapDecision { Proceed, SkipUnsigned, TrySigned }
+
+internal static class SacTapPolicy
+{
+    public const int ErrorInvalidImageHash = 577;
+    public const int ErrorAccessDenied = 5;
+    public const int HresultInvalidImageHash = unchecked((int)0x80070241);
+    public const int HresultAccessDenied = unchecked((int)0x80070005);
+
+    /// <summary>
+    /// <paramref name="hasAuthenticodeSignature"/> is <c>true</c> / <c>false</c> when the
+    /// check succeeded, or <c>null</c> when the file could not be inspected (try-load).
+    /// </summary>
+    public static SacTapDecision Decide(bool sacEnabled, bool? hasAuthenticodeSignature)
+    {
+        if (!sacEnabled) return SacTapDecision.Proceed;
+        if (hasAuthenticodeSignature == false) return SacTapDecision.SkipUnsigned;
+        return SacTapDecision.TrySigned;
+    }
+
+    public static bool ShouldSkipUnsignedTap(bool sacEnabled, bool? hasAuthenticodeSignature)
+        => Decide(sacEnabled, hasAuthenticodeSignature) == SacTapDecision.SkipUnsigned;
+
+    /// <summary>
+    /// HRESULT or Win32 codes that mean the image failed signature / Code Integrity checks
+    /// (ERROR_INVALID_IMAGE_HASH 577 / 0x80070241, ERROR_ACCESS_DENIED 5 / 0x80070005, common trust HRESULTs).
+    /// </summary>
+    public static bool IsIntegrityOrTrustFailure(int hrOrWin32)
+    {
+        if (hrOrWin32 is HresultInvalidImageHash or HresultAccessDenied or ErrorInvalidImageHash or ErrorAccessDenied)
+            return true;
+        uint u = unchecked((uint)hrOrWin32);
+        if ((u & 0xFFFF0000) == 0x80070000)
+        {
+            uint win32 = u & 0xFFFF;
+            if (win32 is ErrorInvalidImageHash or ErrorAccessDenied) return true;
+        }
+        // TRUST_E_NOSIGNATURE, CERT_E_UNTRUSTEDROOT, CERT_E_CHAINING, CERT_E_WRONG_USAGE, TRUST_E_FAIL, TRUST_E_SUBJECT_NOT_TRUSTED
+        if (u is 0x800B0100 or 0x800B0109 or 0x800B010A or 0x800B0111 or 0x800B010B or 0x800B0104) return true;
+        return false;
+    }
+}
+
+/// <summary>Lightweight Authenticode presence check (does not require a full WinVerifyTrust chain).</summary>
+internal static class TapSignature
+{
+    public static bool? HasAuthenticodeSignature(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        try
+        {
+            using var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(path));
+            return !string.IsNullOrEmpty(cert.Subject);
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            return false;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>
 /// Crash-loop circuit breaker: if Explorer exits within <see cref="Window"/> of a TAP attach,
 /// assume the TAP was involved and never attach again for this session.
 /// </summary>

@@ -12,7 +12,13 @@
     <AssemblyName>AudioTaskbar</AssemblyName>
     <RootNamespace>AudioTaskbar</RootNamespace>
     <Version>5.3.2</Version>
+    <FileVersion>5.3.2.0</FileVersion>
+    <InformationalVersion>5.3.2</InformationalVersion>
     <Product>Audio Taskbar</Product>
+    <AssemblyTitle>Audio Taskbar</AssemblyTitle>
+    <Company>Hieunguyen00000</Company>
+    <Authors>Hieunguyen00000</Authors>
+    <Copyright>Copyright (c) 2026 Hieunguyen00000</Copyright>
     <Description>Living regional weather diorama for the Windows taskbar (icon-safe at any DPI). Toggle with F8.</Description>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ForceDesignerDpiUnaware>false</ForceDesignerDpiUnaware>

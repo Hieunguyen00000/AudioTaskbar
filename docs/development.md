@@ -6,7 +6,7 @@ Repo chứa mã nguồn. File chạy `release/AudioTaskbar.exe` và `TaskbarTap.
 
 - Windows 10/11 x64 (publish target: `win-x64`).
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (desktop / Windows workload, vì dự án dùng WinForms).
-- Để biên dịch TAP: **mingw-w64** (`x86_64-w64-mingw32-g++` trong PATH) hoặc **MSVC** (`cl.exe` từ *Developer PowerShell for VS*).
+- Để biên dịch TAP: **mingw-w64** (`x86_64-w64-mingw32-g++` và `windres` trong PATH) hoặc **MSVC** (`cl.exe` / `rc.exe` từ *Developer PowerShell for VS*). `TaskbarTap.rc` nhúng VERSIONINFO (bắt buộc khi ký SignPath) — giữ số phiên bản trùng với `<Version>` trong `src/AudioTaskbar.csproj`.
 - Python 3 để chạy `tests/test_analyzer.py` (numpy tùy chọn, chỉ để so sánh FFT).
 
 Kiểm tra:
@@ -43,8 +43,9 @@ cd src\TaskbarTap
 Tương đương thủ công:
 
 ```text
+rc /fo TaskbarTap.res TaskbarTap.rc
 cl /LD /O2 /EHs- /GR- /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE ^
-   TaskbarTap.cpp /Fe:TaskbarTap.dll /link /DEF:TaskbarTap.def ^
+   TaskbarTap.cpp /Fe:TaskbarTap.dll /link /DEF:TaskbarTap.def TaskbarTap.res ^
    ole32.lib oleaut32.lib runtimeobject.lib uuid.lib shlwapi.lib shell32.lib advapi32.lib
 ```
 

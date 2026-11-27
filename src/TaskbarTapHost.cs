@@ -146,10 +146,13 @@ internal sealed class TaskbarTapHost : IDisposable
     }
 
     /// <summary>
-    /// Smart App Control (Windows 11 Home/Pro clean installs) enforces a code
-    /// integrity policy that blocks unsigned DLLs from loading into explorer.exe.
-    /// InitializeXamlDiagnosticsEx still returns S_OK, but our TAP never loads
-    /// (CodeIntegrity events 3033/3077) — so we must not wait for it.
+    /// Smart App Control (Windows 11 Home/Pro) enforces a code integrity policy
+    /// that blocks unsigned DLLs from loading into explorer.exe. A valid
+    /// Authenticode signature is enough for SAC to allow the load when the
+    /// cloud has no safety prediction. <see cref="Attach"/> therefore skips
+    /// injection only when SAC is on *and* the deployed DLL is unsigned;
+    /// otherwise it tries to attach and falls back if Code Integrity events
+    /// 3033/3077 (or integrity HRESULTs) report a block.
     /// </summary>
     public static string? DetectTapBlocker()
     {
@@ -213,17 +216,27 @@ internal sealed class TaskbarTapHost : IDisposable
         // Never stop/unload a living TAP: just drop our handles from any previous attach.
         ReleaseHandles();
         Reused = false;
-        var blocker = DetectTapBlocker();
-        if (blocker is not null)
-        {
-            _status = "blocked-" + blocker;
-            log("TAP: skipped — Smart App Control is ON (unsigned TaskbarTap.dll cannot load into explorer). Using UIA icon-safe mode.");
-            return false;
-        }
         try
         {
             var dll = EnsureDllDeployed();
             log("TAP DLL: " + dll);
+
+            bool sacOn = DetectTapBlocker() is not null;
+            bool? signed = TapSignature.HasAuthenticodeSignature(dll);
+            var sacDecision = SacTapPolicy.Decide(sacOn, signed);
+            if (sacDecision == SacTapDecision.SkipUnsigned)
+            {
+                _status = "blocked-smart-app-control";
+                log("TAP: skipped — Smart App Control is ON and TaskbarTap.dll is unsigned, so it cannot load into explorer. Using UIA icon-safe mode.");
+                return false;
+            }
+            if (sacDecision == SacTapDecision.TrySigned)
+            {
+                log(signed == true
+                    ? "TAP: Smart App Control is ON, but TaskbarTap.dll has an Authenticode signature — trying attach (will fall back if Code Integrity blocks the DLL)."
+                    : "TAP: Smart App Control is ON; Authenticode check was inconclusive — trying attach (will fall back if Code Integrity blocks the DLL).");
+            }
+
             var pid = FindTaskbarExplorerPid();
             if (pid is null)
             {
@@ -312,8 +325,16 @@ internal sealed class TaskbarTapHost : IDisposable
 
             if (hr < 0)
             {
-                _status = $"ixde-failed-0x{hr:X8}";
-                log("TAP: InitializeXamlDiagnosticsEx failed, falling back.");
+                if (SacTapPolicy.IsIntegrityOrTrustFailure(hr))
+                {
+                    _status = "blocked-code-integrity";
+                    log($"TAP: InitializeXamlDiagnosticsEx failed with integrity/trust error 0x{hr:X8} (Smart App Control / Code Integrity). Using UIA icon-safe mode.");
+                }
+                else
+                {
+                    _status = $"ixde-failed-0x{hr:X8}";
+                    log("TAP: InitializeXamlDiagnosticsEx failed, falling back.");
+                }
                 _diagKeepAlive.Set();
                 return false;
             }

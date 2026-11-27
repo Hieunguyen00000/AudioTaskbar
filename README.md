@@ -49,10 +49,20 @@ File Setup và `AudioTaskbar.exe` hiện **chưa ký số**, nên Windows có th
 
 - **SmartScreen** khi mở `AudioTaskbar-Setup-5.2.0.exe`: bấm **More info** → **Run anyway**. Đây là cảnh báo bình thường với phần mềm mới, chưa có "reputation", chứ không phải Setup bị hỏng.
 - Trên máy bật **Smart App Control** (Windows Security → App & browser control), Windows chặn file exe/DLL chưa ký số và chưa có "reputation". Ảnh hưởng:
-  - `TaskbarTap.dll` không được nạp vào Explorer → v5 phát hiện SAC ngay khi khởi động và dùng chế độ an toàn (khoét chính xác vùng icon, không chờ, không treo F8).
+  - `TaskbarTap.dll` chưa ký thì không được nạp vào Explorer: app bỏ qua TAP ngay (không chờ, không treo F8) và dùng chế độ khoét icon an toàn. Khi DLL đã có chữ ký Authenticode, app sẽ thử gắn TAP rồi mới fallback nếu Code Integrity chặn.
   - Bản exe mới build (chưa ký) có thể bị chặn chạy hoàn toàn (Event Viewer → *Microsoft-Windows-CodeIntegrity/Operational*, sự kiện 3077/3033).
 
-Cách xử lý: ký số exe bằng chứng chỉ code-signing tin cậy, hoặc tắt SAC (Windows không cho bật lại SAC nếu không cài lại / reset Windows). App không tìm cách lách SAC.
+Cách xử lý: **ký số** exe và `TaskbarTap.dll` bằng chứng chỉ Authenticode tin cậy (xem [Code signing policy](#code-signing-policy) — đang xin SignPath Foundation), hoặc tắt SAC. App không tìm cách lách SAC; nếu Windows từ chối nạp DLL, app tự chuyển sang chế độ khoét icon an toàn.
+
+## Code signing policy
+
+Free code signing provided by SignPath.io, certificate by SignPath Foundation.
+
+Audio Taskbar is applying to the [SignPath Foundation](https://signpath.org/) open-source program so that `AudioTaskbar.exe`, `TaskbarTap.dll` (signed *before* it is embedded and later extracted to `%LOCALAPPDATA%\AudioTaskbar\`) and `AudioTaskbar-Setup-*.exe` can be Authenticode-signed. **Status: pending approval.** Until a signed GitHub Release is published, Windows 11 Smart App Control / SmartScreen may still report an unknown publisher.
+
+- Policy, team roles (Author / Reviewer / Approver: [Hieu Nguyen Van](https://github.com/Hieunguyen00000)) and the two-phase CI signing flow: [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
+- What the app sends over the network and how to turn each request off: [PRIVACY.md](PRIVACY.md).
+- `TaskbarTap.dll` is loaded through the documented Windows `InitializeXamlDiagnosticsEx` API (no `CreateRemoteThread`, no attempt to bypass Smart App Control). If Code Integrity blocks the DLL, the app falls back to UIA icon-safe mode.
 
 ## Yêu cầu
 
@@ -166,6 +176,10 @@ AudioTaskbar/
   docs/                     # tài liệu chi tiết
   config.example.json
   NOTICE.md
+  LICENSE
+  PRIVACY.md
+  SECURITY.md
+  CODE_OF_CONDUCT.md
   start.bat, stop.bat
   release/                  # output khi build (exe không đưa lên git)
   installer-output/         # file Setup đã đóng gói (không đưa lên git)
@@ -177,6 +191,10 @@ AudioTaskbar/
 - [Tham chiếu cấu hình](docs/configuration.md) — toàn bộ khóa trong `config.json`
 - [Phát triển & build](docs/development.md) — biên dịch DLL, publish exe, chạy test
 - [Xử lý sự cố](docs/troubleshooting.md) — Explorer/TAP, phím F8, sai vị trí thời tiết, đa màn hình, gỡ cài
+- [Code signing policy](docs/CODE_SIGNING.md) — SignPath Foundation (pending), vai trò, quy trình ký số
+- [Privacy policy](PRIVACY.md) — thời tiết, định vị IP, cập nhật; cách tắt từng tính năng mạng
+- [Security policy](SECURITY.md) — báo cáo lỗ hổng
+- [Code of conduct](CODE_OF_CONDUCT.md)
 
 ## License / notices
 
