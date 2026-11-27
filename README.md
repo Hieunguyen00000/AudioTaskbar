@@ -7,15 +7,15 @@ Hiệu ứng nằm **phía sau** icon — Start, Search, ứng dụng và khay h
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/Windows-11%20x64-111827)
 
-![Audio Taskbar — demo thanh taskbar, khu vực, ngày–đêm, tuyết rơi và bảng điều khiển v5.3.2](docs/images/demo.gif)
+![Audio Taskbar — demo sống: chu kỳ ngày–đêm, tuyết rơi Tokyo, mưa rào Đà Nẵng, bình minh Paris và bảng điều khiển v5.3.2](docs/images/demo.gif)
 
-> File `docs/images/demo.mp4` (1080p) dùng khi muốn nhúng video chất lượng cao hơn.
+> Bản MP4 chất lượng cao hơn: [`docs/images/demo.mp4`](docs/images/demo.mp4) (1280×540, 30 fps).
 
 ## Hình ảnh
 
-**Thanh taskbar thật trên Windows 11** — icon hòa nền trên diorama Paris ban đêm.
+**Thanh taskbar Windows 11** — icon hòa nền trên diorama, ví dụ Tokyo tuyết rơi.
 
-![Thanh taskbar thật, icon nằm phía trên diorama](docs/images/taskbar-live.png)
+![Thanh taskbar Windows 11 với diorama hòa nền sau icon](docs/images/taskbar-live.png)
 
 **Cảnh vật theo khu vực** — bảy phong cách skyline, ban ngày và ban đêm.
 
