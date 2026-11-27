@@ -77,18 +77,25 @@ Write-Host "makensis: $makensis"
 
 New-Item -ItemType Directory -Force -Path $outDirA, $outDirB | Out-Null
 
-# NSIS /D values must not be quoted; use forward slashes to avoid escaping issues.
-$payloadDef = ($PayloadExe -replace "\\", "/")
-$outDef = ($OutFile -replace "\\", "/")
-$args = @(
+# NSIS /D values must not be quoted. Use the host's native separators: Windows makensis resolves
+# `!if /FileExists` with '\' only, so "D:/a/.../AudioTaskbar.exe" was reported missing in CI (v5.3.0 run).
+$onWindows = ($env:OS -eq "Windows_NT")
+if ($onWindows) {
+    $payloadDef = ($PayloadExe -replace "/", "\")
+    $outDef = ($OutFile -replace "/", "\")
+} else {
+    $payloadDef = ($PayloadExe -replace "\\", "/")
+    $outDef = ($OutFile -replace "\\", "/")
+}
+$nsisArgs = @(
     "-INPUTCHARSET", "UTF8",
     "-DPAYLOAD_EXE=$payloadDef",
     "-DAPP_VERSION=$Version",
     "-DOUTFILE=$outDef",
     $nsi
 )
-Write-Host "Running: $makensis $($args -join ' ')"
-& $makensis @args
+Write-Host "Running: $makensis $($nsisArgs -join ' ')"
+& $makensis @nsisArgs
 if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
 
 if (-not (Test-Path -LiteralPath $OutFile)) { throw "makensis reported success but $OutFile is missing." }

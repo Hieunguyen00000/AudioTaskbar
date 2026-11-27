@@ -70,8 +70,10 @@ jobs:
         shell: pwsh
         run: ./scripts/build.ps1
 
-      - name: Build installer
+      - name: Build installer (optional asset)
         if: github.event_name != 'pull_request'
+        # The primary asset is the portable AudioTaskbar.exe; a Setup failure must not block the release.
+        continue-on-error: true
         shell: pwsh
         run: |
           choco install nsis -y --no-progress
