@@ -44,6 +44,7 @@ native/out/*.res
 
 # MSIX / Store packaging output (rebuild with scripts/build-msix.ps1)
 packaging/msix/payload/
+packaging/msix/publish/
 packaging/msix/out/
 *.msix
 *.msixbundle
