@@ -1,6 +1,6 @@
 # Xử lý sự cố
 
-Log luôn là chỗ xem trước: `%LOCALAPPDATA%\AudioTaskbar\app.log`. Trạng thái TAP: `%LOCALAPPDATA%\AudioTaskbar\tap-status.txt`. Mở thư mục này từ menu khay → *Mở thư mục cấu hình*.
+Log luôn là chỗ xem trước: `%LOCALAPPDATA%\AudioTaskbar\app.log`. Trạng thái TAP: `%LOCALAPPDATA%\AudioTaskbar\tap-status.txt`. Mở thư mục này bằng Win+R → `%LOCALAPPDATA%\AudioTaskbar` (v5.3 bỏ mục *Mở thư mục cấu hình* khỏi menu khay và bảng điều khiển cho gọn).
 
 ## Explorer bị đứng hoặc taskbar biến mất sau khi bật fusion
 

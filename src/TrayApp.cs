@@ -247,6 +247,7 @@ internal sealed class TrayApp : ApplicationContext
                 _portal.FormClosed += (_, _) => _portal = null;
             }
             _portal.ShowAndActivate();
+            Log("Portal: shown.");
         }
         catch (Exception ex) { Log("Portal: " + ex.Message); }
     }
@@ -257,11 +258,6 @@ internal sealed class TrayApp : ApplicationContext
         ExitApp();
     }
 
-    public void OpenConfigFolder()
-    {
-        var dir = Path.GetDirectoryName(_configPath);
-        if (dir is not null) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = dir, UseShellExecute = true });
-    }
 
     private void RaiseStateChanged()
     {
@@ -461,15 +457,6 @@ internal sealed class TrayApp : ApplicationContext
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Tải lại cấu hình", null, (_, _) => ReloadConfig());
-        menu.Items.Add("Mở thư mục cấu hình", null, (_, _) =>
-        {
-            var dir = Path.GetDirectoryName(_configPath);
-            if (dir is not null) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = dir,
-                UseShellExecute = true
-            });
-        });
         menu.Items.Add("Kiểm tra cập nhật", null, (_, _) => _ = CheckForUpdatesAsync(manual: true));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Kết thúc (Thoát)", null, (_, _) => ExitApp());

@@ -129,7 +129,8 @@ internal sealed class PortalForm : Form
 
     private Card NewCard(string title, out TableLayoutPanel grid)
     {
-        var card = new Card(_p) { Width = CardWidth, Margin = new Padding(0, 0, 0, 10) };
+        // Fixed width: an AutoSize panel would otherwise shrink to its padding around the Dock=Top grid.
+        var card = new Card(_p) { Width = CardWidth, MinimumSize = new Size(CardWidth, 0), MaximumSize = new Size(CardWidth, 0), Margin = new Padding(0, 0, 0, 10) };
         grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Top, BackColor = _p.Card, Padding = new Padding(12, 6, 12, 8) };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -229,15 +230,15 @@ internal sealed class PortalForm : Form
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var link = new LinkLabel { Text = "Mở thư mục cấu hình", AutoSize = true, LinkColor = _p.Accent, ActiveLinkColor = _p.Accent, Anchor = AnchorStyles.Left, Margin = new Padding(0, 8, 0, 0) };
-        link.LinkClicked += (_, _) => _host.OpenConfigFolder();
+        // v5.3: no "open config folder" link — end users get a clean UniKey-style panel.
+        var spacer = new Label { AutoSize = false, Size = new Size(1, 1), Margin = Padding.Empty };
         var close = new Button { Text = "Đóng (Ẩn xuống khay)", AutoSize = true };
         var exit = new Button { Text = "Kết thúc (Thoát)", AutoSize = true };
         StyleButton(close, primary: false);
         StyleButton(exit, primary: false, danger: true);
         close.Click += (_, _) => Hide();
         exit.Click += (_, _) => _host.ExitFromPortal();
-        t.Controls.Add(link, 0, 0);
+        t.Controls.Add(spacer, 0, 0);
         t.Controls.Add(close, 1, 0);
         t.Controls.Add(exit, 2, 0);
         CancelButton = close;

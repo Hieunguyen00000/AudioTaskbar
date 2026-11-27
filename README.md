@@ -132,7 +132,7 @@ Hỗ trợ tổ hợp `Ctrl`, `Alt`, `Shift`, `Win` với phím F1–F24 hoặc 
 - **Làm mới thời tiết & vị trí**
 - **Chặn ảnh nền desktop:** bật/tắt TAP + nền đặc phía sau icon
 - **Kiểm tra cập nhật**
-- Tải lại cấu hình, mở thư mục cấu hình, **Kết thúc (Thoát)**
+- Tải lại cấu hình, **Kết thúc (Thoát)**
 
 ## Cấu trúc dự án
 
