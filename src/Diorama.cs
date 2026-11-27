@@ -30,8 +30,17 @@ internal readonly struct SceneMood
     public readonly string TemperatureText;
     public readonly string Place;
     public readonly bool Ok;
-    public readonly float SunX;         // 0..1 across the bar
+    public readonly float SunX;         // 0..1 across the bar (sun by day, moon by night)
     public readonly float MoonPhase;    // 0 new .. 1 full-ish
+
+    // v5.1 continuous day/night values (no abrupt jumps across the 24 h cycle)
+    public float Hour { get; init; }      // virtual (or real) hour 0..24
+    public float DayK { get; init; }      // 0 night .. 1 full daylight
+    public float LightsK { get; init; }   // 0 .. 1 artificial lights (windows, lamps, headlights)
+    public float StarsK { get; init; }    // 0 .. 1 stars / fireflies visibility
+    public float WarmK { get; init; }     // 0 .. 1 sunrise / sunset warmth
+    public float SunT { get; init; }      // 0..1 along the day arc, <0 or >1 = below horizon
+    public float MoonT { get; init; }     // 0..1 along the night arc, <0 or >1 = below horizon
 
     public SceneMood(
         DayPhase phase, WeatherKind kind, bool isDay,
@@ -68,30 +77,113 @@ internal readonly struct SceneMood
 
 internal static class SceneClock
 {
-    public static DayPhase PhaseAt(DateTime local)
+    /// <summary>Render/test override for the scene hour (0..24). Null = clock driven.</summary>
+    public static float? HourOverride;
+
+    public const float SunRise = 5.5f, SunSet = 18.5f;
+
+    /// <summary>
+    /// Scene hour 0..24. timeMode "cycle": one full virtual day every
+    /// <c>dayCycleMinutes</c> real minutes (default 30), advancing smoothly.
+    /// timeMode "real": the local wall clock.
+    /// </summary>
+    public static float VirtualHour(AppConfig cfg, DateTime local)
     {
-        float h = local.Hour + local.Minute / 60f + local.Second / 3600f;
-        if (h < 5.15f || h >= 19.25f) return DayPhase.Night;
-        if (h < 6.55f) return DayPhase.Dawn;
-        if (h < 16.20f) return DayPhase.Day;
-        if (h < 17.80f) return DayPhase.Golden;
+        if (HourOverride is { } ho) return ((ho % 24f) + 24f) % 24f;
+        if (cfg.TimeMode == "cycle")
+        {
+            double period = Math.Max(60.0, cfg.DayCycleMinutes * 60.0);
+            double secs = (local - DateTime.UnixEpoch).TotalSeconds + cfg.DayCycleOffsetHours / 24.0 * period;
+            double frac = ((secs % period) + period) % period / period;
+            return (float)(frac * 24.0);
+        }
+        return local.Hour + local.Minute / 60f + local.Second / 3600f + local.Millisecond / 3_600_000f;
+    }
+
+    public static DayPhase PhaseAtHour(float h)
+    {
+        if (h < 5.0f || h >= 19.5f) return DayPhase.Night;
+        if (h < 7.0f) return DayPhase.Dawn;
+        if (h < 16.5f) return DayPhase.Day;
+        if (h < 18.2f) return DayPhase.Golden;
         return DayPhase.Dusk;
     }
 
-    public static float SunX(DateTime local)
+    public static float Smooth(float e0, float e1, float x)
     {
-        float h = local.Hour + local.Minute / 60f;
-        // Sunrise ~5.8, sunset ~17.6 in Bà Rịa, mid-season.
-        float t = Math.Clamp((h - 5.6f) / 12.2f, 0f, 1f);
-        return 0.10f + t * 0.80f;
+        float t = Math.Clamp((x - e0) / (e1 - e0), 0f, 1f);
+        return t * t * (3f - 2f * t);
+    }
+
+    private static float Bump(float h, float c, float w)
+    {
+        float d = (h - c) / w;
+        return MathF.Exp(-d * d);
+    }
+
+    // Palette keyframes across 24 h: top, mid, bot, glow, ground, groundHi, silhouette, accent.
+    private static readonly (float H, Color[] P)[] Keys =
+    {
+        (0.0f,  P(6,8,22,  14,18,40,  24,30,56,  80,90,130,  8,10,18,  22,26,40,  4,6,12,  230,226,200)),
+        (4.4f,  P(8,10,28, 18,22,48,  30,36,66,  90,100,140, 10,12,20, 24,28,42,  5,7,14,  230,226,200)),
+        (5.3f,  P(30,30,74, 72,60,112, 150,100,122, 255,150,120, 20,18,30, 44,36,48, 14,12,22, 255,180,120)),
+        (6.1f,  P(140,110,155, 232,170,150, 255,214,180, 255,190,140, 62,48,52, 96,70,64, 44,32,40, 255,186,120)),
+        (7.3f,  P(72,138,210, 142,192,232, 232,226,208, 255,226,170, 44,56,44, 70,88,58, 30,36,34, 255,214,130)),
+        (9.0f,  P(62,132,210, 118,186,232, 196,226,245, 255,236,170, 46,58,44, 72,92,58, 28,36,32, 255,220,120)),
+        (12.5f, P(48,124,216, 108,184,242, 200,232,252, 255,244,200, 48,62,44, 76,98,60, 28,38,32, 255,224,130)),
+        (15.6f, P(62,132,210, 118,186,232, 196,226,245, 255,236,170, 46,58,44, 72,92,58, 28,36,32, 255,220,120)),
+        (17.0f, P(168,72,58, 232,122,58, 255,188,110, 255,200,110, 52,32,30, 92,52,36, 38,22,26, 255,196,110)),
+        (18.1f, P(70,42,92, 196,92,82, 255,160,100, 255,150,90, 36,22,28, 70,40,40, 24,14,22, 255,170,100)),
+        (19.0f, P(28,24,62, 74,48,96, 176,86,78, 255,140,90, 22,18,28, 48,32,42, 12,10,20, 255,176,110)),
+        (20.0f, P(8,10,26, 16,20,44, 28,34,62, 84,94,134, 9,11,19, 22,26,40, 4,6,12, 230,226,200)),
+        (24.0f, P(6,8,22,  14,18,40,  24,30,56,  80,90,130,  8,10,18,  22,26,40,  4,6,12,  230,226,200)),
+    };
+
+    private static Color[] P(params int[] v)
+    {
+        var c = new Color[v.Length / 3];
+        for (int i = 0; i < c.Length; i++) c[i] = Color.FromArgb(255, v[i * 3], v[i * 3 + 1], v[i * 3 + 2]);
+        return c;
+    }
+
+    public static Color[] PaletteAt(float h)
+    {
+        h = ((h % 24f) + 24f) % 24f;
+        for (int i = 0; i < Keys.Length - 1; i++)
+        {
+            var (h0, p0) = Keys[i];
+            var (h1, p1) = Keys[i + 1];
+            if (h < h0 || h > h1) continue;
+            float t = Smooth(0f, 1f, (h - h0) / Math.Max(0.001f, h1 - h0));
+            var r = new Color[p0.Length];
+            for (int k = 0; k < r.Length; k++) r[k] = Mix(p0[k], p1[k], t);
+            return r;
+        }
+        return Keys[0].P;
+    }
+
+    /// <summary>Position along the sun's day arc (0 rise .. 1 set).</summary>
+    public static float SunArcT(float h) => (h - SunRise) / (SunSet - SunRise);
+
+    /// <summary>Position along the moon's night arc (0 rise at dusk .. 0.5 midnight .. 1 set before dawn).</summary>
+    public static float MoonArcT(float h)
+    {
+        float span = 24f - (SunSet - SunRise);
+        float d = h - SunSet;
+        if (d < -(SunSet - SunRise) / 2f) d += 24f; // early-morning hours belong to the previous night
+        return d / span;
     }
 
     public static SceneMood Compose(WeatherSnapshot? live, AppConfig cfg, DateTime local)
     {
         var preview = (cfg.WeatherPreview ?? "live").Trim().ToLowerInvariant();
-        DayPhase phase = PhaseAt(local);
+        float hour = VirtualHour(cfg, local);
+        if (preview is "night" or "dem" or "đêm sao" && HourOverride is null && hour is > 5f and < 19.5f)
+            hour = 0.5f; // "Đêm sao" preview always shows a night sky
+        DayPhase phase = PhaseAtHour(hour);
+        bool cycle = cfg.TimeMode == "cycle" || HourOverride is not null;
         WeatherKind kind = live is { Ok: true } ? live.Kind : WeatherKind.Cloudy;
-        bool isDay = live?.IsDay ?? (phase is DayPhase.Day or DayPhase.Dawn or DayPhase.Golden);
+        bool isDay = phase is DayPhase.Day or DayPhase.Dawn or DayPhase.Golden;
         float cloud = live is { Ok: true } ? Math.Clamp(live.CloudCover / 100f, 0f, 1f) : 0.55f;
         float rain = 0f;
         if (live is { Ok: true })
@@ -108,102 +200,45 @@ internal static class SceneClock
             case "sunny":
             case "nang":
             case "nắng đẹp":
-                kind = WeatherKind.Clear; isDay = true; phase = DayPhase.Day;
+                kind = WeatherKind.Clear;
                 cloud = 0.12f; rain = 0f; cond = "Nắng đẹp";
-                if (local.Hour >= 16) { phase = DayPhase.Golden; }
                 break;
             case "cloudy":
             case "may":
             case "mây trôi":
-                kind = WeatherKind.Cloudy; isDay = true; phase = DayPhase.Day;
+                kind = WeatherKind.Cloudy;
                 cloud = 0.85f; rain = 0f; cond = "Mây trôi";
                 break;
             case "rain":
             case "mua":
             case "mưa rào":
-                kind = WeatherKind.Rain; isDay = phase is not DayPhase.Night;
-                if (phase == DayPhase.Night) isDay = false;
+                kind = WeatherKind.Rain;
                 cloud = 0.9f; rain = 0.85f; cond = "Mưa rào";
                 break;
             case "storm":
             case "giong":
             case "giông bão":
-                kind = WeatherKind.Storm; isDay = false; phase = DayPhase.Dusk;
+                kind = WeatherKind.Storm;
                 cloud = 1f; rain = 1f; cond = "Giông bão";
                 break;
             case "night":
             case "dem":
             case "đêm sao":
-                kind = WeatherKind.Night; isDay = false; phase = DayPhase.Night;
+                kind = WeatherKind.Clear;
                 cloud = 0.15f; rain = 0f; cond = "Đêm sao";
                 break;
             default:
-                // live — if Open-Meteo says night, honour it
-                if (live is { Ok: true, IsDay: false } && phase == DayPhase.Day)
+                // live weather supplies the sky condition; the scene clock supplies the time.
+                if (kind == WeatherKind.Night) kind = WeatherKind.Clear;
+                if (!cycle && live is { Ok: true, IsDay: false } && phase == DayPhase.Day)
                     phase = DayPhase.Dusk;
                 break;
         }
 
-        // Palettes
-        Color top, mid, bot, glow, ground, groundHi, sil, accent;
-        switch (phase)
-        {
-            case DayPhase.Dawn:
-                top = C(255, 140, 110, 155);
-                mid = C(255, 232, 170, 150);
-                bot = C(255, 255, 214, 180);
-                glow = C(255, 255, 190, 140);
-                ground = C(255, 62, 48, 52);
-                groundHi = C(255, 96, 70, 64);
-                sil = C(255, 44, 32, 40);
-                accent = C(255, 255, 186, 120);
-                isDay = true;
-                break;
-            case DayPhase.Golden:
-                top = C(255, 168, 72, 58);
-                mid = C(255, 232, 122, 58);
-                bot = C(255, 255, 188, 110);
-                glow = C(255, 255, 200, 110);
-                ground = C(255, 52, 32, 30);
-                groundHi = C(255, 92, 52, 36);
-                sil = C(255, 38, 22, 26);
-                accent = C(255, 255, 196, 110);
-                isDay = true;
-                break;
-            case DayPhase.Dusk:
-                top = C(255, 28, 24, 62);
-                mid = C(255, 74, 48, 96);
-                bot = C(255, 176, 86, 78);
-                glow = C(255, 255, 140, 90);
-                ground = C(255, 22, 18, 28);
-                groundHi = C(255, 48, 32, 42);
-                sil = C(255, 12, 10, 20);
-                accent = C(255, 255, 176, 110);
-                isDay = false;
-                break;
-            case DayPhase.Night:
-                top = C(255, 6, 8, 22);
-                mid = C(255, 14, 18, 40);
-                bot = C(255, 24, 30, 56);
-                glow = C(255, 80, 90, 130);
-                ground = C(255, 8, 10, 18);
-                groundHi = C(255, 22, 26, 40);
-                sil = C(255, 4, 6, 12);
-                accent = C(255, 230, 226, 200);
-                isDay = false;
-                break;
-            default: // Day
-                top = C(255, 62, 132, 210);
-                mid = C(255, 118, 186, 232);
-                bot = C(255, 196, 226, 245);
-                glow = C(255, 255, 236, 170);
-                ground = C(255, 46, 58, 44);
-                groundHi = C(255, 72, 92, 58);
-                sil = C(255, 28, 36, 32);
-                accent = C(255, 255, 220, 120);
-                isDay = true;
-                break;
-        }
+        // Palettes: smooth keyframe interpolation across the whole 24 h cycle.
+        var pal = PaletteAt(hour);
+        Color top = pal[0], mid = pal[1], bot = pal[2], glow = pal[3],
+              ground = pal[4], groundHi = pal[5], sil = pal[6], accent = pal[7];
 
         // Weather tints
         if (kind is WeatherKind.Cloudy or WeatherKind.Rain or WeatherKind.Storm or WeatherKind.Fog or WeatherKind.Snow)
@@ -226,7 +261,7 @@ internal static class SceneClock
             }
         }
 
-        if (kind == WeatherKind.Night) isDay = false;
+        if (phase is DayPhase.Night or DayPhase.Dusk) isDay = false;
 
         float cloudiness = kind switch
         {
@@ -244,10 +279,23 @@ internal static class SceneClock
             _ => 0f
         };
 
+        float dayK = Smooth(5.2f, 7.0f, hour) * (1f - Smooth(17.6f, 19.4f, hour));
+        float lightsK = Math.Max(1f - Smooth(5.6f, 6.9f, hour), Smooth(17.3f, 18.8f, hour));
+        if (kind is WeatherKind.Storm) lightsK = Math.Max(lightsK, 0.6f);
+        else if (kind is WeatherKind.Rain or WeatherKind.Fog) lightsK = Math.Max(lightsK, 0.3f);
+        float starsK = Math.Max(1f - Smooth(4.6f, 5.9f, hour), Smooth(18.7f, 19.9f, hour));
+        float warmK = Math.Max(Bump(hour, 6.1f, 0.9f), Bump(hour, 17.7f, 0.9f));
+        float sunT = SunArcT(hour), moonT = MoonArcT(hour);
+        float bodyX = sunT is >= 0f and <= 1f ? sunT : Math.Clamp(moonT, 0f, 1f);
+
         return new SceneMood(phase, kind, isDay, cloudiness, rainAmt,
             top, mid, bot, glow, ground, groundHi, sil, accent,
             cond, temp, place, live is { Ok: true } || preview != "live",
-            SunX(local), MoonAmount(local));
+            0.03f + 0.94f * bodyX, MoonAmount(local))
+        {
+            Hour = hour, DayK = dayK, LightsK = lightsK, StarsK = starsK, WarmK = warmK,
+            SunT = sunT, MoonT = moonT
+        };
     }
 
     public static string ShortPlace(string? name)
@@ -331,6 +379,7 @@ internal sealed class DioramaRenderer
     private float _trainSeedTime;
     private float _lastSteamEmit = -1;
     private const float TrainScale = 0.8f;
+    private float _trainLights;
     private const float TrainW = 176f * TrainScale;
     public string ActiveRegionId => _scenery.ActiveId;
     private float _balloonX = 0.35f;
@@ -382,8 +431,10 @@ internal sealed class DioramaRenderer
         _scenery.Build(_region, _w, _h, _groundTop, _spans);
 
         DrawSky(g, mood, time);
-        if (mood.IsNight) DrawStarsAndMoon(g, mood, time, ctx.Cfg.ShowWeatherEffects || ctx.Cfg.ShowAmbientDetails);
-        else if (mood.IsClear && ctx.Cfg.ShowWeatherEffects) DrawSun(g, mood, time);
+        // v5.1: stars fade with StarsK; the sun and moon follow the scene clock along an arc.
+        if (mood.StarsK > 0.01f && (ctx.Cfg.ShowWeatherEffects || ctx.Cfg.ShowAmbientDetails)) DrawStars(g, mood, time);
+        if (mood.MoonT is > -0.02f and < 1.02f) DrawMoon(g, mood, time);
+        if (mood.SunT is > -0.02f and < 1.02f) DrawSun(g, mood, time);
 
         if (ctx.Cfg.ShowWeatherEffects || mood.IsCloudy)
             DrawClouds(g, mood, time, far: true);
@@ -394,7 +445,7 @@ internal sealed class DioramaRenderer
         if (mood.IsRainy && ctx.Cfg.ShowWeatherEffects)
             DrawRain(g, mood, time, near: false);
 
-        if (ctx.Cfg.ShowAmbientDetails && mood.IsClear && mood.IsDay)
+        if (ctx.Cfg.ShowAmbientDetails && mood.IsClear && mood.DayK > 0.05f)
             DrawBalloon(g, mood, time);
 
         // v5 regional horizon: far mountains/filler skyline, water + boats, landmarks.
@@ -427,10 +478,10 @@ internal sealed class DioramaRenderer
         if (ctx.Cfg.ShowAmbientDetails)
             DrawGrass(g, mood, time);
 
-        if (ctx.Cfg.ShowAmbientDetails && mood.IsDay && !mood.IsStorm)
+        if (ctx.Cfg.ShowAmbientDetails && mood.DayK > 0.05f && !mood.IsStorm)
             DrawBirds(g, mood, time);
 
-        if (ctx.Cfg.ShowAmbientDetails && mood.IsNight && mood.IsClear)
+        if (ctx.Cfg.ShowAmbientDetails && mood.StarsK > 0.05f && mood.IsClear)
             DrawFirefliesAndShootingStar(g, mood, time);
 
         if (ctx.Cfg.ShowAmbientDetails)
@@ -458,14 +509,7 @@ internal sealed class DioramaRenderer
         g.CompositingMode = prev;
 
         // Horizon wash (sunrise / sunset / moon glow)
-        int ga = mood.Phase switch
-        {
-            DayPhase.Golden => 160,
-            DayPhase.Dawn => 130,
-            DayPhase.Dusk => 110,
-            DayPhase.Night => 40,
-            _ => mood.IsClear ? 70 : 30
-        };
+        int ga = (int)(40 * (1f - mood.DayK) + (mood.IsClear ? 70 : 30) * mood.DayK + 120 * mood.WarmK);
         if (ga > 0)
         {
             using var path = new GraphicsPath();
@@ -489,80 +533,171 @@ internal sealed class DioramaRenderer
         g.DrawLine(edge, 0, 0, _w, 0);
     }
 
+    private RectangleF _badgeLogical = RectangleF.Empty;
+
+    /// <summary>Weather badge rectangle in logical units, so the sun/moon can step back behind it.</summary>
+    public void SetBadge(RectangleF logical) => _badgeLogical = logical;
+
+    private bool _skyInGaps;
+
+    /// <summary>
+    /// Safe mode (icons cut out of the overlay): run the sun/moon arc only through the visible
+    /// gaps between icon groups so the orb is never hidden under icons for hours.
+    /// Fused mode (scene behind the taskbar): use the full width.
+    /// </summary>
+    public void SetSkyMapping(bool gapsOnly) => _skyInGaps = gapsOnly;
+
+    private float ArcX(float t, float r)
+    {
+        float full = _w * (0.03f + 0.94f * t);
+        if (!_skyInGaps || _spans.Count == 0) return full;
+        float inset = r * 1.2f;
+        float total = 0;
+        foreach (var (l, rr) in _spans)
+            if (rr - l > inset * 2 + r * 2) total += rr - l - inset * 2;
+        if (total <= 0) return full;
+        float pos = Math.Clamp(t, 0f, 1f) * total;
+        float lastR = full;
+        foreach (var (l, rr) in _spans.OrderBy(s => s.L))
+        {
+            float len = rr - l - inset * 2;
+            if (len <= r * 2) continue;
+            if (pos <= len) return l + inset + pos;
+            pos -= len;
+            lastR = rr - inset;
+        }
+        return lastR;
+    }
+
+    /// <summary>Point on the celestial arc: rises at the left/east horizon, peaks near the top, sets right/west.</summary>
+    private (float X, float Y, float Elev) ArcPoint(float t, float r)
+    {
+        t = Math.Clamp(t, -0.05f, 1.05f);
+        float elev = MathF.Max(0f, MathF.Sin(MathF.PI * Math.Clamp(t, 0f, 1f)));
+        float x = ArcX(t, r);
+        float horizon = _groundTop + r * 0.35f;      // sinks behind the skyline at the ends
+        float top = r + 1.6f;                        // just under the top edge at noon / midnight
+        float y = horizon - elev * (horizon - top);
+        return (x, y, elev);
+    }
+
+    /// <summary>1 normally, fades toward 0.22 when the orb sits behind the weather badge.</summary>
+    private float BadgeFade(float cx, float cy, float r)
+    {
+        if (_badgeLogical.IsEmpty) return 1f;
+        var b = RectangleF.Inflate(_badgeLogical, r, r);
+        float dx = Math.Max(0f, Math.Max(b.Left - cx, cx - b.Right));
+        float dy = Math.Max(0f, Math.Max(b.Top - cy, cy - b.Bottom));
+        float d = MathF.Sqrt(dx * dx + dy * dy);
+        return 0.22f + 0.78f * SceneClock.Smooth(0f, r * 2.5f, d);
+    }
+
+    private float WeatherVeil(SceneMood mood)
+        => Math.Clamp(1f - mood.Cloudiness * 0.6f - (mood.IsRainy ? 0.25f : 0f) - (mood.IsStorm ? 0.25f : 0f), 0.12f, 1f);
+
     private void DrawSun(Graphics g, SceneMood mood, float time)
     {
-        float cx = mood.SunX * _w;
-        float cy = mood.Phase == DayPhase.Golden || mood.Phase == DayPhase.Dawn
-            ? _h * 0.42f
-            : _h * 0.18f;
-        float r = mood.Phase is DayPhase.Golden or DayPhase.Dawn ? _h * 0.34f : _h * 0.26f;
+        float t = mood.SunT;
+        float r0 = _h * 0.13f;
+        var (_, _, e0) = ArcPoint(t, r0);
+        float r = r0 * (1f + 0.25f * (1f - e0));     // a touch larger near the horizon
+        var (cx, cy, elev) = ArcPoint(t, r);
+        float edge = SceneClock.Smooth(-0.02f, 0.05f, t) * (1f - SceneClock.Smooth(0.95f, 1.02f, t));
+        float k = edge * WeatherVeil(mood) * BadgeFade(cx, cy, r);
+        if (k < 0.01f) return;
+
+        // golden-orange at the horizon -> warm white at noon
+        float hi = SceneClock.Smooth(0.05f, 0.6f, elev);
+        var coreCol = SceneClock.Mix(Color.FromArgb(255, 255, 148, 64), Color.FromArgb(255, 255, 246, 216), hi);
+        var glowCol = SceneClock.Mix(Color.FromArgb(255, 255, 140, 70), Color.FromArgb(255, 255, 230, 160), hi);
 
         using (var path = new GraphicsPath())
         {
-            path.AddEllipse(cx - r * 3.2f, cy - r * 3.2f, r * 6.4f, r * 6.4f);
+            float gr = r * (3.4f + 0.8f * (1f - elev));
+            path.AddEllipse(cx - gr, cy - gr, gr * 2, gr * 2);
             using var pgb = new PathGradientBrush(path);
-            pgb.CenterColor = SceneClock.WithA(mood.GlowOrSun(), 90);
-            pgb.SurroundColors = new[] { Color.FromArgb(0, 255, 220, 140) };
+            pgb.CenterColor = SceneClock.WithA(glowCol, (int)(105 * k));
+            pgb.SurroundColors = new[] { SceneClock.WithA(glowCol, 0) };
             pgb.CenterPoint = new PointF(cx, cy);
             g.FillPath(pgb, path);
         }
-        // Soft shafts
-        if (mood.Phase is DayPhase.Day or DayPhase.Golden or DayPhase.Dawn)
+        if (mood.IsClear && elev > 0.12f)
         {
-            using var shaft = new SolidBrush(Color.FromArgb(16, 255, 236, 190));
-            for (int i = 0; i < 5; i++)
+            int sa = (int)(15 * k * SceneClock.Smooth(0.12f, 0.4f, elev));
+            using var shaft = new SolidBrush(SceneClock.WithA(glowCol, sa));
+            for (int i = 0; i < 6; i++)
             {
-                float ang = -0.55f + i * 0.28f + MathF.Sin(time * 0.15f) * 0.03f;
+                float ang = i * MathF.PI / 3f + time * 0.05f;
                 var pts = new[]
                 {
                     new PointF(cx, cy),
-                    new PointF(cx + MathF.Cos(ang - 0.06f) * _h * 2.2f, cy + MathF.Sin(ang - 0.06f) * _h * 2.2f),
-                    new PointF(cx + MathF.Cos(ang + 0.06f) * _h * 2.2f, cy + MathF.Sin(ang + 0.06f) * _h * 2.2f)
+                    new PointF(cx + MathF.Cos(ang - 0.07f) * _h * 1.6f, cy + MathF.Sin(ang - 0.07f) * _h * 1.6f),
+                    new PointF(cx + MathF.Cos(ang + 0.07f) * _h * 1.6f, cy + MathF.Sin(ang + 0.07f) * _h * 1.6f)
                 };
                 g.FillPolygon(shaft, pts);
             }
         }
-        using var core = new SolidBrush(Color.FromArgb(240, 255, 236, 170));
-        using var rim = new SolidBrush(Color.FromArgb(80, 255, 250, 220));
-        g.FillEllipse(rim, cx - r * 1.25f, cy - r * 1.25f, r * 2.5f, r * 2.5f);
+        using var rim = new SolidBrush(SceneClock.WithA(coreCol, (int)(85 * k)));
+        g.FillEllipse(rim, cx - r * 1.3f, cy - r * 1.3f, r * 2.6f, r * 2.6f);
+        using var core = new SolidBrush(SceneClock.WithA(coreCol, (int)(245 * k)));
         g.FillEllipse(core, cx - r, cy - r, r * 2, r * 2);
+        using var hiDot = new SolidBrush(Color.FromArgb((int)(110 * k), 255, 255, 240));
+        g.FillEllipse(hiDot, cx - r * 0.55f, cy - r * 0.6f, r * 0.8f, r * 0.8f);
     }
 
-    private void DrawStarsAndMoon(Graphics g, SceneMood mood, float time, bool details)
+    private void DrawStars(Graphics g, SceneMood mood, float time)
     {
-        if (details && _stars.Length > 0)
+        if (_stars.Length == 0) return;
+        for (int i = 0; i < _stars.Length; i++)
         {
-            for (int i = 0; i < _stars.Length; i++)
-            {
-                ref var s = ref _stars[i];
-                float tw = 0.45f + 0.55f * (0.5f + 0.5f * MathF.Sin(time * s.Speed + s.Phase));
-                int a = Math.Clamp((int)(tw * 210 * (1f - mood.Cloudiness * 0.7f)), 0, 230);
-                if (a < 8) continue;
-                using var br = new SolidBrush(Color.FromArgb(a, 230, 236, 255));
-                g.FillEllipse(br, s.X, s.Y, s.Size, s.Size);
-            }
+            ref var s = ref _stars[i];
+            float tw = 0.45f + 0.55f * (0.5f + 0.5f * MathF.Sin(time * s.Speed + s.Phase));
+            // brighter stars appear first at dusk and linger longest at dawn
+            float own = SceneClock.Smooth(i % 3 * 0.18f, 0.55f + i % 3 * 0.18f, mood.StarsK);
+            int a = Math.Clamp((int)(tw * 210 * own * (1f - mood.Cloudiness * 0.7f)), 0, 230);
+            if (a < 8) continue;
+            using var br = new SolidBrush(Color.FromArgb(a, 230, 236, 255));
+            g.FillEllipse(br, s.X, s.Y, s.Size, s.Size);
         }
+    }
 
-        // Crescent / near-full moon in the upper right-of-center, nudged by phase
-        float mx = _w * (0.62f + 0.12f * (mood.SunX - 0.5f));
-        float my = _h * 0.22f;
-        float mr = _h * 0.20f;
+    private Color SkyAt(SceneMood mood, float y)
+    {
+        float f = Math.Clamp(y / Math.Max(1f, _h), 0f, 1f);
+        return f < 0.48f ? SceneClock.Mix(mood.SkyTop, mood.SkyMid, f / 0.48f)
+                         : SceneClock.Mix(mood.SkyMid, mood.SkyBot, (f - 0.48f) / 0.52f);
+    }
+
+    private void DrawMoon(Graphics g, SceneMood mood, float time)
+    {
+        float t = mood.MoonT;
+        float mr = _h * 0.115f;
+        var (mx, my, elev) = ArcPoint(t, mr);
+        float edge = SceneClock.Smooth(-0.02f, 0.06f, t) * (1f - SceneClock.Smooth(0.94f, 1.02f, t));
+        // the moon washes out as the daylight grows
+        float k = edge * (1f - 0.85f * mood.DayK) * WeatherVeil(mood) * BadgeFade(mx, my, mr);
+        if (k < 0.01f) return;
+        var tint = SceneClock.Mix(Color.FromArgb(255, 255, 214, 160), Color.FromArgb(255, 238, 236, 220), SceneClock.Smooth(0.05f, 0.5f, elev));
+
         using (var path = new GraphicsPath())
         {
-            path.AddEllipse(mx - mr * 2.8f, my - mr * 2.8f, mr * 5.6f, mr * 5.6f);
+            path.AddEllipse(mx - mr * 3.2f, my - mr * 3.2f, mr * 6.4f, mr * 6.4f);
             using var pgb = new PathGradientBrush(path);
-            pgb.CenterColor = Color.FromArgb((int)(50 + 40 * mood.MoonPhase), 200, 210, 255);
+            pgb.CenterColor = Color.FromArgb((int)((45 + 45 * mood.MoonPhase) * k), 200, 212, 255);
             pgb.SurroundColors = new[] { Color.FromArgb(0, 200, 210, 255) };
             pgb.CenterPoint = new PointF(mx, my);
             g.FillPath(pgb, path);
         }
-        using var moon = new SolidBrush(Color.FromArgb(230, 236, 234, 214));
+        using var moon = new SolidBrush(SceneClock.WithA(tint, (int)(235 * k)));
         g.FillEllipse(moon, mx - mr, my - mr, mr * 2, mr * 2);
-        // Crescent bite when not full
+        using var mare = new SolidBrush(Color.FromArgb((int)(36 * k), 120, 120, 130));
+        g.FillEllipse(mare, mx - mr * 0.45f, my - mr * 0.35f, mr * 0.5f, mr * 0.45f);
+        g.FillEllipse(mare, mx + mr * 0.05f, my + mr * 0.1f, mr * 0.4f, mr * 0.35f);
+        // Crescent bite when not full (painted with the sky colour behind the moon)
         if (mood.MoonPhase < 0.85f)
         {
             float bite = 0.35f + (1f - mood.MoonPhase) * 0.55f;
-            using var hole = new SolidBrush(mood.SkyTop);
+            using var hole = new SolidBrush(SceneClock.WithA(SkyAt(mood, my), (int)(255 * Math.Min(1f, k * 1.1f))));
             g.FillEllipse(hole, mx - mr + mr * bite, my - mr * 1.05f, mr * 2.05f, mr * 2.1f);
         }
     }
@@ -578,11 +713,8 @@ internal sealed class DioramaRenderer
         float wind = mood.IsStorm ? 1.8f : mood.IsRainy ? 1.25f : 0.7f;
         int baseA = far ? 70 : 110;
         if (mood.IsFog) baseA = (int)(baseA * 0.7f);
-        var col = mood.IsNight || mood.Phase == DayPhase.Dusk
-            ? Color.FromArgb(255, 90, 98, 120)
-            : mood.Phase is DayPhase.Golden or DayPhase.Dawn
-                ? Color.FromArgb(255, 255, 214, 196)
-                : Color.FromArgb(255, 242, 246, 250);
+        var col = SceneClock.Mix(Color.FromArgb(255, 90, 98, 120), Color.FromArgb(255, 242, 246, 250), mood.DayK);
+        col = SceneClock.Mix(col, Color.FromArgb(255, 255, 196, 170), mood.WarmK * 0.7f);
 
         for (int i = 0; i < arr.Length; i++)
         {
@@ -742,9 +874,9 @@ internal sealed class DioramaRenderer
         // Rails
         if (_rail is not null)
         {
-            using var rail = new Pen(Color.FromArgb(mood.IsNight ? 80 : 100, 40, 36, 32), 1.15f);
+            using var rail = new Pen(Color.FromArgb((int)(80 + 20 * mood.DayK), 40, 36, 32), 1.15f);
             g.DrawLines(rail, _rail);
-            using var rail2 = new Pen(Color.FromArgb(mood.IsNight ? 60 : 80, 30, 28, 26), 1f);
+            using var rail2 = new Pen(Color.FromArgb((int)(60 + 20 * mood.DayK), 30, 28, 26), 1f);
             var lower = new PointF[_rail.Length];
             for (int i = 0; i < _rail.Length; i++)
                 lower[i] = new PointF(_rail[i].X, _rail[i].Y + 2.1f);
@@ -758,8 +890,8 @@ internal sealed class DioramaRenderer
 
     private void DrawLampsAndWindows(Graphics g, SceneMood mood, float time)
     {
-        bool lit = mood.IsNight || mood.Phase is DayPhase.Dusk or DayPhase.Dawn;
-        if (!lit) return;
+        float lk = mood.LightsK;
+        if (lk < 0.02f) return;
 
         // Tiny warm windows in the city third
         int seed = 17;
@@ -776,13 +908,13 @@ internal sealed class DioramaRenderer
             if (on && rnd.NextDouble() > 0.85)
                 on = MathF.Sin(time * 3f + i) > -0.4f;
             if (!on) continue;
-            int a = mood.IsNight ? 200 : 140;
+            int a = (int)(200 * lk);
             win.Color = Color.FromArgb(a, 255, 206, 120);
             g.FillRectangle(win, x, y, 1.6f, 1.8f);
         }
 
         using var lampPole = new Pen(Color.FromArgb(180, 20, 18, 16), 1.2f);
-        using var lampHead = new SolidBrush(Color.FromArgb(220, 255, 220, 150));
+        using var lampHead = new SolidBrush(SceneClock.Mix(Color.FromArgb(220, 70, 66, 60), Color.FromArgb(220, 255, 220, 150), lk));
         for (int i = 0; i < _lamps.Length; i++)
         {
             var l = _lamps[i];
@@ -797,7 +929,7 @@ internal sealed class DioramaRenderer
                 new PointF(l.X + 9f, y1 + 2)
             });
             using var pgb = new PathGradientBrush(cone);
-            int ca = mood.IsNight ? 70 : 40;
+            int ca = (int)(70 * lk);
             if (mood.IsRainy) ca = (int)(ca * 1.2f);
             pgb.CenterColor = Color.FromArgb(ca, 255, 214, 140);
             pgb.SurroundColors = new[] { Color.FromArgb(0, 255, 214, 140) };
@@ -853,11 +985,13 @@ internal sealed class DioramaRenderer
         p -= Math.Floor(p);
         _trainX = (float)(-trainW + p * track);
         float y = _railY - 1.2f;
-        bool night = mood.IsNight || mood.Phase == DayPhase.Dusk;
+        float lk = mood.LightsK;
+        bool night = lk > 0.5f;
         bool rain = mood.IsRainy;
+        _trainLights = lk;
 
-        // Headlight beam
-        if (night)
+        // Headlight beam (fades in with dusk)
+        if (lk > 0.03f)
         {
             using var cone = new GraphicsPath();
             cone.AddPolygon(new[]
@@ -867,7 +1001,7 @@ internal sealed class DioramaRenderer
                 new PointF(_trainX + trainW + 60, y + 3)
             });
             using var pgb = new PathGradientBrush(cone);
-            pgb.CenterColor = Color.FromArgb(70, 255, 236, 190);
+            pgb.CenterColor = Color.FromArgb((int)(70 * lk), 255, 236, 190);
             pgb.SurroundColors = new[] { Color.FromArgb(0, 255, 236, 190) };
             pgb.CenterPoint = new PointF(_trainX + trainW, y - 6f);
             g.FillPath(pgb, cone);
@@ -921,12 +1055,12 @@ internal sealed class DioramaRenderer
             new PointF(x + 48, y - 4), new PointF(x + 58, y + 1), new PointF(x + 44, y + 1)
         });
         // windows
-        int wa = night || rain ? 230 : 160;
+        int wa = (int)(160 + 70 * Math.Max(_trainLights, rain ? 1f : 0f));
         using var win = new SolidBrush(Color.FromArgb(wa, 255, 214, 130));
         g.FillRectangle(win, x + 3, y - 16, 5, 5);
         g.FillRectangle(win, x + 9, y - 16, 5, 5);
         // headlight
-        using var hl = new SolidBrush(Color.FromArgb(night ? 255 : 180, 255, 236, 180));
+        using var hl = new SolidBrush(Color.FromArgb((int)(180 + 75 * _trainLights), 255, 236, 180));
         g.FillEllipse(hl, x + 46, y - 11, 4.2f, 4.2f);
         // wheels
         DrawWheels(g, x + 6, y, 3, time);
@@ -944,7 +1078,7 @@ internal sealed class DioramaRenderer
         using var roof = new SolidBrush(Color.FromArgb(255, 34, 24, 28));
         g.FillRectangle(body, x, y - 14, w, 12);
         g.FillRectangle(roof, x - 0.5f, y - 16, w + 1, 2.4f);
-        int wa = night || rain ? 220 : 140;
+        int wa = (int)(140 + 80 * Math.Max(_trainLights, rain ? 1f : 0f));
         using var win = new SolidBrush(Color.FromArgb(wa, 255, 210, 120));
         for (int i = 0; i < 3; i++)
             g.FillRectangle(win, x + 5 + i * 11, y - 12, 6, 5);
@@ -1091,7 +1225,7 @@ internal sealed class DioramaRenderer
 
     private void DrawBirds(Graphics g, SceneMood mood, float time)
     {
-        using var pen = new Pen(Color.FromArgb(160, 30, 30, 32), 1.05f);
+        using var pen = new Pen(Color.FromArgb((int)(160 * mood.DayK), 30, 30, 32), 1.05f);
         pen.StartCap = LineCap.Round;
         pen.EndCap = LineCap.Round;
         for (int i = 0; i < _birds.Length; i++)
@@ -1133,13 +1267,13 @@ internal sealed class DioramaRenderer
             f.X += MathF.Sin(time * f.Speed + f.Phase) * 0.15f;
             f.Y += MathF.Cos(time * f.Speed * 0.8f + f.Phase) * 0.08f;
             float pulse = 0.5f + 0.5f * MathF.Sin(time * 3.2f + f.Phase);
-            int a = Math.Clamp((int)(pulse * 200), 0, 200);
+            int a = Math.Clamp((int)(pulse * 200 * mood.StarsK), 0, 200);
             if (a < 20) continue;
             using var br = new SolidBrush(Color.FromArgb(a, 196, 255, 120));
             g.FillEllipse(br, f.X, f.Y, f.Size, f.Size);
         }
 
-        if (_shootLife <= 0 && _rng.NextDouble() < 0.0025)
+        if (_shootLife <= 0 && mood.StarsK > 0.8f && _rng.NextDouble() < 0.0025)
         {
             _shootX = _w * (0.15f + (float)_rng.NextDouble() * 0.5f);
             _shootY = 3 + (float)_rng.NextDouble() * 8;
@@ -1161,10 +1295,11 @@ internal sealed class DioramaRenderer
         if (mood.IsRainy || mood.IsStorm || mood.Cloudiness > 0.55f) return;
         float x = (_balloonX * _w + MathF.Sin(time * 0.12f) * 30f + time * 2.2f) % (_w + 40) - 20;
         float y = 5 + MathF.Sin(time * 0.4f) * 2.5f;
-        using var shell = new SolidBrush(Color.FromArgb(180, 220, 80, 64));
-        using var stripe = new SolidBrush(Color.FromArgb(160, 240, 200, 120));
-        using var basket = new SolidBrush(Color.FromArgb(180, 70, 48, 32));
-        using var line = new Pen(Color.FromArgb(140, 40, 30, 24), 0.8f);
+        float bk = mood.DayK;
+        using var shell = new SolidBrush(Color.FromArgb((int)(180 * bk), 220, 80, 64));
+        using var stripe = new SolidBrush(Color.FromArgb((int)(160 * bk), 240, 200, 120));
+        using var basket = new SolidBrush(Color.FromArgb((int)(180 * bk), 70, 48, 32));
+        using var line = new Pen(Color.FromArgb((int)(140 * bk), 40, 30, 24), 0.8f);
         g.FillEllipse(shell, x, y, 8, 9);
         g.FillEllipse(stripe, x + 2, y + 1, 4, 7);
         g.DrawLine(line, x + 2, y + 8, x + 3, y + 12);

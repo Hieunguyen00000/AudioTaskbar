@@ -112,7 +112,11 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |------|------|----------|---------|
-| `trainCrossingMinutes` | float | `25` | Số phút để đoàn tàu đi hết chiều rộng taskbar, trái → phải (1–240). |
+| `trainCrossingMinutes` | float | `1` | Số phút để đoàn tàu đi hết chiều rộng taskbar, trái → phải (0.25–240). v5.0 mặc định 25; config cũ còn `25` được tự đổi thành `1` một lần khi nâng lên v5.1. |
+| `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy. Đổi trong menu khay *Ngày & đêm*. |
+| `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ (2–1440). 30 → mỗi giờ ảo = 75 giây. |
+| `dayCycleOffsetHours` | float | `0` | Dịch đồng hồ ảo (giờ, 0–24), ví dụ `6` để chu kỳ bắt đầu gần bình minh. |
+| `configVersion` | int | `51` | Phiên bản schema để migrate một lần (app tự ghi, không cần sửa). |
 | `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `default`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |
 | `showWeatherHud` | bool | `true` | Hiện thẻ nhiệt độ / trạng thái / địa điểm trên nền taskbar. Tắt thì cảnh vật vẫn đổi theo thời tiết. |
 | `weatherFollowsRegion` | bool | `false` | Khi chọn khu vực bằng tay: lấy thời tiết theo tọa độ khu vực đó thay vì vị trí máy. |
@@ -123,6 +127,13 @@ Ghi chú:
 
 - `iconSafePadding` không còn là độ rộng cố định: v5 đo icon thật bằng UI Automation; vùng khoét = khung icon + 2 px·DPI, viền mờ 6 px·DPI nằm ngoài icon.
 - Vị trí IP có chống nhảy: khi IP báo nơi cách hơn 80 km, cần 2 lần xác nhận liên tiếp mới đổi (log ghi `+stable`). Muốn cố định, đặt `weatherCity` hoặc `weatherLatitude`/`weatherLongitude`.
+
+### Chu kỳ ngày–đêm (v5.1)
+
+- Giờ ảo = `(thời gian Unix + dayCycleOffsetHours/24·chu kỳ) mod chu kỳ`, chạy liên tục 0,0 → 24,0; mọi máy cùng cấu hình sẽ thấy cùng giờ ảo.
+- Bảng màu trời / mặt đất / bóng công trình nội suy mượt giữa các mốc 00:00, 04:24, 05:18, 06:06, 07:18, 09:00, 12:30, 15:36, 17:00, 18:06, 19:00, 20:00. Ánh sáng ngày, đèn nhân tạo, sao và độ ấm hoàng hôn là các hệ số liên tục (smoothstep), không nhảy cóc.
+- Mặt trời: 05:30 → 18:30, mọc trái, cao nhất lúc 12:00, lặn phải. Mặt trăng: 18:30 → 05:30, cao nhất lúc 00:00. Ở chế độ an toàn (icon được khoét), cung chạy qua các khoảng trống giữa nhóm icon để không bị icon che hàng giờ; khi TAP gắn (cảnh nằm sau taskbar) cung chạy hết chiều rộng. Đi ngang thẻ thời tiết thì tự mờ đi.
+- Thẻ thời tiết vẫn hiển thị thời tiết **thật**; chỉ cảnh vật đi theo giờ ảo.
 
 ## Âm thanh / spectrum (tắt mặc định ở v4)
 
@@ -168,4 +179,4 @@ Chỉ có hiệu lực khi `enableAudio` là `true`.
 | `%LOCALAPPDATA%\AudioTaskbar\tap-status.txt` | Trạng thái TAP (state, số element đã vá, lỗi). |
 | `%LOCALAPPDATA%\AudioTaskbar\TaskbarTap.dll` | Bản DLL được host trích ra từ resource. |
 
-Xóa `config.json` rồi chạy lại app để trở về mặc định v5.
+Xóa `config.json` rồi chạy lại app để trở về mặc định v5.1.

@@ -1,6 +1,8 @@
-# Audio Taskbar v5.0
+# Audio Taskbar v5.1
 
 Ứng dụng Windows nhỏ vẽ một **diorama thời tiết sống** (48px) ngay trên nền thanh taskbar: bầu trời đổi theo giờ trong ngày, mây/mưa/sấm, tàu hỏa chạy trái → phải, người đi xe đạp, chim, đèn phố, đom đóm… Hiệu ứng nằm **phía sau** icon nên nút Start, Search, app đang chạy và khay hệ thống vẫn sắc, bấm bình thường.
+
+**Mới ở v5.1:** tàu chạy nhanh hơn — 1 phút/lượt (`trainCrossingMinutes: 1`); **chu kỳ ngày–đêm tăng tốc** mặc định 30 phút thật = 1 ngày 24 giờ (`timeMode: "cycle"`, `dayCycleMinutes: 30`), bầu trời, ánh sáng, đèn cửa sổ / đèn phố / đèn tàu, sao và đom đóm chuyển mượt liên tục (đêm → bình minh → sáng → trưa → chiều → hoàng hôn → chạng vạng → đêm); **mặt trời và mặt trăng đi theo cung** từ trái (đông) lên đỉnh rồi xuống phải (tây) — mặt trời 05:30–18:30 (cam vàng lúc mọc/lặn, trắng ấm buổi trưa), mặt trăng 18:30–05:30 (đỉnh lúc 00:00, có quầng sáng). Chuyển giữa *Chu kỳ 30 phút* và *Theo giờ thật* trong menu khay.
 
 **Mới ở v5.0:** icon taskbar không bao giờ bị che (đo vị trí icon thật bằng UI Automation mỗi ~0,4 s, khoét chính xác theo DPI), một đoàn tàu cố định chạy trái → phải trong 25 phút, cảnh vật + giao thông theo khu vực (TP.HCM, Bà Rịa – Vũng Tàu, Hà Nội, Đà Nẵng – Hội An, Tokyo, Paris, mặc định), bật/tắt thẻ thời tiết & địa điểm, TAP gắn nhanh (≤ 3,5 s) và tự nhận biết Smart App Control.
 
@@ -12,7 +14,7 @@ Bật/tắt toàn bộ hiệu ứng mọi lúc bằng phím **F8** (hotkey toàn
 
 - **Diorama 48px** chạy dọc taskbar, theo nhịp ngày đêm (bình minh → trưa → hoàng hôn → đêm).
 - **Thời tiết thật** từ [Open-Meteo](https://open-meteo.com/) (không cần API key): nhiệt độ, trạng thái tiếng Việt, hiệu ứng mưa/nắng/giông rất nhẹ. Vị trí tự dò theo IP, hoặc khóa thành phố / tọa độ trong config.
-- **Một đoàn tàu cố định** (đầu máy + 3 toa) chạy chầm chậm từ trái sang phải, đúng `trainCrossingMinutes` (mặc định 25 phút) cho một lượt; vị trí là hàm của thời gian nên mượt và luôn thấy ngay khi bật.
+- **Một đoàn tàu cố định** (đầu máy + 3 toa) chạy từ trái sang phải, đúng `trainCrossingMinutes` (mặc định 1 phút từ v5.1; v5.0 là 25 phút) cho một lượt; vị trí là hàm của thời gian nên mượt và luôn thấy ngay khi bật.
 - **Cảnh vật theo khu vực:** mỗi khu vực có danh lam + skyline + giao thông đặc trưng, ví dụ TP.HCM (Landmark 81, Bitexco, Nhà thờ Đức Bà, cầu Ba Son; xe máy, xe buýt, xích lô), Vũng Tàu (Tượng Chúa, hải đăng quét đèn, hàng dừa Bãi Sau; tàu cá), Hà Nội (Tháp Rùa, cầu Long Biên, Chùa Một Cột, cầu Thê Húc), Đà Nẵng – Hội An (cầu Rồng phun lửa, Cầu Vàng, đèn lồng, thuyền hoa đăng), Tokyo (Phú Sĩ, Tokyo Tower, torii, hoa anh đào; kei truck, mamachari), Paris (Eiffel lấp lánh đầu giờ, Khải Hoàn Môn; 2CV, taxi cổ).
 - **Khu vực tự động hoặc chọn tay:** `regionMode: "auto"` lấy theo vị trí thời tiết (IP / thành phố / tọa độ, có chống nhảy vị trí), hoặc chọn trong menu *Khu vực & Cảnh vật*.
 - **Thẻ thời tiết & địa điểm bật/tắt được** (`showWeatherHud`), thẻ gọn 2 dòng, chỉ đặt vào khoảng trống không có icon.
@@ -75,6 +77,7 @@ Hỗ trợ tổ hợp `Ctrl`, `Alt`, `Shift`, `Win` với phím F1–F24 hoặc 
 
 - **Bật/tắt hiệu ứng (F8)**
 - **Hoạt ảnh:** Tàu lửa, Giao thông địa phương, Chim & đèn phố, Hiệu ứng thời tiết
+- **Ngày & đêm (mặt trời / mặt trăng):** Chu kỳ 30 phút (1 ngày), Theo giờ thật
 - **Khu vực & Cảnh vật:** Tự động theo máy, TP. Hồ Chí Minh, Bà Rịa – Vũng Tàu, Hà Nội, Đà Nẵng – Hội An, Tokyo / Nhật Bản, Paris / Pháp, Mặc định; *Thời tiết theo khu vực đã chọn*
 - **Hiện thông tin thời tiết & địa điểm** (thẻ trên nền taskbar)
 - **Xem trước thời tiết:** Thực tế, Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Đêm sao

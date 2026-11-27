@@ -68,7 +68,7 @@ public sealed class AppConfig
 
     // v5
     /// <summary>Minutes for the single train to cross the full taskbar left→right.</summary>
-    public float TrainCrossingMinutes { get; set; } = 25f;
+    public float TrainCrossingMinutes { get; set; } = 1f;
     /// <summary>"auto" (detect from machine location) or a region id: hcmc, baria-vungtau, hanoi, danang-hoian, tokyo, paris, default.</summary>
     public string RegionMode { get; set; } = "auto";
     /// <summary>Show the temperature / condition / location HUD on the taskbar background.</summary>
@@ -79,6 +79,17 @@ public sealed class AppConfig
     public float TapTimeoutSeconds { get; set; } = 3.5f;
     /// <summary>"auto" = try the Explorer TAP for true behind-icon mode; "off" = always UIA icon-safe mode.</summary>
     public string TapMode { get; set; } = "auto";
+
+    // v5.1
+    /// <summary>"cycle" = accelerated day (one full 24 h day every <see cref="DayCycleMinutes"/>); "real" = wall clock.</summary>
+    public string TimeMode { get; set; } = "cycle";
+    /// <summary>Real minutes for one full virtual day in cycle mode.</summary>
+    public float DayCycleMinutes { get; set; } = 30f;
+    /// <summary>Shift of the virtual clock in hours (cycle mode), e.g. 6 to start a cycle near dawn.</summary>
+    public float DayCycleOffsetHours { get; set; } = 0f;
+    /// <summary>Config schema version used for one-time migrations (51 = v5.1).</summary>
+    public int ConfigVersion { get; set; } = 0;
+    public const int CurrentConfigVersion = 51;
 
     [JsonIgnore] public Color RgbaLow { get; private set; }
     [JsonIgnore] public Color RgbaMid { get; private set; }
@@ -112,7 +123,10 @@ public sealed class AppConfig
         IdleFadeSeconds = Math.Clamp(IdleFadeSeconds, 0.3f, 8f);
         IconSafePadding = Math.Clamp(IconSafePadding, 0, 200);
         WeatherRefreshMinutes = Math.Clamp(WeatherRefreshMinutes, 5, 120);
-        TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 1f, 240f) : 25f;
+        TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 0.25f, 240f) : 1f;
+        TimeMode = (TimeMode ?? "cycle").Trim().ToLowerInvariant() is "real" or "clock" or "thuc" or "that" ? "real" : "cycle";
+        DayCycleMinutes = float.IsFinite(DayCycleMinutes) ? Math.Clamp(DayCycleMinutes, 2f, 1440f) : 30f;
+        DayCycleOffsetHours = float.IsFinite(DayCycleOffsetHours) ? ((DayCycleOffsetHours % 24f) + 24f) % 24f : 0f;
         RegionMode = RegionCatalog.NormalizeMode(RegionMode);
         TapMode = (TapMode ?? "auto").Trim().ToLowerInvariant() is "off" or "safe" or "false" ? "off" : "auto";
         TapTimeoutSeconds = float.IsFinite(TapTimeoutSeconds) ? Math.Clamp(TapTimeoutSeconds, 1.5f, 8f) : 3.5f;
@@ -234,7 +248,7 @@ public static class ConfigStore
             return (cfg, local, "migrated-fusion-opt-in");
         }
 
-        var fresh = new AppConfig();
+        var fresh = new AppConfig { ConfigVersion = AppConfig.CurrentConfigVersion };
         fresh.Normalize();
         try { Save(local, fresh); } catch { }
         return (fresh, File.Exists(local) ? local : (File.Exists(legacy) ? legacy : local), "new-local-config");
@@ -247,8 +261,17 @@ public static class ConfigStore
         {
             var json = File.ReadAllText(path);
             cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+            if (cfg.ConfigVersion < AppConfig.CurrentConfigVersion)
+            {
+                // v5.1 one-time migration: the train now crosses in 1 minute (was 25), and the
+                // 30-minute day/night cycle is on by default.
+                if (MathF.Abs(cfg.TrainCrossingMinutes - 25f) < 0.01f) cfg.TrainCrossingMinutes = 1f;
+                cfg.ConfigVersion = AppConfig.CurrentConfigVersion;
+                cfg.Normalize();
+                try { Save(path, cfg); } catch { }
+            }
         }
-        else cfg = new AppConfig();
+        else cfg = new AppConfig { ConfigVersion = AppConfig.CurrentConfigVersion };
         cfg.Normalize();
         return cfg;
     }

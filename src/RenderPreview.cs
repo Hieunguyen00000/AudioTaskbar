@@ -26,9 +26,13 @@ internal static class RenderPreview
             RegionMode = Get("--region", "auto"),
             WeatherPreview = Get("--preview", "live"),
             ShowWeatherHud = Get("--hud", "1") == "1",
-            TrainCrossingMinutes = float.Parse(Get("--train", "25"), CultureInfo.InvariantCulture)
+            TrainCrossingMinutes = float.Parse(Get("--train", "1"), CultureInfo.InvariantCulture),
+            TimeMode = Get("--timemode", "cycle")
         };
         cfg.Normalize();
+        // --hour 17.75 pins the scene clock (sun/moon position, sky palette) for a preview frame.
+        var hourArg = Get("--hour", "");
+        if (hourArg.Length > 0) SceneClock.HourOverride = float.Parse(hourArg, CultureInfo.InvariantCulture);
         var weather = new WeatherSnapshot
         {
             Ok = true,

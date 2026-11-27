@@ -133,6 +133,10 @@ internal sealed class OverlayWindow : Form
 
             _diorama.Ensure(logicalW, 48);
             _diorama.SetLayout(ctx.Region, _logicalSpans);
+            _diorama.SetSkyMapping(!behind);
+            _diorama.SetBadge(ctx.ShowWeather && _badgeLevel >= 0 && !_badgeRect.IsEmpty
+                ? new RectangleF(_badgeRect.X / s, _badgeRect.Y / s, _badgeRect.Width / s, _badgeRect.Height / s)
+                : RectangleF.Empty);
             var st = g.Save();
             g.ScaleTransform(s, s);
             _diorama.Draw(g, ctx, mood, ctx.Time);

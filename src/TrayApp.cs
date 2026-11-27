@@ -78,10 +78,11 @@ internal sealed class TrayApp : ApplicationContext
         _cfg.Normalize();
         _layout = new TaskbarLayoutProbe(Log);
         _layout.Changed += () => _layoutDirty = true;
-        Log("Start v5.0. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
+        Log("Start v5.1. Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
             + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) traffic=" + _cfg.ShowCyclist
             + " region=" + _cfg.RegionMode + " hud=" + _cfg.ShowWeatherHud
+            + " time=" + _cfg.TimeMode + (_cfg.TimeMode == "cycle" ? "(" + _cfg.DayCycleMinutes + " min/day, now " + SceneClock.VirtualHour(_cfg, DateTime.Now).ToString("0.00") + "h)" : "")
             + " dpiCtx=PerMonitorV2 sac=" + (TaskbarTapHost.DetectTapBlocker() ?? "off"));
         _tap.ReadyTimeoutSeconds = _cfg.TapTimeoutSeconds;
 
@@ -176,6 +177,24 @@ internal sealed class TrayApp : ApplicationContext
         scene.DropDownItems.Add(MakeToggle("Chim, đèn phố, cánh hoa", () => _cfg.ShowAmbientDetails, v => { _cfg.ShowAmbientDetails = v; Persist(); }));
         scene.DropDownItems.Add(MakeToggle("Hiệu ứng thời tiết (mưa, mây, sấm, sương)", () => _cfg.ShowWeatherEffects, v => { _cfg.ShowWeatherEffects = v; Persist(); }));
         menu.Items.Add(scene);
+
+        var timeMenu = new ToolStripMenuItem("Ngày & đêm (mặt trời / mặt trăng)");
+        void addTime(string id, Func<string> label)
+        {
+            var it = new ToolStripMenuItem(label());
+            it.Click += (_, _) =>
+            {
+                _cfg.TimeMode = id;
+                _cfg.Normalize();
+                Persist();
+                Log("Time mode: " + _cfg.TimeMode + " (scene hour " + SceneClock.VirtualHour(_cfg, DateTime.Now).ToString("0.00") + ")");
+            };
+            it.Paint += (_, _) => { try { it.Checked = _cfg.TimeMode == id; } catch { } };
+            timeMenu.DropDownItems.Add(it);
+        }
+        addTime("cycle", () => "Chu kỳ " + _cfg.DayCycleMinutes.ToString("0.#") + " phút (1 ngày)");
+        addTime("real", () => "Theo giờ thật");
+        menu.Items.Add(timeMenu);
 
         var region = new ToolStripMenuItem("Khu vực & Cảnh vật");
         void addRegion(string id, string label)

@@ -29,10 +29,13 @@
   "weatherLongitude": null,
   "weatherRefreshMinutes": 15,
   "weatherOnPrimaryOnly": true,
-  "trainCrossingMinutes": 25,
+  "trainCrossingMinutes": 1,
   "regionMode": "auto",
   "showWeatherHud": true,
   "weatherFollowsRegion": false,
   "tapMode": "auto",
-  "tapTimeoutSeconds": 3.5
+  "tapTimeoutSeconds": 3.5,
+  "timeMode": "cycle",
+  "dayCycleMinutes": 30,
+  "dayCycleOffsetHours": 0
 }

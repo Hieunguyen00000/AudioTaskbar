@@ -738,14 +738,14 @@ internal sealed class RegionScenery : IDisposable
 
     #region drawing
 
-    private static bool Lit(SceneMood m) => m.IsNight || m.Phase is DayPhase.Dusk or DayPhase.Dawn;
+    private static bool Lit(SceneMood m) => m.LightsK > 0.3f;
 
     public void DrawFar(Graphics g, SceneMood mood, float time)
     {
-        if (Lit(mood))
+        if (mood.LightsK > 0.02f)
         {
             // City glow on the horizon so dark silhouettes still read at night.
-            float k = mood.IsNight ? 1f : 0.5f;
+            float k = mood.LightsK;
             var glowCol = _p.Id switch
             {
                 "tokyo" => Color.FromArgb(255, 255, 150, 190),
@@ -774,7 +774,7 @@ internal sealed class RegionScenery : IDisposable
         {
             using var br = new LinearGradientBrush(new RectangleF(x, y0 - 0.5f, w, y1 - y0 + 1), top, bot, LinearGradientMode.Vertical);
             g.FillRectangle(br, x, y0, w, y1 - y0);
-            using var hi = new Pen(Color.FromArgb(lit ? 70 : 90, 255, 255, 255), 0.5f);
+            using var hi = new Pen(Color.FromArgb((int)(90 - 20 * mood.LightsK), 255, 255, 255), 0.5f);
             for (int i = 0; i < (int)(w / 9); i++)
             {
                 float wx = x + ((i * 37.3f + time * (2 + i % 3)) % w);
@@ -782,9 +782,9 @@ internal sealed class RegionScenery : IDisposable
                 g.DrawLine(hi, wx, wy, wx + 2.5f, wy);
             }
         }
-        if (lit) // reflections of lit windows on the water
+        if (mood.LightsK > 0.02f) // reflections of lit windows on the water
         {
-            using var refl = new SolidBrush(Color.FromArgb(60, 255, 210, 130));
+            using var refl = new SolidBrush(Color.FromArgb((int)(60 * mood.LightsK), 255, 210, 130));
             foreach (var r in _windows)
                 if (r.Bottom < _shore && r.Bottom > _shore - 8 && InWater(r.X))
                     g.FillRectangle(refl, r.X, _shore + (_shore - r.Bottom) * 0.25f + 0.3f, r.Width, 0.5f);
@@ -797,7 +797,7 @@ internal sealed class RegionScenery : IDisposable
     public void DrawLandmarks(Graphics g, SceneMood mood, float time)
     {
         bool lit = Lit(mood);
-        float nightK = mood.IsNight ? 1f : mood.Phase is DayPhase.Dusk or DayPhase.Dawn ? 0.55f : 0f;
+        float nightK = mood.LightsK;
         foreach (var a in _accents)
         {
             var c = SceneClock.Mix(a.Day, a.Night, nightK);
@@ -813,9 +813,9 @@ internal sealed class RegionScenery : IDisposable
             using var pen = new Pen(col, s.Width) { StartCap = LineCap.Round, EndCap = LineCap.Round };
             g.DrawLine(pen, s.A, s.B);
         }
-        if (lit)
+        if (nightK > 0.02f)
         {
-            int a = mood.IsNight ? 210 : 130;
+            int a = (int)(210 * nightK);
             using var win = new SolidBrush(Color.FromArgb(a, 255, 208, 126));
             int i = 0;
             foreach (var r in _windows)
@@ -881,7 +881,7 @@ internal sealed class RegionScenery : IDisposable
                 case LightKind.EiffelSparkle when lit:
                 {
                     // Gentle golden glow + sparkle (stronger during the first 5 minutes of each hour, like Paris).
-                    bool show = DateTime.Now.Minute < 5;
+                    bool show = mood.Hour - MathF.Floor(mood.Hour) < 5f / 60f; // first 5 (scene) minutes of each hour
                     int n = show ? 26 : 10;
                     var rnd = new Random((int)(time * (show ? 9 : 4)));
                     using var glow = new SolidBrush(Color.FromArgb(28, 255, 196, 90));
@@ -954,7 +954,7 @@ internal sealed class RegionScenery : IDisposable
     {
         if (_petals.Count == 0) return;
         float dt = 1f / 30f;
-        using var br = new SolidBrush(Color.FromArgb(mood.IsNight ? 150 : 210, 255, 190, 214));
+        using var br = new SolidBrush(Color.FromArgb((int)(150 + 60 * mood.DayK), 255, 190, 214));
         for (int i = 0; i < _petals.Count; i++)
         {
             var p = _petals[i];

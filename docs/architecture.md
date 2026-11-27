@@ -1,4 +1,4 @@
-# Kiến trúc Audio Taskbar v5.0
+# Kiến trúc Audio Taskbar v5.1
 
 Audio Taskbar gồm hai phần:
 
@@ -115,6 +115,10 @@ v5 chạy `TaskbarLayoutProbe` trên một luồng MTA nền, mỗi ~400 ms:
 `Regions.cs` chứa 7 hồ sơ (`RegionCatalog`) với tọa độ, danh lam, skyline nền, bảng giao thông đường bộ / đường thủy. `Resolve` ưu tiên: chọn tay → `weatherCity` → tên địa điểm thời tiết (bỏ dấu) → hộp tọa độ. `Scenery.cs` dựng skyline + danh lam vào khoảng trống theo độ ưu tiên và vẽ: nền xa, mặt nước & thuyền, danh lam (đèn, cửa sổ, hiệu ứng như hải đăng quét, cầu Rồng phun lửa mỗi 45 s, Eiffel lấp lánh), làn xe gần (trái → phải) / xa (phải → trái), cánh hoa.
 
 Đoàn tàu: `x = phase0 + t / (trainCrossingMinutes·60)`, `phase0` đặt vào khoảng trống rộng nhất để thấy ngay; bánh xe quay theo quãng đường, khói nhẹ 0,45 s/lần.
+
+## v5.1: đồng hồ cảnh và thiên thể
+
+`SceneClock.VirtualHour(cfg, now)` trả giờ cảnh 0–24 (chu kỳ `dayCycleMinutes` hoặc giờ thật). `SceneClock.Compose` nội suy bảng màu theo các keyframe và tính các hệ số liên tục `DayK`, `LightsK`, `StarsK`, `WarmK`, `SunT`, `MoonT` trong `SceneMood`. `DioramaRenderer` vẽ mặt trời / mặt trăng theo cung `ArcPoint` (sin của tiến độ), chìm sau skyline ở hai đầu; ở chế độ an toàn `ArcX` ánh xạ cung qua các khoảng trống. Mọi lớp đèn (cửa sổ, đèn phố, đèn tàu, phản chiếu trên nước, quầng sáng thành phố), sao, đom đóm, chim, khinh khí cầu đều nhân alpha theo các hệ số này nên chuyển cảnh mượt.
 
 ## Visualizer âm thanh (tùy chọn, tắt ở v4)
 
