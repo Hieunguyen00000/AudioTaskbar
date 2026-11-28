@@ -103,7 +103,7 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
         _layout.Changed += () => _layoutDirty = true;
         Log("Start v" + AutoUpdater.AppVersion() + (startMinimized ? " (tray)" : " (portal)") + ". Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
-            + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) traffic=" + _cfg.ShowCyclist
+            + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) airplane=" + _cfg.ShowAirplane + "(" + _cfg.AirplaneCycleMinutes + " min) traffic=" + _cfg.ShowCyclist
             + " region=" + _cfg.RegionMode + " season=" + _cfg.Season + " iconPadding=" + _cfg.ShowIconPadding + " weatherCycle=" + _cfg.WeatherCycleMode + " sound=" + _cfg.SoundMasterVolume
             + " time=" + _cfg.TimeMode + (_cfg.TimeMode == "cycle" ? "(" + _cfg.DayCycleMinutes + " min/day, now " + SceneClock.VirtualHour(_cfg, DateTime.Now).ToString("0.00") + "h)" : "")
             + " dpiCtx=PerMonitorV2 sac=" + (TaskbarTapHost.DetectTapBlocker() ?? "off"));
@@ -452,6 +452,7 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
     {
         var scene = new ToolStripMenuItem(text);
         scene.DropDownItems.Add(MakeToggle("Tàu hỏa (" + _cfg.TrainCrossingMinutes.ToString("0.#") + " phút/lượt)", () => _cfg.ShowTrain, v => { _cfg.ShowTrain = v; Persist(); }));
+        scene.DropDownItems.Add(MakeToggle("Máy bay (" + _cfg.AirplaneCycleMinutes.ToString("0.#") + " phút/lượt)", () => _cfg.ShowAirplane, v => { _cfg.ShowAirplane = v; Persist(); }));
         scene.DropDownItems.Add(MakeToggle("Giao thông đặc trưng khu vực", () => _cfg.ShowCyclist, v => { _cfg.ShowCyclist = v; Persist(); }));
         scene.DropDownItems.Add(MakeToggle("Chim, đèn phố, cánh hoa", () => _cfg.ShowAmbientDetails, v => { _cfg.ShowAmbientDetails = v; Persist(); }));
         scene.DropDownItems.Add(MakeToggle("Hiệu ứng thời tiết (mưa, mây, sấm, sương)", () => _cfg.ShowWeatherEffects, v => { _cfg.ShowWeatherEffects = v; Persist(); }));
@@ -1006,7 +1007,8 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
             var weather = _weather.Latest;
             var region = RegionCatalog.Resolve(cfg, weather);
             var mood = SceneClock.Compose(weather, cfg, DateTime.Now);
-            _ambient.Update(cfg, region, mood, Seasons.Parse(cfg.EffectiveSeason), effectsOn: !_paused && !_exiting, DioramaRenderer.TrainProgress);
+            _ambient.Update(cfg, region, mood, Seasons.Parse(cfg.EffectiveSeason), effectsOn: !_paused && !_exiting, DioramaRenderer.TrainProgress,
+                DioramaRenderer.TrainSpeed, DioramaRenderer.PlaneX01, DioramaRenderer.PlaneThrust);
         }
         catch (Exception ex) { Log("Ambient sound: " + ex.Message); }
     }

@@ -4,12 +4,12 @@ namespace AudioTaskbar;
 internal static class SoundEffects
 {
     public const string Rain = "rain", Thunder = "thunder", Wind = "wind", Traffic = "traffic", Horns = "horns",
-        Train = "train", Birds = "birds", Insects = "insects", Animals = "animals", Waves = "waves";
+        Train = "train", Airplane = "airplane", Birds = "birds", Insects = "insects", Animals = "animals", Waves = "waves";
 
     public static readonly (string Id, string NameVi)[] All =
     {
         (Rain, "Mưa rơi"), (Thunder, "Sấm sét"), (Wind, "Gió"), (Traffic, "Xe cộ"), (Horns, "Còi xe"),
-        (Train, "Tàu hỏa (xa / gần)"), (Birds, "Chim hót"), (Insects, "Côn trùng, ve, dế"),
+        (Train, "Tàu hỏa (xa / gần)"), (Airplane, "Máy bay (xa / gần)"), (Birds, "Chim hót"), (Insects, "Côn trùng, ve, dế"),
         (Animals, "Ếch, chó, gà gáy"), (Waves, "Sóng nước")
     };
 
@@ -93,6 +93,8 @@ internal static class SoundScape
             [SoundEffects.Traffic] = new(Math.Clamp(traffic, 0f, 1f), wet),
             [SoundEffects.Horns] = new(Math.Clamp(horns, 0f, 1f)),
             [SoundEffects.Train] = new(Math.Clamp(train, 0f, 1f)),
+            // The airplane's own loudness follows the plane on the taskbar; the scene only lowers it a little in a storm.
+            [SoundEffects.Airplane] = new(mood.IsStorm ? 0.7f : 1f),
             [SoundEffects.Birds] = new(Math.Clamp(birds, 0f, 1f)),
             // aux: 0 = night crickets, 1 = daytime cicadas (hot-season daylight)
             [SoundEffects.Insects] = new(Math.Clamp(insects, 0f, 1f), season == SeasonId.Summer ? day : day * 0.3f),

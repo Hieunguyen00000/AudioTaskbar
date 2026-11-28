@@ -598,3 +598,44 @@ internal sealed class TrainSource : ISoundSource
         Duration = dur
     };
 }
+
+/// <summary>
+/// Jet airliner: a soft turbine rush that swells with the engine effort (<see cref="Thrust"/>) and with how close the plane is
+/// (<see cref="Proximity"/>), plus a thin whine. Silent while the plane is away. Pans with the plane on the taskbar.
+/// </summary>
+internal sealed class AirplaneSource : ISoundSource
+{
+    private readonly FastRng _rng = new(313);
+    private float _lp1, _lp2, _prox, _thr;
+    private double _ph;
+
+    public volatile float Proximity;
+    public volatile float Thrust;
+    public volatile float Pan;
+
+    public void Render(float[] l, float[] r, int frames, float level, float aux)
+    {
+        float targetProx = Math.Clamp(Proximity, 0f, 1f);
+        float targetThr = Math.Clamp(Thrust, 0f, 1f);
+        var (gl, gr) = Dsp.Pan(Pan);
+        for (int i = 0; i < frames; i++)
+        {
+            _prox += (targetProx - _prox) * 0.0005f;
+            _thr += (targetThr - _thr) * 0.0004f;
+            float amp = _prox * _prox * level * (0.12f + 0.88f * _thr);
+            if (amp < 1e-4f) continue;
+            float n = _rng.Noise();
+            // turbine rush: low-passed noise that opens up with thrust
+            float cut = Dsp.OnePoleCoef(260f + 2400f * _thr);
+            _lp1 += cut * (n - _lp1);
+            _lp2 += cut * (_lp1 - _lp2);
+            float rush = _lp2 * 2.6f;
+            // thin spooling whine (rises with thrust)
+            _ph += (520.0 + 780.0 * _thr) / Dsp.Rate;
+            if (_ph > 1) _ph -= 1;
+            float whine = MathF.Sin(2f * MathF.PI * (float)_ph) * 0.05f * _thr;
+            float o = (rush + whine) * amp;
+            l[i] += o * gl; r[i] += o * gr;
+        }
+    }
+}

@@ -6,6 +6,7 @@ namespace AudioTaskbar;
 /// <summary>
 /// Headless preview: renders exactly the overlay pixels a machine would show,
 /// for a given bar size + measured cut-outs, without touching the taskbar.
+/// (--train-phase / --plane-phase 0..1 pin the lifecycle of the train / airplane; --airplane 0 hides it)
 /// AudioTaskbar.exe --render out.png --size 1920x60 --cutouts 8-198,516-1403,1653-1920
 ///     --region hcmc --temp 27 --code 3 --day 0 --place "Ho Chi Minh City" --season autumn --padding 0 --t 40 --preview live
 /// </summary>
@@ -28,12 +29,18 @@ internal static class RenderPreview
             Season = Get("--season", "summer"),
             ShowIconPadding = Get("--padding", "1") == "1",
             TrainCrossingMinutes = float.Parse(Get("--train", "1"), CultureInfo.InvariantCulture),
+            ShowAirplane = Get("--airplane", "1") == "1",
+            AirplaneCycleMinutes = float.Parse(Get("--airplane-min", "3"), CultureInfo.InvariantCulture),
             TimeMode = Get("--timemode", "cycle")
         };
         cfg.Normalize();
         // --hour 17.75 pins the scene clock (sun/moon position, sky palette) for a preview frame.
         var hourArg = Get("--hour", "");
         if (hourArg.Length > 0) SceneClock.HourOverride = float.Parse(hourArg, CultureInfo.InvariantCulture);
+        // --train-phase 0.42 / --plane-phase 0.5 pin the lifecycle position (0..1) of the vehicles, to preview each phase.
+        var tp = Get("--train-phase", ""); var pp = Get("--plane-phase", "");
+        DioramaRenderer.DebugTrainCycle = tp.Length > 0 ? double.Parse(tp, CultureInfo.InvariantCulture) : null;
+        DioramaRenderer.DebugPlaneCycle = pp.Length > 0 ? double.Parse(pp, CultureInfo.InvariantCulture) : null;
         var weather = new WeatherSnapshot
         {
             Ok = true,

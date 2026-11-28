@@ -471,7 +471,7 @@ internal static class SceneClock
 }
 
 /// <summary>Animated 48px panoramic weather diorama painted into the taskbar overlay.</summary>
-internal sealed class DioramaRenderer
+internal sealed partial class DioramaRenderer
 {
     private readonly Random _rng = new(11);
     private int _w, _h;
@@ -497,6 +497,14 @@ internal sealed class DioramaRenderer
 
     /// <summary>0..1 position of the most recently drawn train across the bar; the ambient sound follows it. -1 = none.</summary>
     internal static volatile float TrainProgress = -1f;
+    /// <summary>0 (standing at the platform) .. 1 (running) for the train drawn last; drives the rolling sound.</summary>
+    internal static volatile float TrainSpeed = 1f;
+    /// <summary>0..1 position of the airplane across the bar, or -1 while it is away; its sound follows it.</summary>
+    internal static volatile float PlaneX01 = -1f;
+    /// <summary>0..1 engine effort of the airplane drawn last.</summary>
+    internal static volatile float PlaneThrust;
+    /// <summary>Preview / test hook: pin the cycle position (0..1) of the train / airplane instead of following the clock.</summary>
+    internal static double? DebugTrainCycle, DebugPlaneCycle;
     private float _trainX = -400;
     private float _bikeX = 200;
     private readonly RegionScenery _scenery = new();
@@ -509,6 +517,8 @@ internal sealed class DioramaRenderer
     private float _lastSteamEmit = -1;
     private const float TrainScale = 0.8f;
     private float _trainLights;
+    private TrainState _trainState;
+    private float _platL, _platR;
     private float _frost;
     private Color _frostCol;
     private float _headX0 = -1, _headX1 = -1, _headY;
@@ -565,7 +575,8 @@ internal sealed class DioramaRenderer
 
     public void Draw(Graphics g, FrameContext ctx, SceneMood mood, float time)
     {
-        if (!ctx.Cfg.ShowTrain) { _headX0 = -1; _frost = 0; TrainProgress = -1f; }
+        if (!ctx.Cfg.ShowTrain) { _headX0 = -1; _frost = 0; TrainProgress = -1f; TrainSpeed = 1f; }
+        if (!ctx.Cfg.ShowAirplane) { PlaneX01 = -1f; PlaneThrust = 0f; }
         _scenery.Build(_region, _w, _h, _groundTop, _spans);
 
         DrawSky(g, mood, time);
@@ -609,6 +620,10 @@ internal sealed class DioramaRenderer
 
         if (ctx.Cfg.ShowCyclist)
             _scenery.DrawRoadTraffic(g, mood, time);
+
+        // v5.4 airport strip + airplane: drawn after the road traffic so the plane is never hidden behind a passing car.
+        if (ctx.Cfg.ShowAirplane)
+            DrawAirportAndPlane(g, mood, time, ctx.Cfg);
 
         if (mood.IsRainy && ctx.Cfg.ShowWeatherEffects)
         {
@@ -1156,33 +1171,40 @@ internal sealed class DioramaRenderer
     #region actors
 
     /// <summary>
-    /// One single train, crossing left→right in exactly <c>trainCrossingMinutes</c>
-    /// (default 25 min). Position is a pure function of time, so it glides
-    /// at ~1 px/s without jitter. Seeded so it is visible right after launch.
+    /// One train with a full stop-over: it comes in from the left and slows down, stops at the little platform, the doors open,
+    /// passengers get off and others get on, then it departs, speeds up and leaves to the right. One lifecycle = the configured
+    /// period. Position is a pure function of time (see <see cref="TrainCycle"/>), seeded so it is at the platform right after launch.
     /// </summary>
     private void DrawTrain(Graphics g, SceneMood mood, float time, AppConfig cfg)
     {
         float trainW = TrainW;
         double period = Math.Max(1.0, cfg.TrainCrossingMinutes) * 60.0;
-        double track = _w + trainW;
+        var spans = EffectiveSpans();
+        int airportSpan = cfg.ShowAirplane ? AirportPlan.FindSpan(spans, _w) : -1;
+        var st0 = AirportPlan.StationSpan(spans, _w, airportSpan);
+        _platL = st0.L + 2; _platR = st0.R - 2;
+        if (_platR - _platL > 168) { float mid = (_platL + _platR) / 2; _platL = mid - 84; _platR = mid + 84; }
+        if (_platR - _platL < 40) { float mid = (_platL + _platR) / 2; _platL = mid - 20; _platR = mid + 20; }
+        float stopLeft = (_platL + _platR) / 2 - trainW / 2;
+
         if (!_trainSeeded || (!_trainSeededWithSpans && _spans.Count > 0 && time - _trainSeedTime < 6f))
         {
-            // Put the locomotive inside the widest free span so it shows immediately.
-            float frontTarget = _w * 0.32f;
-            if (_spans.Count > 0)
-            {
-                var best = _spans.OrderByDescending(sp => sp.R - sp.L).First();
-                float sw = best.R - best.L;
-                frontTarget = best.L + Math.Min(sw - 6, Math.Max(sw * 0.82f, Math.Min(sw, trainW * 0.7f)));
-                _trainSeededWithSpans = true;
-            }
-            double progressNow = frontTarget / track;
-            _trainPhase0 = progressNow - time / period;
+            // Start with the train standing at the platform (doors just open) so something is happening right after launch.
+            double seed = TrainCycle.StopStart + 0.25 * 0.10;
+            _trainPhase0 = seed - time / period;
             _trainSeeded = true;
+            _trainSeededWithSpans = _spans.Count > 0;
             _trainSeedTime = time;
         }
-        double p = SceneMath.TrainProgress(_trainPhase0, time, period);
-        _trainX = (float)(-trainW + p * track);
+        double p = DebugTrainCycle ?? SceneMath.TrainProgress(_trainPhase0, time, period);
+        var ts = TrainCycle.Evaluate(p, _w, trainW, stopLeft);
+        _trainState = ts;
+        if (!ts.Visible)
+        {
+            TrainProgress = -1f; TrainSpeed = 1f; _headX0 = -1; _frost = 0;
+            return;
+        }
+        _trainX = ts.X;
         float y = _railY - 1.2f;
         float lk = mood.LightsK;
         bool night = lk > 0.5f;
@@ -1191,7 +1213,8 @@ internal sealed class DioramaRenderer
         bool covered = mood.SnowCover > 0.01f;
         _frost = covered ? 0.55f + 0.45f * mood.SnowCover : 0f;
         _frostCol = covered ? RegionScenery.SnowTint(mood, 230) : Color.Empty;
-        TrainProgress = (float)p;
+        TrainProgress = Math.Clamp((_trainX + trainW) / (_w + trainW), 0f, 1f);
+        TrainSpeed = ts.Speed;
         _headX0 = _trainX + trainW - 3; _headX1 = _trainX + trainW + 60; _headY = y;
 
         // Headlight beam (fades in with dusk)
@@ -1218,15 +1241,18 @@ internal sealed class DioramaRenderer
         g.ScaleTransform(TrainScale, TrainScale);
         float x = 0, ly = 0;
         float spin = _trainX / (3.1f * TrainScale); // wheels roll exactly with distance travelled
-        DrawCarriage(g, x, ly, 38, night, rain, 0, spin); x += 40;
-        DrawCarriage(g, x, ly, 38, night, rain, 1, spin); x += 40;
-        DrawCarriage(g, x, ly, 38, night, rain, 2, spin); x += 40;
+        DrawCarriage(g, x, ly, 38, night, rain, 0, spin, ts.Doors); x += 40;
+        DrawCarriage(g, x, ly, 38, night, rain, 1, spin, ts.Doors); x += 40;
+        DrawCarriage(g, x, ly, 38, night, rain, 2, spin, ts.Doors); x += 40;
         DrawLoco(g, x, ly, night, rain, spin);
         g.Restore(st);
 
-        // Gentle smoke: a puff every ~0.45 s drifting up and back (world coords).
+        DrawStation(g, mood, time, ts);
+
+        // Gentle smoke: a puff every ~0.45 s drifting up and back (world coords); lazier while standing.
         float chimX = _trainX + (x + 30.5f) * TrainScale, chimY = y - 21 * TrainScale;
-        if (_lastSteamEmit < 0 || time - _lastSteamEmit > 0.45f || time < _lastSteamEmit)
+        float every = ts.Speed < 0.05f ? 1.1f : 0.45f;
+        if (_lastSteamEmit < 0 || time - _lastSteamEmit > every || time < _lastSteamEmit)
         {
             _lastSteamEmit = time;
             EmitSteam(chimX, chimY, time);
@@ -1234,6 +1260,9 @@ internal sealed class DioramaRenderer
         else AgeSteam();
         DrawSteam(g, mood, time);
     }
+
+    private IReadOnlyList<(float L, float R)> EffectiveSpans()
+        => _spans.Count > 0 ? _spans : new List<(float L, float R)> { (0f, _w) };
 
     private void DrawLoco(Graphics g, float x, float y, bool night, bool rain, float time)
     {
@@ -1282,7 +1311,7 @@ internal sealed class DioramaRenderer
         g.DrawLine(rim, x + 6, y - 12.6f, x + 42, y - 12.6f);
     }
 
-    private void DrawCarriage(Graphics g, float x, float y, float w, bool night, bool rain, int idx, float spin)
+    private void DrawCarriage(Graphics g, float x, float y, float w, bool night, bool rain, int idx, float spin, float doors)
     {
         using var body = new SolidBrush(Color.FromArgb(255, 54 + idx * 2, 38, 42));
         using var roof = new SolidBrush(Color.FromArgb(255, 34, 24, 28));
@@ -1297,7 +1326,18 @@ internal sealed class DioramaRenderer
         int wa = (int)(140 + 80 * Math.Max(_trainLights, rain ? 1f : 0f));
         using var win = new SolidBrush(Color.FromArgb(wa, 255, 210, 120));
         for (int i = 0; i < 3; i++)
+        {
+            if (i == 1) continue; // the middle bay is the door
             g.FillRectangle(win, x + 5 + i * 11, y - 12, 6, 5);
+        }
+        // sliding door: a lighter leaf when shut, a warm opening while passengers get on and off
+        using (var leaf = new SolidBrush(Color.FromArgb(255, 78 + idx * 2, 54, 58)))
+            g.FillRectangle(leaf, x + 16, y - 12.4f, 6, 9.6f);
+        if (doors > 0.01f)
+            using (var open = new SolidBrush(Color.FromArgb((int)(235 * doors), 255, 226, 160)))
+                g.FillRectangle(open, x + 16.6f, y - 11.8f, 4.8f * (0.35f + 0.65f * doors) , 8.8f);
+        using (var seam = new Pen(Color.FromArgb(120, 24, 18, 20), 0.5f))
+            g.DrawLine(seam, x + 19, y - 12.4f, x + 19, y - 2.8f);
         // coupler
         using var coup = new SolidBrush(Color.FromArgb(200, 30, 24, 24));
         g.FillRectangle(coup, x + w, y - 7, 2, 2);

@@ -16,6 +16,7 @@
   "preset": "aurora",
   "intensity": 1.0,
   "showTrain": true,
+  "showAirplane": true,
   "showCyclist": true,
   "showAmbientDetails": true,
   "showWeatherEffects": true,
@@ -31,6 +32,7 @@
   "weatherRefreshMinutes": 15,
   "weatherOnPrimaryOnly": true,
   "trainCrossingMinutes": 1,
+  "airplaneCycleMinutes": 3,
   "regionMode": "auto",
   // v5.4: thẻ thời tiết trên taskbar đã bỏ; thông tin vị trí/thời tiết nằm trong bảng điều khiển (khóa này bị bỏ qua)
   "showWeatherHud": false,
@@ -54,7 +56,7 @@
   "weatherCycleRandomMaxMinutes": 20,
   // v5.4: âm thanh nền, MẶC ĐỊNH TẤT CẢ = 0 (im lặng). 0–100
   "soundMasterVolume": 0,
-  "soundVolumes": { "rain": 0, "thunder": 0, "wind": 0, "traffic": 0, "horns": 0, "train": 0, "birds": 0, "insects": 0, "animals": 0, "waves": 0 },
+  "soundVolumes": { "rain": 0, "thunder": 0, "wind": 0, "traffic": 0, "horns": 0, "train": 0, "airplane": 0, "birds": 0, "insects": 0, "animals": 0, "waves": 0 },
   // v5.3: bảng điều khiển + tự động cập nhật
   "startMinimized": false,
   "autoUpdateEnabled": true,

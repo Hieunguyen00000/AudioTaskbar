@@ -6,7 +6,7 @@ namespace AudioTaskbar.Tests;
 [Collection("Statics")]
 public class V54ConfigTests
 {
-    private static readonly string[] EffectIds = { "rain", "thunder", "wind", "traffic", "horns", "train", "birds", "insects", "animals", "waves" };
+    private static readonly string[] EffectIds = { "rain", "thunder", "wind", "traffic", "horns", "train", "airplane", "birds", "insects", "animals", "waves" };
 
     // A realistic v5.3.3 config.json: no season / cycle / sound keys at all.
     private const string OldConfig = """
@@ -55,7 +55,7 @@ public class V54ConfigTests
         // the file on disk was upgraded and still loads
         var json = File.ReadAllText(path);
         Assert.Contains("soundVolumes", json);
-        Assert.Contains("\"configVersion\": 54", json);
+        Assert.Contains("\"configVersion\": " + AppConfig.CurrentConfigVersion, json);
         var again = ConfigStore.Load(path);
         Assert.Equal(0, again.SoundMasterVolume);
         Assert.Equal("Ctrl+Alt+F8", again.Hotkey);

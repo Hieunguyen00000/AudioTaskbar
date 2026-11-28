@@ -98,7 +98,7 @@ release\AudioTaskbar.exe --render out.png --size 1920x60 --cutouts 8-198,516-140
   --region auto --place "Ho Chi Minh City" --temp 27 --code 3 --day 0 --hud 1
 ```
 
-Tham số: `--hour <0–24>` (ghim giờ cảnh, ví dụ `17.75` = 17:45; v5.1), `--timemode cycle|real`, `--size WxH`, `--cutouts l-r,...` (px vật lý, vùng icon), `--region`, `--preview` (sunny/cloudy/rain/storm/night), `--hud 0|1`, `--train <phút>`, `--place`, `--temp`, `--code` (WMO), `--day 0|1`, `--cloud`, `--t <giây>`, `--frames`, `--fused 0|1`. Ghi kèm `out.png.txt` (khu vực, khoảng trống, vị trí thẻ, scale). Dùng để kiểm tra layout trên máy bị khóa màn hình hoặc bị SAC chặn chạy app.
+Tham số: `--hour <0–24>` (ghim giờ cảnh, ví dụ `17.75` = 17:45; v5.1), `--timemode cycle|real`, `--size WxH`, `--cutouts l-r,...` (px vật lý, vùng icon), `--region`, `--preview` (sunny/cloudy/rain/storm/night), `--hud 0|1`, `--train <phút>`, `--airplane 0|1`, `--airplane-min <phút>`, `--train-phase <0..1>` / `--plane-phase <0..1>` (ghim vị trí trong vòng đời để xem từng giai đoạn; v5.4), `--place`, `--temp`, `--code` (WMO), `--day 0|1`, `--cloud`, `--t <giây>`, `--frames`, `--fused 0|1`. Ghi kèm `out.png.txt` (khu vực, khoảng trống, vị trí thẻ, scale). Dùng để kiểm tra layout trên máy bị khóa màn hình hoặc bị SAC chặn chạy app.
 
 Lưu ý: dự án bật `UseWPF` (để dùng UI Automation); `GlobalUsings.cs` thêm lại `System.IO` / `System.Net.Http`.
 

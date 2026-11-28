@@ -28,6 +28,7 @@ Màu dùng `#RRGGBB` hoặc `#AARRGGBB`. Giá trị ngoài khoảng cho phép s�
   "showSpectrum": false,
   "showWaveform": false,
   "showTrain": true,
+  "showAirplane": true,
   "showCyclist": true,
   "showAmbientDetails": true,
   "showWeatherEffects": true,
@@ -93,7 +94,8 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |------|------|----------|---------|
 | `mode` | string | `"diorama"` | `diorama` (hoặc `scene`): cảnh vật. `spectrum` / `waveform` / `both`: bật lại visualizer âm thanh tương ứng nếu `showSpectrum`/`showWaveform` đang tắt. |
-| `showTrain` | bool | `true` | Tàu hỏa chạy trái → phải (đầu máy, toa, đèn, khói). Menu: *Cảnh vật → Xe lửa*. |
+| `showTrain` | bool | `true` | Tàu hỏa vào ga từ trái, chậm dần, dừng ở sân ga nhỏ (khách xuống rồi lên), rời ga và tăng tốc về bên phải (đầu máy, toa, đèn, khói). Menu: *Cảnh vật → Tàu hỏa*. |
+| `showAirplane` | bool | `true` | v5.4: máy bay hạ cánh, chạy vào bãi đỗ cạnh nhà ga nhỏ, khách xuống/lên bằng cầu thang, ra đường băng và cất cánh. Khoảng trống giữa các icon quá hẹp thì chỉ bay ngang trời. Menu: *Cảnh vật → Máy bay*. |
 | `showCyclist` | bool | `true` | Người đi xe đạp (đèn đêm, dù khi mưa). *Cảnh vật → Xe đạp*. |
 | `showAmbientDetails` | bool | `true` | Chim, đom đóm, sao băng, khinh khí cầu, đèn phố. *Cảnh vật → Chim & đèn phố*. |
 | `showWeatherEffects` | bool | `true` | Mưa, gợn nước, sấm chớp, mây nhiều lớp. *Cảnh vật → Thời tiết*. |
@@ -112,7 +114,8 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |------|------|----------|---------|
-| `trainCrossingMinutes` | float | `1` | Số phút để đoàn tàu đi hết chiều rộng taskbar, trái → phải (0.25–240). v5.0 mặc định 25; config cũ còn `25` được tự đổi thành `1` một lần khi nâng lên v5.1. |
+| `airplaneCycleMinutes` | float | `3` | v5.4: số phút cho một vòng đời máy bay (hạ cánh → bãi đỗ → trả/đón khách → cất cánh → bay đi), 0.5–240. |
+| `trainCrossingMinutes` | float | `1` | Số phút cho một vòng của đoàn tàu: vào ga chậm dần (36 %), dừng trả khách (10 %) và đón khách (10 %), rời ga tăng tốc (40 %), nghỉ ngắn (4 %) (0.25–240). v5.0 mặc định 25; config cũ còn `25` được tự đổi thành `1` một lần khi nâng lên v5.1. |
 | `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy; `day` = cố định ban ngày (~10:30–12:00, dao động nhẹ); `night` = cố định ban đêm (~23:30–00:00). Giá trị lạ → `cycle`. Đổi trong portal hoặc menu khay *Ngày & đêm*. |
 | `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ, **tùy chỉnh 0,5–10080** (30 giây – 7 ngày; v5.3.1 bỏ giới hạn cũ 2–1440). 30 → mỗi giờ ảo = 75 giây; 1440 → nhịp như giờ thật nhưng lệch pha. Giá trị ≤ 0 / NaN / vô hạn → `30`; ngoài khoảng bị kẹp về 0,5 hoặc 10080. Đổi trong portal (*Độ dài chu kỳ*) áp dụng ngay, không nhảy cảnh (app tự chỉnh `dayCycleOffsetHours`). |
 | `dayCycleOffsetHours` | float | `0` | Dịch đồng hồ ảo (giờ, 0–24), ví dụ `6` để chu kỳ bắt đầu gần bình minh. |
@@ -175,7 +178,7 @@ Bảo vệ khi file config hỏng (v5.3): JSON lỗi / sai kiểu không làm ap
 | `weatherCycleRandomMinMinutes` / `weatherCycleRandomMaxMinutes` | `5` / `20` | Khoảng chờ của chế độ `random`. |
 | `showIconPadding` | `true` | Vùng đệm (nền xám mờ + viền khoét) quanh icon ứng dụng trên taskbar. `false` = cảnh vật sát icon, không có dải xám. |
 | `soundMasterVolume` | `0` | Âm lượng tổng 0–100. |
-| `soundVolumes` | tất cả `0` | Âm lượng từng hiệu ứng 0–100: `rain`, `thunder`, `wind`, `traffic`, `horns`, `train`, `birds`, `insects`, `animals`, `waves`. Âm thực tế = tổng × từng hiệu ứng × mức cảnh (khu vực, thời tiết, mùa, giờ). |
+| `soundVolumes` | tất cả `0` | Âm lượng từng hiệu ứng 0–100: `rain`, `thunder`, `wind`, `traffic`, `horns`, `train`, `airplane`, `birds`, `insects`, `animals`, `waves`. Âm thực tế = tổng × từng hiệu ứng × mức cảnh (khu vực, thời tiết, mùa, giờ). |
 
 Nâng cấp từ bản cũ: `configVersion` lên `54`, mọi âm lượng **luôn đặt 0** (kể cả file cũ có sẵn giá trị lạ), mùa = `summer`, các chu kỳ tắt, `showIconPadding = true`, `showWeatherHud = false`. Các lựa chọn khác giữ nguyên. Âm thanh được tổng hợp trực tiếp trong app (không có file âm thanh đi kèm), tạm dừng khi hiệu ứng bị tắt (F8) và dừng hẳn khi thoát.
 

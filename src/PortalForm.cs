@@ -34,9 +34,11 @@ internal sealed class PortalForm : Form
     private readonly CheckBox _seasonCycle = Check("Xuân → hè → thu → đông");
     private readonly NumericUpDown _seasonMin = Num((decimal)AppConfig.MinSeasonCycleMinutes, (decimal)AppConfig.MaxSeasonCycleMinutes, 1, 5m, 72);
     private readonly ComboBox _time = Combo();
-    private readonly CheckBox _train = Check("Tàu chạy ngang taskbar");
+    private readonly CheckBox _train = Check("Bật");
+    private readonly CheckBox _plane = Check("Bật");
     private readonly NumericUpDown _cycleMin = Num((decimal)AppConfig.MinDayCycleMinutes, (decimal)AppConfig.MaxDayCycleMinutes, 1, 5m, 72);
     private readonly NumericUpDown _trainMin = Num(0.25m, 240m, 2, 0.25m, 64);
+    private readonly NumericUpDown _planeMin = Num((decimal)AppConfig.MinAirplaneCycleMinutes, (decimal)AppConfig.MaxAirplaneCycleMinutes, 2, 0.5m, 64);
     private readonly CheckBox _traffic = Check("Xe, thuyền theo khu vực");
     private readonly CheckBox _ambient = Check("Chim, đèn phố, đom đóm");
     private readonly CheckBox _effects = Check("Mưa, tuyết, sấm chớp");
@@ -169,6 +171,9 @@ internal sealed class PortalForm : Form
     internal CheckBox EffectsBox => _effects;
     internal CheckBox SeasonCycleBox => _seasonCycle;
     internal CheckBox TrainBox => _train;
+    internal CheckBox PlaneBox => _plane;
+    internal NumericUpDown TrainMinBox => _trainMin;
+    internal NumericUpDown PlaneMinBox => _planeMin;
     internal CheckBox VehiclesBox => _traffic;
     internal CheckBox AmbientBox => _ambient;
     internal Button CloseButton => _close;
@@ -269,6 +274,17 @@ internal sealed class PortalForm : Form
 
     private Label Unit(string text) => new() { Text = text, AutoSize = true, UseMnemonic = false, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) };
 
+    /// <summary>One line: label | [x] Bật | number box | unit. The check box has a fixed width so both rows (train, airplane) line up.</summary>
+    private Label ToggleRow(TableLayoutPanel g, string label, CheckBox c, NumericUpDown n, string unit)
+    {
+        c.AutoSize = false;
+        c.Size = new Size(ToggleWidth, 24);
+        c.Margin = new Padding(0, 1, 6, 0);
+        return Row(g, label, Flow(c, Framed(n, NumWidth), Unit(unit)));
+    }
+
+    private const int ToggleWidth = 62;
+
     private Label CheckRow(TableLayoutPanel g, string label, CheckBox c) => Row(g, label, c);
 
     private const int NumWidth = 86;
@@ -342,8 +358,8 @@ internal sealed class PortalForm : Form
         foreach (var t in Times) _time.Items.Add(t.Label);
         Row(g, "Ngày & đêm", _time);
         NumRow(g, "Độ dài chu kỳ", _cycleMin, "phút / ngày");
-        CheckRow(g, "Tàu hỏa", _train);
-        NumRow(g, "Một lượt tàu", _trainMin, "phút");
+        ToggleRow(g, "Tàu hỏa", _train, _trainMin, "phút / vòng");
+        ToggleRow(g, "Máy bay", _plane, _planeMin, "phút / vòng");
         CheckRow(g, "Phương tiện", _traffic);
         CheckRow(g, "Chi tiết nền", _ambient);
         CheckRow(g, "Vùng đệm xám", _padding);
@@ -579,6 +595,8 @@ internal sealed class PortalForm : Form
             _host.Mutate(c => SceneClock.SetCycleMinutes(c, v, DateTime.Now));
         };
         _trainMin.ValueChanged += (_, _) => Apply(c => c.TrainCrossingMinutes = (float)_trainMin.Value);
+        _plane.CheckedChanged += (_, _) => Apply(c => c.ShowAirplane = _plane.Checked);
+        _planeMin.ValueChanged += (_, _) => Apply(c => c.AirplaneCycleMinutes = (float)_planeMin.Value);
         _traffic.CheckedChanged += (_, _) => Apply(c => c.ShowCyclist = _traffic.Checked);
         _ambient.CheckedChanged += (_, _) => Apply(c => c.ShowAmbientDetails = _ambient.Checked);
         _effects.CheckedChanged += (_, _) => Apply(c => c.ShowWeatherEffects = _effects.Checked);
@@ -662,6 +680,9 @@ internal sealed class PortalForm : Form
             _train.Checked = c.ShowTrain;
             SetNum(_trainMin, c.TrainCrossingMinutes);
             _trainMin.Enabled = c.ShowTrain;
+            _plane.Checked = c.ShowAirplane;
+            SetNum(_planeMin, c.AirplaneCycleMinutes);
+            _planeMin.Enabled = c.ShowAirplane;
             SetNum(_cycleMin, c.DayCycleMinutes);
             _cycleMin.Enabled = c.TimeMode == "cycle";
             _traffic.Checked = c.ShowCyclist;

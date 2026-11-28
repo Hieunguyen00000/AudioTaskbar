@@ -44,11 +44,11 @@ Windows 11 64-bit. Không cần quyền Administrator, không cần cài .NET.
 
 ## Có gì mới trong v5.4.0
 
-- **Âm thanh nền (mặc định im lặng).** Mưa, sấm, gió, xe cộ, còi xe, tàu hỏa chạy qua (xa/gần, chuyển kênh trái–phải), chim, côn trùng ban đêm, ếch/chó/gà, sóng nước — trộn theo khu vực, thời tiết, mùa và giờ trong ngày. Có âm lượng tổng và từng hiệu ứng, **tất cả đặt 0** kể cả khi nâng cấp từ cấu hình cũ. Âm thanh được tổng hợp ngay trong app (không file âm thanh, không bản quyền bên thứ ba), nối vòng liền mạch, vào/ra mềm; tạm dừng khi tắt hiệu ứng và dừng hẳn khi thoát.
+- **Âm thanh nền (mặc định im lặng).** Mưa, sấm, gió, xe cộ, còi xe, tàu hỏa vào ga (xa/gần, chuyển kênh trái–phải), máy bay cất/hạ cánh, chim, côn trùng ban đêm, ếch/chó/gà, sóng nước — trộn theo khu vực, thời tiết, mùa và giờ trong ngày. Có âm lượng tổng và từng hiệu ứng, **tất cả đặt 0** kể cả khi nâng cấp từ cấu hình cũ. Âm thanh được tổng hợp ngay trong app (không file âm thanh, không bản quyền bên thứ ba), nối vòng liền mạch, vào/ra mềm; tạm dừng khi tắt hiệu ứng và dừng hẳn khi thoát.
 - **Bốn mùa.** Xuân, hè, thu, đông với bảng màu trời/đất riêng (cánh hoa, lá rơi, tuyết phủ). Chọn thời tiết *Tuyết rơi* sẽ tự sang mùa đông. Có thể **tự đổi mùa** theo chu kỳ phút tùy chỉnh.
 - **Thời tiết tự đổi.** Theo chu kỳ cố định hoặc ngẫu nhiên trong khoảng bạn đặt, luôn hợp mùa (tuyết chỉ vào mùa đông).
 - **5 địa danh nổi tiếng mới:** Sydney (Nhà hát Opera, cầu Cảng), New York (Tượng Nữ thần Tự do, Empire State, cầu Brooklyn), Rome (Đấu trường La Mã, St. Peter), Giza (Kim tự tháp, Sphinx), Santorini (nhà vòm xanh, cối xay gió). Mỗi nơi có phương tiện và nhịp phố riêng.
-- **Bảng điều khiển gọn hơn.** Mặc định gồm bốn khối đồng dạng: *Thông tin cảnh vật & vị trí*, *Thời tiết*, *Mùa*, *Khung cảnh* (ngày–đêm, tàu hỏa, phương tiện, chi tiết nền, vùng đệm). Âm thanh và mục *Cài đặt* (hệ thống, cập nhật, phím tắt) nằm trong phần có thể thu gọn. Nút **Lưu cấu hình** nằm ở chân bảng điều khiển (góc phải, cạnh *Đóng* và *Kết thúc*), kèm dòng nhỏ *Đã lưu / Chưa lưu*: chỉnh sửa xem trước ngay, chỉ ghi `config.json` khi bấm Lưu; đóng khi còn thay đổi chưa lưu sẽ hỏi.
+- **Bảng điều khiển gọn hơn.** Mặc định gồm bốn khối đồng dạng: *Thông tin cảnh vật & vị trí*, *Thời tiết*, *Mùa*, *Khung cảnh* (ngày–đêm, tàu hỏa, máy bay, phương tiện, chi tiết nền, vùng đệm). Tàu hỏa và máy bay mỗi thứ chỉ một dòng: tên, ô *Bật* và số phút của một vòng. Âm thanh và mục *Cài đặt* (hệ thống, cập nhật, phím tắt) nằm trong phần có thể thu gọn. Nút **Lưu cấu hình** nằm ở chân bảng điều khiển (góc phải, cạnh *Đóng* và *Kết thúc*), kèm dòng nhỏ *Đã lưu / Chưa lưu*: chỉnh sửa xem trước ngay, chỉ ghi `config.json` khi bấm Lưu; đóng khi còn thay đổi chưa lưu sẽ hỏi.
 - **Một nút cập nhật.** *Kiểm tra & cập nhật* (bảng điều khiển và menu khay) thay cho hai nút cũ. App tự kiểm tra và cài khi mở theo các tùy chọn cập nhật tự động hiện có (mặc định bật).
 - **Tùy chọn vùng đệm xám quanh icon** (hàng *Vùng đệm xám* trong khối *Khung cảnh*): tắt để cảnh vật sát icon.
 - **Gọn menu khay.** Bỏ mục *Hiện thông tin thời tiết địa điểm* (thông tin nằm trong bảng điều khiển; thẻ trên taskbar đã bỏ) và mục *Tắt hiệu ứng (F8)* (phím **F8** vẫn hoạt động; nút Bật/Tắt ở chân bảng điều khiển được thay bằng *Lưu cấu hình*).
@@ -72,7 +72,8 @@ Thay đổi trong bảng điều khiển được xem trước ngay; bấm **Lư
 | Thời tiết | *Thực tế* (Open-Meteo) hoặc xem trước: Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Tuyết rơi, **Đêm sao** |
 | Ngày & đêm | Theo chu kỳ tùy chỉnh, theo giờ thật, cố định ban ngày, cố định ban đêm |
 | Độ dài chu kỳ | `0,5`–`10080` phút/ngày (30 giây đến 7 ngày). Chỉ bật khi đang ở chế độ chu kỳ |
-| Tàu hỏa | Bật/tắt và số **phút/lượt** |
+| Tàu hỏa | Bật/tắt và số **phút/vòng**: tàu vào ga chậm dần, dừng ở sân ga nhỏ, khách xuống rồi khách lên, đóng cửa, rời ga và tăng tốc |
+| Máy bay | Bật/tắt và số **phút/vòng** (mặc định 3): hạ cánh, chạy vào bãi đỗ, khách xuống/lên, ra đường băng, cất cánh rồi bay đi. Mọi khu vực đều có; thanh phố quá hẹp thì máy bay chỉ bay ngang bầu trời |
 | Mùa | *Mùa xuân/hè/thu/đông*, hoặc *Tự đổi mùa* với số phút mỗi mùa |
 | Thời tiết tự đổi | *Tự đổi thời tiết*: theo chu kỳ (phút) hoặc ngẫu nhiên trong khoảng |
 | Phương tiện, chi tiết nền, hiệu ứng thời tiết, vùng đệm icon | Các ô kiểm trên bảng điều khiển |
@@ -101,7 +102,9 @@ Cấu hình, log và cache nằm ở `%LOCALAPPDATA%\AudioTaskbar\` (`config.jso
 | `weatherCycleMode` | `"off"` | `off`, `interval`, `random` (kèm `weatherCycleMinutes`, `weatherCycleRandom{Min,Max}Minutes`) |
 | `showIconPadding` | `true` | Vùng đệm xám quanh icon |
 | `soundMasterVolume`, `soundVolumes` | tất cả `0` | Âm thanh nền 0–100 |
-| `trainCrossingMinutes` | `1` | Số phút cho một lượt tàu |
+| `trainCrossingMinutes` | `1` | Số phút cho một vòng của tàu: vào ga, dừng đón/trả khách, rời ga |
+| `showAirplane` | `true` | Máy bay: hạ cánh, đỗ, đón/trả khách, cất cánh |
+| `airplaneCycleMinutes` | `3` | Số phút cho một vòng của máy bay (0.5–240) |
 | `hotkey` | `"F8"` | Phím tắt toàn cục (ví dụ `Ctrl+Alt+F8`) |
 | `autoUpdateEnabled` | `true` | Tự kiểm tra GitHub Release |
 | `startMinimized` | `false` | Chạy ẩn xuống khay (`--minimized` khi khởi động cùng Windows) |

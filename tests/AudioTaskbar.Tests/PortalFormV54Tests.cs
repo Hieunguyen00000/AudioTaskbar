@@ -103,17 +103,56 @@ public class PortalFormV54Tests
             In(PortalForm.InfoTitle, f.RegionBox);
             In(PortalForm.WeatherTitle, f.WeatherBox, f.WeatherCycleBox, f.EffectsBox);
             In(PortalForm.SeasonTitle, f.SeasonBox, f.SeasonCycleBox);
-            In(PortalForm.SceneryTitle, f.TimeBox, f.TrainBox, f.VehiclesBox, f.AmbientBox, f.PaddingBox);
+            In(PortalForm.SceneryTitle, f.TimeBox, f.TrainBox, f.PlaneBox, f.TrainMinBox, f.PlaneMinBox, f.VehiclesBox, f.AmbientBox, f.PaddingBox);
             // location + current weather rows live in the info card, as label/value rows
             var texts = f.AllTexts().ToList();
             foreach (var label in new[] { "Vị trí", "Thời tiết thực", "Khu vực", "Thời tiết", "Tự đổi thời tiết", "Hiệu ứng thời tiết", "Mùa", "Tự đổi mùa",
-                                          "Ngày & đêm", "Độ dài chu kỳ", "Tàu hỏa", "Phương tiện", "Chi tiết nền", "Vùng đệm xám" })
+                                          "Ngày & đêm", "Độ dài chu kỳ", "Tàu hỏa", "Máy bay", "Phương tiện", "Chi tiết nền", "Vùng đệm xám" })
                 Assert.Contains(label, texts);
             Assert.DoesNotContain(texts, t => t.StartsWith("Vị trí:") || t.StartsWith("Cảnh vật:"));   // no wrapped sentence lines any more
             // Sound and Cài đặt are collapsed expanders
             Assert.True(f.IsInCollapsedSection(f.MasterSlider));
             Assert.False(f.SoundExpanded); Assert.False(f.SettingsExpanded);
             Assert.Equal(PortalForm.SoundTitle, f.CardTitleOf(f.MasterSlider));
+        });
+    }
+
+    [Fact]
+    public void Train_and_airplane_are_one_row_each_label_check_minutes_unit()
+    {
+        WithForm((f, h) =>
+        {
+            var texts = f.AllTexts().ToList();
+            Assert.DoesNotContain("Một lượt tàu", texts);                  // the separate train-minutes row is gone
+            Assert.DoesNotContain(texts, t => t.Contains("Tàu chạy ngang"));
+            foreach (var (label, check, num) in new[] { ("Tàu hỏa", f.TrainBox, f.TrainMinBox), ("Máy bay", f.PlaneBox, f.PlaneMinBox) })
+            {
+                var lab = f.AllControls().OfType<Label>().Single(l => l.Text == label && l.Font.Name != "Segoe UI Semibold");
+                var grid = (TableLayoutPanel)lab.Parent!;
+                var flow = (FlowLayoutPanel)check.Parent!;
+                Assert.Same(grid, flow.Parent);                             // same grid ...
+                Assert.Equal(grid.GetRow(lab), grid.GetRow(flow));          // ... same row
+                // that row holds exactly: check box, number box (framed) and the unit text
+                Assert.Equal(3, flow.Controls.Count);
+                Assert.Same(check, flow.Controls[0]);
+                Assert.Same(num.Parent, flow.Controls[1]);
+                var unit = Assert.IsType<Label>(flow.Controls[2]);
+                Assert.Equal("phút / vòng", unit.Text);
+                flow.PerformLayout();
+                Assert.True(check.Right <= flow.Controls[1].Left && flow.Controls[1].Right <= unit.Left);   // left to right, no overlap
+                Assert.InRange(Math.Abs((check.Top + check.Height / 2) - (flow.Controls[1].Top + flow.Controls[1].Height / 2)), 0, 6);
+                Assert.True(flow.PreferredSize.Width <= PortalForm.CardWidth - 24 - PortalForm.LabelColumnWidth - 6, "the row would wrap or clip");
+                Assert.Equal(1, flow.Controls.OfType<CheckBox>().Count());
+            }
+            // both rows line up: same check width, same number-box left edge
+            Assert.Equal(f.TrainBox.Width, f.PlaneBox.Width);
+            Assert.Equal(f.TrainMinBox.Parent!.Left, f.PlaneMinBox.Parent!.Left);
+            Assert.Equal(f.TrainMinBox.Parent!.Width, f.PlaneMinBox.Parent!.Width);
+            // behaviour: the minutes follow the check box; edits reach the config
+            Assert.True(f.PlaneBox.Checked); Assert.Equal(3m, f.PlaneMinBox.Value);
+            f.PlaneMinBox.Value = 5m; Assert.Equal(5f, h.Config.AirplaneCycleMinutes);
+            f.PlaneBox.Checked = false; Assert.False(h.Config.ShowAirplane); Assert.False(f.PlaneMinBox.Enabled);
+            f.TrainBox.Checked = false; Assert.False(f.TrainMinBox.Enabled);
         });
     }
 

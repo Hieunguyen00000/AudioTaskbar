@@ -30,6 +30,7 @@ internal sealed class AmbientMixer
     private readonly float _levelK = 1f - MathF.Exp(-Block / (2.5f * Dsp.Rate));  // ~2.5 s scene fade
 
     public TrainSource Train { get; } = new();
+    public AirplaneSource Airplane { get; } = new();
 
     public AmbientMixer()
     {
@@ -40,6 +41,7 @@ internal sealed class AmbientMixer
         Add(SoundEffects.Traffic, new TrafficSource());
         Add(SoundEffects.Horns, new HornSource());
         Add(SoundEffects.Train, Train);
+        Add(SoundEffects.Airplane, Airplane);
         Add(SoundEffects.Birds, new BirdSource());
         Add(SoundEffects.Insects, new InsectSource());
         Add(SoundEffects.Animals, new AnimalSource());
@@ -168,7 +170,11 @@ internal sealed class AmbientEngine : IDisposable
     public bool DeviceOpen => _out is not null;
 
     /// <param name="trainProgress">0..1 position of the train across the taskbar, or &lt;0 when there is no train.</param>
-    public void Update(AppConfig cfg, RegionProfile region, SceneMood mood, SeasonId season, bool effectsOn, float trainProgress)
+    /// <param name="trainSpeed">0 (standing at the platform) .. 1, scales how loud the rolling train is.</param>
+    /// <param name="planeX01">0..1 position of the plane across the bar, or &lt;0 when it is not on screen.</param>
+    /// <param name="planeThrust">0..1 engine effort of the plane.</param>
+    public void Update(AppConfig cfg, RegionProfile region, SceneMood mood, SeasonId season, bool effectsOn, float trainProgress,
+        float trainSpeed = 1f, float planeX01 = -1f, float planeThrust = 0f)
     {
         if (_disposed) return;
         _mixer.SetVolumes(cfg.SoundMasterVolume, cfg.SoundVolumes);
@@ -176,10 +182,17 @@ internal sealed class AmbientEngine : IDisposable
         _mixer.Paused = !effectsOn;
         if (trainProgress >= 0f && cfg.ShowTrain)
         {
-            _mixer.Train.Proximity = TrainProximity(trainProgress);
+            _mixer.Train.Proximity = TrainProximity(trainProgress) * (0.25f + 0.75f * Math.Clamp(trainSpeed, 0f, 1f));
             _mixer.Train.Pan = Math.Clamp((trainProgress * 2f - 1f) * 0.85f, -1f, 1f);
         }
         else _mixer.Train.Proximity = 0f;
+        if (planeX01 >= 0f && cfg.ShowAirplane)
+        {
+            _mixer.Airplane.Proximity = TrainProximity(planeX01);
+            _mixer.Airplane.Thrust = Math.Clamp(planeThrust, 0f, 1f);
+            _mixer.Airplane.Pan = Math.Clamp((planeX01 * 2f - 1f) * 0.85f, -1f, 1f);
+        }
+        else _mixer.Airplane.Proximity = 0f;
 
         if (_mixer.WantsAudio)
         {

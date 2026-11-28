@@ -67,7 +67,10 @@ public sealed class AppConfig
     public string WeatherPreview { get; set; } = "live";
 
     // v5
-    /// <summary>Minutes for the single train to cross the full taskbar left→right.</summary>
+    /// <summary>
+    /// Minutes for one full train lifecycle: it arrives and slows down, stops at the platform, passengers get off and on,
+    /// then it departs and speeds up and leaves (v5.4; it used to be a plain left→right crossing).
+    /// </summary>
     public float TrainCrossingMinutes { get; set; } = 1f;
     /// <summary>"auto" (detect from machine location) or a region id: hcmc, baria-vungtau, hanoi, danang-hoian, tokyo, paris, default.</summary>
     public string RegionMode { get; set; } = "auto";
@@ -128,7 +131,15 @@ public sealed class AppConfig
     public int SoundMasterVolume { get; set; } = 0;
     /// <summary>Per-effect volume 0..100 by effect id (rain, thunder, wind, traffic, horns, train, birds, insects, animals, waves). All 0 by default.</summary>
     public Dictionary<string, int> SoundVolumes { get; set; } = new();
-    public const int CurrentConfigVersion = 54;
+    /// <summary>v5.4 airplane: lands, taxis to the stand, drops off and boards passengers, takes off again (or just crosses the sky when no airport fits).</summary>
+    public bool ShowAirplane { get; set; } = true;
+    /// <summary>Minutes for one full airplane lifecycle.</summary>
+    public float AirplaneCycleMinutes { get; set; } = 3f;
+    public const float MinAirplaneCycleMinutes = 0.5f;
+    public const float MaxAirplaneCycleMinutes = 240f;
+    public const float DefaultAirplaneCycleMinutes = 3f;
+    /// <summary>Config schema: 51 = v5.1, 54 = v5.4 sounds / seasons / cycles, 55 = v5.4 airplane + train lifecycle.</summary>
+    public const int CurrentConfigVersion = 55;
 
     /// <summary>Runtime only (never saved): weather chosen by the automatic weather cycle, or null.</summary>
     [JsonIgnore] public string? RuntimeWeather { get; set; }
@@ -171,6 +182,8 @@ public sealed class AppConfig
         IconSafePadding = Math.Clamp(IconSafePadding, 0, 200);
         WeatherRefreshMinutes = Math.Clamp(WeatherRefreshMinutes, 5, 120);
         TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 0.25f, 240f) : 1f;
+        AirplaneCycleMinutes = float.IsFinite(AirplaneCycleMinutes) && AirplaneCycleMinutes > 0f
+            ? Math.Clamp(AirplaneCycleMinutes, MinAirplaneCycleMinutes, MaxAirplaneCycleMinutes) : DefaultAirplaneCycleMinutes;
         TimeMode = NormalizeTimeMode(TimeMode);
         // v5.3.1: any custom cycle length from 30 s to 7 days; only invalid values (<= 0, NaN, ∞) fall back to 30.
         DayCycleMinutes = float.IsFinite(DayCycleMinutes) && DayCycleMinutes > 0f
@@ -400,7 +413,8 @@ public static class ConfigStore
                 // v5.1 one-time migration: the train now crosses in 1 minute (was 25), and the
                 // 30-minute day/night cycle is on by default.
                 if (cfg.ConfigVersion < 51 && MathF.Abs(cfg.TrainCrossingMinutes - 25f) < 0.01f) cfg.TrainCrossingMinutes = 1f;
-                MigrateToV54(cfg);
+                if (cfg.ConfigVersion < 54) MigrateToV54(cfg);
+                if (cfg.ConfigVersion < 55) MigrateToV55(cfg);
                 cfg.ConfigVersion = AppConfig.CurrentConfigVersion;
                 cfg.Normalize();
                 try { Save(path, cfg); } catch { }
@@ -426,6 +440,18 @@ public static class ConfigStore
         cfg.WeatherCycleMode = "off";
         cfg.ShowIconPadding = true;
         cfg.ShowWeatherHud = false;
+    }
+
+    /// <summary>
+    /// Schema 55: the airplane is new and defaults to ON (3-minute lifecycle) with its sound at 0. Files written by a v5.4
+    /// build from before the airplane keep every other setting, including the sound volumes the user already chose.
+    /// </summary>
+    public static void MigrateToV55(AppConfig cfg)
+    {
+        cfg.ShowAirplane = true;
+        cfg.AirplaneCycleMinutes = AppConfig.DefaultAirplaneCycleMinutes;
+        cfg.SoundVolumes ??= new Dictionary<string, int>();
+        if (!cfg.SoundVolumes.ContainsKey(SoundEffects.Airplane)) cfg.SoundVolumes[SoundEffects.Airplane] = 0;
     }
 
     public static void Save(string path, AppConfig cfg)
