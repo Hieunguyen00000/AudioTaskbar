@@ -270,4 +270,46 @@ internal static class TaskbarLayoutHold
         if (src.StartsWith("autohidden", StringComparison.OrdinalIgnoreCase)) return false;
         return IsDegraded(previous, next);
     }
+
+    public static bool IsTransientFailure(string? source)
+    {
+        var src = source ?? "";
+        return src.StartsWith("fallback", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsReliableSource(string? source)
+    {
+        var src = source ?? "";
+        if (src.Length == 0) return false;
+        if (IsTransientFailure(src)) return false;
+        if (src.StartsWith("autohidden", StringComparison.OrdinalIgnoreCase)) return false;
+        return src.StartsWith("uia(", StringComparison.OrdinalIgnoreCase)
+            || src.Contains("uia(", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Same hold policy as <see cref="ShouldRetain"/>, for already-materialized
+    /// <see cref="TaskbarRegions"/> (used by SyncOverlays / RefreshRegions).
+    /// </summary>
+    public static bool ShouldRetainRegions(TaskbarRegions? previous, TaskbarRegions? next)
+    {
+        if (previous is null || next is null) return false;
+        if (!IsReliableSource(previous.LayoutSource)) return false;
+        if (previous.Bounds != next.Bounds) return false;
+        if (next.AutoHidden) return false;
+        return IsTransientFailure(next.LayoutSource);
+    }
+
+    /// <summary>
+    /// OverlayWindow must not adopt a fallback layout, and must not expand
+    /// collapsed free-spans to the full bar width (that relocates landmarks).
+    /// </summary>
+    public static bool ShouldKeepExistingOverlayLayout(string? layoutSource, bool hasExistingLayout)
+        => hasExistingLayout && IsTransientFailure(layoutSource);
+
+    public static bool ShouldExpandCollapsedSpansToFullWidth(string? layoutSource, float totalFree, float barWidth)
+    {
+        if (IsTransientFailure(layoutSource)) return false;
+        return barWidth > 0 && totalFree < barWidth * 0.08f;
+    }
 }

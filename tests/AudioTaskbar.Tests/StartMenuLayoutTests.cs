@@ -147,5 +147,50 @@ public class StartMenuLayoutTests
         int fbFree = fbSpans.Sum(s => s.R - s.L);
         Assert.True(fbFree < (int)(1920 * 0.08f),
             "fallback free space is small enough to trigger full-bar landmark layout");
+
+        var goodReg = new TaskbarRegions { Bounds = Bar, LayoutSource = "uia(28)+legacy(2)" };
+        var fbReg = new TaskbarRegions { Bounds = Bar, LayoutSource = "fallback-conservative(legacy=1)" };
+        Assert.True(TaskbarLayoutHold.ShouldRetainRegions(goodReg, fbReg));
+        Assert.False(TaskbarLayoutHold.ShouldExpandCollapsedSpansToFullWidth(fbReg.LayoutSource, fbFree, 1920));
+        Assert.True(TaskbarLayoutHold.ShouldExpandCollapsedSpansToFullWidth(goodReg.LayoutSource, fbFree, 1920));
+    }
+
+    [Fact]
+    public void Overlay_keeps_existing_layout_on_transient_fallback()
+    {
+        Assert.True(TaskbarLayoutHold.ShouldKeepExistingOverlayLayout("fallback-conservative(legacy=1)", true));
+        Assert.False(TaskbarLayoutHold.ShouldKeepExistingOverlayLayout("fallback-conservative(legacy=1)", false));
+        Assert.False(TaskbarLayoutHold.ShouldKeepExistingOverlayLayout("uia(28)+legacy(2)", true));
+        Assert.False(TaskbarLayoutHold.ShouldKeepExistingOverlayLayout("autohidden", true));
+    }
+
+    [Fact]
+    public void Regions_hold_ignores_fallback_but_not_autohide_or_bounds_change()
+    {
+        var good = new TaskbarRegions
+        {
+            Bounds = Bar,
+            LayoutSource = "uia(28)+legacy(2)",
+            Signature = "good",
+        };
+        var fallback = new TaskbarRegions
+        {
+            Bounds = Bar,
+            LayoutSource = "fallback-conservative(legacy=1)",
+            Signature = "fb",
+        };
+        Assert.True(TaskbarLayoutHold.ShouldRetainRegions(good, fallback));
+
+        var hidden = new TaskbarRegions { Bounds = Bar, LayoutSource = "autohidden", AutoHidden = true };
+        Assert.False(TaskbarLayoutHold.ShouldRetainRegions(good, hidden));
+
+        var moved = new TaskbarRegions
+        {
+            Bounds = new Rectangle(0, 1032, 2560, 48),
+            LayoutSource = "fallback-conservative(legacy=1)",
+        };
+        Assert.False(TaskbarLayoutHold.ShouldRetainRegions(good, moved));
+        Assert.False(TaskbarLayoutHold.ShouldRetainRegions(null, fallback));
+        Assert.False(TaskbarLayoutHold.ShouldRetainRegions(fallback, fallback));
     }
 }

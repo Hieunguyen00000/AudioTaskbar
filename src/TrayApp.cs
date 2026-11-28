@@ -1073,11 +1073,11 @@ internal sealed class TrayApp : ApplicationContext
             if (o.TaskbarHwnd == IntPtr.Zero) continue;
             if (!_layout.TryGet(o.TaskbarHwnd, out var snap)) continue;
             var info = new TaskbarInfo(o.TaskbarHwnd, snap.Bounds, o.IsPrimaryTaskbar);
-            var reg = TaskbarService.GetRegions(info, cfg, snap);
+            var reg = AdoptRegions(o.TaskbarHwnd, TaskbarService.GetRegions(info, cfg, snap));
             if (!_regions.TryGetValue(o.TaskbarHwnd, out var prev) || prev.Signature != reg.Signature)
-                Log("Layout " + (o.IsPrimaryTaskbar ? "primary" : "secondary") + " source=" + snap.Source
-                    + " bounds=" + snap.Bounds.Width + "x" + snap.Bounds.Height + " cutouts="
-                    + string.Join(",", reg.Cutouts.Select(c => (c.Left - snap.Bounds.Left) + "-" + (c.Right - snap.Bounds.Left))));
+                Log("Layout " + (o.IsPrimaryTaskbar ? "primary" : "secondary") + " source=" + reg.LayoutSource
+                    + " bounds=" + reg.Bounds.Width + "x" + reg.Bounds.Height + " cutouts="
+                    + string.Join(",", reg.Cutouts.Select(c => (c.Left - reg.Bounds.Left) + "-" + (c.Right - reg.Bounds.Left))));
             _regions[o.TaskbarHwnd] = reg;
             if (snap.Bounds != o.Bounds && snap.Bounds.Width > 4 && snap.Bounds.Height > 4)
                 o.MoveTo(snap.Bounds);
@@ -1204,6 +1204,27 @@ internal sealed class TrayApp : ApplicationContext
     private static string Fmt(Color? c)
         => c is { } x ? $"#{x.R:X2}{x.G:X2}{x.B:X2}" : "null";
 
+    private IntPtr _regionHoldLogged = IntPtr.Zero;
+
+    private TaskbarRegions AdoptRegions(IntPtr hwnd, TaskbarRegions next)
+    {
+        if (_regions.TryGetValue(hwnd, out var prev) && TaskbarLayoutHold.ShouldRetainRegions(prev, next))
+        {
+            if (_regionHoldLogged != hwnd)
+            {
+                _regionHoldLogged = hwnd;
+                Log("Layout: keeping last good regions (transient probe failure, e.g. Start menu).");
+            }
+            return prev;
+        }
+        if (_regionHoldLogged == hwnd)
+        {
+            _regionHoldLogged = IntPtr.Zero;
+            Log("Layout: resumed live regions.");
+        }
+        return next;
+    }
+
     private void SyncOverlays()
     {
         if (_exiting) return;
@@ -1225,13 +1246,16 @@ internal sealed class TrayApp : ApplicationContext
             bars = bars.Where(b => b.IsPrimary).ToList();
 
         _layout.SetTargets(bars.Select(b => b.Hwnd));
-        _regions.Clear();
+        var seen = new HashSet<IntPtr>();
         foreach (var b in bars)
         {
             if (!_layout.TryGet(b.Hwnd, out var snap) || snap.Bounds != b.Bounds)
                 snap = _layout.ProbeNow(b.Hwnd); // first frame is already icon-safe
-            _regions[b.Hwnd] = TaskbarService.GetRegions(b, cfg, snap);
+            _regions[b.Hwnd] = AdoptRegions(b.Hwnd, TaskbarService.GetRegions(b, cfg, snap));
+            seen.Add(b.Hwnd);
         }
+        foreach (var dead in _regions.Keys.Where(k => !seen.Contains(k)).ToList())
+            _regions.Remove(dead);
         while (_backdrops.Count > bars.Count)
         {
             var last = _backdrops[^1];

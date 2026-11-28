@@ -159,6 +159,8 @@ internal sealed class OverlayWindow : Form
         string text = ctx.ShowWeather ? mood.TemperatureText + "|" + mood.ConditionVi + "|" + mood.Place + "|" + ctx.Cfg.WeatherPosition : "-";
         string key = ctx.Regions.Signature + "|" + _rw + "x" + _rh + "|" + text + "|" + ctx.Region.Id;
         if (key == _layoutKey) return;
+        if (TaskbarLayoutHold.ShouldKeepExistingOverlayLayout(ctx.Regions.LayoutSource, _layoutKey.Length > 0))
+            return;
         _layoutKey = key;
 
         int pad = Math.Max(2, (int)Math.Round(2 * s));
@@ -197,7 +199,8 @@ internal sealed class OverlayWindow : Form
             else free.Add((sp.L, sp.R));
         }
         float totalFree = free.Sum(f => f.R - f.L);
-        if (totalFree < _rw * 0.08f) free = new List<(float L, float R)> { (0, _rw) };
+        if (TaskbarLayoutHold.ShouldExpandCollapsedSpansToFullWidth(ctx.Regions.LayoutSource, totalFree, _rw))
+            free = new List<(float L, float R)> { (0, _rw) };
         _logicalSpans = free.Select(f => (f.L / s, f.R / s)).ToList();
         LastLayoutInfo = $"cutouts={ctx.Regions.Cutouts.Count} spans=[{string.Join(", ", spans.Select(x => x.L + "-" + x.R))}] badge={(_badgeLevel >= 0 ? $"L{_badgeLevel}@{_badgeRect.X:0}+{_badgeRect.Width:0}" : "none")} scale={s:0.00}";
     }
