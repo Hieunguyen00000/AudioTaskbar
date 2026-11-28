@@ -71,8 +71,8 @@ public sealed class AppConfig
     public float TrainCrossingMinutes { get; set; } = 1f;
     /// <summary>"auto" (detect from machine location) or a region id: hcmc, baria-vungtau, hanoi, danang-hoian, tokyo, paris, default.</summary>
     public string RegionMode { get; set; } = "auto";
-    /// <summary>Show the temperature / condition / location HUD on the taskbar background.</summary>
-    public bool ShowWeatherHud { get; set; } = true;
+    /// <summary>Removed in v5.4 (weather and location info now live only in the control panel). Kept so old config files still load; ignored.</summary>
+    public bool ShowWeatherHud { get; set; } = false;
     /// <summary>When a region is picked manually, fetch that region's weather instead of the machine's.</summary>
     public bool WeatherFollowsRegion { get; set; } = false;
     /// <summary>Seconds to wait for the TAP DLL inside Explorer before using safe mode.</summary>
@@ -103,7 +103,40 @@ public sealed class AppConfig
     public string UpdateRepo { get; set; } = "Hieunguyen00000/AudioTaskbar";
     /// <summary>Optional static latest.json manifest URL; overrides the GitHub Releases API when set.</summary>
     public string UpdateFeedUrl { get; set; } = "";
-    public const int CurrentConfigVersion = 51;
+
+    // v5.4
+    /// <summary>
+    /// Show the soft grey plate / margin that keeps taskbar icons readable (the dimmed band behind each icon and the
+    /// guard gap around it). Off = the scenery runs right up to the icons.
+    /// </summary>
+    public bool ShowIconPadding { get; set; } = true;
+    /// <summary>spring | summer | autumn | winter. Summer is the look of earlier versions.</summary>
+    public string Season { get; set; } = "summer";
+    /// <summary>Advance the season automatically, every <see cref="SeasonCycleMinutes"/> real minutes.</summary>
+    public bool SeasonCycleEnabled { get; set; } = false;
+    public float SeasonCycleMinutes { get; set; } = 30f;
+    public const float MinSeasonCycleMinutes = 0.5f;
+    public const float MaxSeasonCycleMinutes = 10080f;
+    /// <summary>off | interval (a new weather every <see cref="WeatherCycleMinutes"/>) | random (random weather after a random wait).</summary>
+    public string WeatherCycleMode { get; set; } = "off";
+    public float WeatherCycleMinutes { get; set; } = 10f;
+    public float WeatherCycleRandomMinMinutes { get; set; } = 5f;
+    public float WeatherCycleRandomMaxMinutes { get; set; } = 20f;
+    public const float MinWeatherCycleMinutes = 0.5f;
+    public const float MaxWeatherCycleMinutes = 1440f;
+    /// <summary>Ambient sound master volume 0..100. 0 on first run and after migrating an older config.</summary>
+    public int SoundMasterVolume { get; set; } = 0;
+    /// <summary>Per-effect volume 0..100 by effect id (rain, thunder, wind, traffic, horns, train, birds, insects, animals, waves). All 0 by default.</summary>
+    public Dictionary<string, int> SoundVolumes { get; set; } = new();
+    public const int CurrentConfigVersion = 54;
+
+    /// <summary>Runtime only (never saved): weather chosen by the automatic weather cycle, or null.</summary>
+    [JsonIgnore] public string? RuntimeWeather { get; set; }
+    /// <summary>Runtime only (never saved): season chosen by the automatic season cycle, or null.</summary>
+    [JsonIgnore] public string? RuntimeSeason { get; set; }
+    /// <summary>Weather shown right now: the automatic cycle if it is on, otherwise the user's pick.</summary>
+    [JsonIgnore] public string EffectiveWeather => RuntimeWeather ?? WeatherPreview;
+    [JsonIgnore] public string EffectiveSeason => RuntimeSeason ?? Season;
 
     [JsonIgnore] public Color RgbaLow { get; private set; }
     [JsonIgnore] public Color RgbaMid { get; private set; }
@@ -151,6 +184,22 @@ public sealed class AppConfig
         UpdateRepo = (UpdateRepo ?? "").Trim().Trim('/');
         if (UpdateRepo.Length == 0 || UpdateRepo.Count(c => c == '/') != 1) UpdateRepo = "Hieunguyen00000/AudioTaskbar";
         UpdateFeedUrl = (UpdateFeedUrl ?? "").Trim();
+        Season = Seasons.Normalize(Season);
+        SeasonCycleMinutes = float.IsFinite(SeasonCycleMinutes) && SeasonCycleMinutes > 0f
+            ? Math.Clamp(SeasonCycleMinutes, MinSeasonCycleMinutes, MaxSeasonCycleMinutes) : 30f;
+        WeatherCycleMode = WeatherCycle.NormalizeMode(WeatherCycleMode);
+        WeatherCycleMinutes = float.IsFinite(WeatherCycleMinutes) && WeatherCycleMinutes > 0f
+            ? Math.Clamp(WeatherCycleMinutes, MinWeatherCycleMinutes, MaxWeatherCycleMinutes) : 10f;
+        WeatherCycleRandomMinMinutes = float.IsFinite(WeatherCycleRandomMinMinutes) && WeatherCycleRandomMinMinutes > 0f
+            ? Math.Clamp(WeatherCycleRandomMinMinutes, MinWeatherCycleMinutes, MaxWeatherCycleMinutes) : 5f;
+        WeatherCycleRandomMaxMinutes = float.IsFinite(WeatherCycleRandomMaxMinutes) && WeatherCycleRandomMaxMinutes > 0f
+            ? Math.Clamp(WeatherCycleRandomMaxMinutes, MinWeatherCycleMinutes, MaxWeatherCycleMinutes) : 20f;
+        if (WeatherCycleRandomMaxMinutes < WeatherCycleRandomMinMinutes) WeatherCycleRandomMaxMinutes = WeatherCycleRandomMinMinutes;
+        SoundMasterVolume = Math.Clamp(SoundMasterVolume, 0, 100);
+        var vols = new Dictionary<string, int>();
+        foreach (var id in SoundEffects.Ids)
+            vols[id] = SoundVolumes is not null && SoundVolumes.TryGetValue(id, out var v) ? Math.Clamp(v, 0, 100) : 0;
+        SoundVolumes = vols;
         if (UpdateFeedUrl.Length > 0 && !(Uri.TryCreate(UpdateFeedUrl, UriKind.Absolute, out var feed) && (feed.Scheme == Uri.UriSchemeHttps || feed.Scheme == Uri.UriSchemeHttp)))
             UpdateFeedUrl = "";
 
@@ -214,7 +263,19 @@ public sealed class AppConfig
         string before = TimeMode;
         Normalize();
         if (WeatherPreview == "night") TimeMode = "night";
+        // v5.4: snowfall belongs to winter, so picking it switches the season to winter.
+        if (WeatherPreview == "snow") Season = "winter";
         return TimeMode != NormalizeTimeMode(before);
+    }
+
+    /// <summary>
+    /// v5.4: the single place a season pick is applied. Snowfall is a winter-only weather, so leaving winter while snow
+    /// is the chosen weather puts the weather back to "Thực tế" (live).
+    /// </summary>
+    public void ApplySeasonSelection(string? season)
+    {
+        Season = Seasons.Normalize(season);
+        if (Season != "winter" && WeatherPreview == "snow") WeatherPreview = "live";
     }
 
     public static string NormalizeTimeMode(string? mode)
@@ -338,7 +399,8 @@ public static class ConfigStore
             {
                 // v5.1 one-time migration: the train now crosses in 1 minute (was 25), and the
                 // 30-minute day/night cycle is on by default.
-                if (MathF.Abs(cfg.TrainCrossingMinutes - 25f) < 0.01f) cfg.TrainCrossingMinutes = 1f;
+                if (cfg.ConfigVersion < 51 && MathF.Abs(cfg.TrainCrossingMinutes - 25f) < 0.01f) cfg.TrainCrossingMinutes = 1f;
+                MigrateToV54(cfg);
                 cfg.ConfigVersion = AppConfig.CurrentConfigVersion;
                 cfg.Normalize();
                 try { Save(path, cfg); } catch { }
@@ -347,6 +409,23 @@ public static class ConfigStore
         else cfg = new AppConfig { ConfigVersion = AppConfig.CurrentConfigVersion };
         cfg.Normalize();
         return cfg;
+    }
+
+    /// <summary>
+    /// v5.4 one-time migration. Older files have no sound, season or cycle keys, so the new defaults apply; this makes the
+    /// important ones explicit: every sound volume starts at 0 (the app is silent until the user raises it), the season
+    /// is summer (the look of earlier versions), the automatic cycles are off, the grey icon padding stays as it was, and
+    /// the removed weather-info badge stays off.
+    /// </summary>
+    public static void MigrateToV54(AppConfig cfg)
+    {
+        cfg.SoundMasterVolume = 0;
+        cfg.SoundVolumes = SoundEffects.Ids.ToDictionary(id => id, _ => 0);
+        cfg.Season = "summer";
+        cfg.SeasonCycleEnabled = false;
+        cfg.WeatherCycleMode = "off";
+        cfg.ShowIconPadding = true;
+        cfg.ShowWeatherHud = false;
     }
 
     public static void Save(string path, AppConfig cfg)

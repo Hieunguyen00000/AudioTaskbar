@@ -46,6 +46,11 @@ internal readonly struct SceneMood
     public bool IsSnow => Kind == WeatherKind.Snow;
     public float SnowAmt { get; init; }   // 0..1 (light 0.45, moderate 0.7, heavy 1)
 
+    // v5.4 seasons
+    public SeasonId Season { get; init; } = SeasonId.Summer;
+    /// <summary>Snow lying on the ground and rooftops: the snowfall amount, or a light cover in winter without snowfall.</summary>
+    public float SnowCover { get; init; }
+
     public SceneMood(
         DayPhase phase, WeatherKind kind, bool isDay,
         float cloudiness, float rainAmt,
@@ -234,7 +239,8 @@ internal static class SceneClock
 
     public static SceneMood Compose(WeatherSnapshot? live, AppConfig cfg, DateTime local)
     {
-        var preview = (cfg.WeatherPreview ?? "live").Trim().ToLowerInvariant();
+        var preview = (cfg.EffectiveWeather ?? "live").Trim().ToLowerInvariant();
+        var season = Seasons.Parse(cfg.EffectiveSeason);
         float hour = VirtualHour(cfg, local);
         if (preview is "night" or "dem" or "đêm sao" && cfg.TimeMode == "real" && HourOverride is null && hour is > 5f and < 19.5f)
             hour = 0.5f; // real-clock mode: "Đêm sao" preview shows a night sky (cycle mode keeps its own clock)
@@ -346,6 +352,39 @@ internal static class SceneClock
             }
         }
 
+        // v5.4 seasonal palette. Summer is the unchanged look of earlier versions; the others tint the sky and ground and
+        // are scaled by daylight so the night sky stays dark.
+        {
+            float dkS = Smooth(5.2f, 7.0f, hour) * (1f - Smooth(17.6f, 19.4f, hour));
+            float k = 0.3f + 0.7f * dkS;
+            switch (season)
+            {
+                case SeasonId.Spring:
+                    top = Mix(top, C(255, 112, 168, 220), 0.10f * k);
+                    bot = Mix(bot, C(255, 250, 204, 220), 0.16f * k);
+                    glow = Mix(glow, C(255, 255, 196, 214), 0.3f * k);
+                    ground = Mix(ground, C(255, 84, 146, 84), 0.26f * k);
+                    groundHi = Mix(groundHi, C(255, 128, 198, 112), 0.24f * k);
+                    break;
+                case SeasonId.Autumn:
+                    mid = Mix(mid, C(255, 216, 152, 86), 0.18f * k);
+                    bot = Mix(bot, C(255, 238, 162, 88), 0.24f * k);
+                    glow = Mix(glow, C(255, 255, 168, 78), 0.38f * k);
+                    ground = Mix(ground, C(255, 148, 94, 46), 0.34f * k);
+                    groundHi = Mix(groundHi, C(255, 198, 134, 64), 0.32f * k);
+                    sil = Mix(sil, C(255, 58, 40, 30), 0.10f);
+                    break;
+                case SeasonId.Winter when kind != WeatherKind.Snow:
+                    top = Mix(top, C(255, 94, 114, 152), 0.24f * k);
+                    mid = Mix(mid, C(255, 138, 156, 186), 0.24f * k);
+                    bot = Mix(bot, C(255, 178, 192, 212), 0.26f * k);
+                    glow = Mix(glow, C(255, 190, 206, 238), 0.3f * k);
+                    ground = Mix(ground, C(255, 126, 138, 160), 0.38f * k);
+                    groundHi = Mix(groundHi, C(255, 172, 184, 204), 0.34f * k);
+                    break;
+            }
+        }
+
         if (phase is DayPhase.Night or DayPhase.Dusk) isDay = false;
 
         float cloudiness = kind switch
@@ -380,7 +419,9 @@ internal static class SceneClock
             0.03f + 0.94f * bodyX, MoonAmount(local))
         {
             Hour = hour, DayK = dayK, LightsK = lightsK, StarsK = starsK, WarmK = warmK,
-            SunT = sunT, MoonT = moonT, SnowAmt = kind == WeatherKind.Snow ? Math.Clamp(snow <= 0 ? 0.7f : snow, 0f, 1f) : 0f
+            SunT = sunT, MoonT = moonT, SnowAmt = kind == WeatherKind.Snow ? Math.Clamp(snow <= 0 ? 0.7f : snow, 0f, 1f) : 0f,
+            Season = season,
+            SnowCover = kind == WeatherKind.Snow ? Math.Clamp(snow <= 0 ? 0.7f : snow, 0f, 1f) : season == SeasonId.Winter ? 0.34f : 0f
         };
     }
 
@@ -454,6 +495,8 @@ internal sealed class DioramaRenderer
     private Lamp[] _lamps = Array.Empty<Lamp>();
     private float[] _grassX = Array.Empty<float>();
 
+    /// <summary>0..1 position of the most recently drawn train across the bar; the ambient sound follows it. -1 = none.</summary>
+    internal static volatile float TrainProgress = -1f;
     private float _trainX = -400;
     private float _bikeX = 200;
     private readonly RegionScenery _scenery = new();
@@ -522,7 +565,7 @@ internal sealed class DioramaRenderer
 
     public void Draw(Graphics g, FrameContext ctx, SceneMood mood, float time)
     {
-        if (!ctx.Cfg.ShowTrain) { _headX0 = -1; _frost = 0; }
+        if (!ctx.Cfg.ShowTrain) { _headX0 = -1; _frost = 0; TrainProgress = -1f; }
         _scenery.Build(_region, _w, _h, _groundTop, _spans);
 
         DrawSky(g, mood, time);
@@ -553,7 +596,7 @@ internal sealed class DioramaRenderer
         _scenery.DrawLandmarks(g, mood, time);
 
         DrawHorizon(g, mood, time);
-        if (mood.IsSnow) DrawSnowGround(g, mood, time);
+        if (mood.SnowCover > 0.01f) DrawSnowGround(g, mood, time);
         if (ctx.Cfg.ShowAmbientDetails)
             DrawLampsAndWindows(g, mood, time);
         if (snow) DrawSnowLayer(g, mood, time, _snowMid, 1);
@@ -589,6 +632,57 @@ internal sealed class DioramaRenderer
 
         if (ctx.Cfg.ShowAmbientDetails)
             _scenery.DrawPetals(g, mood, time);
+
+        if (ctx.Cfg.ShowAmbientDetails && ctx.Cfg.ShowWeatherEffects && mood.Season is SeasonId.Spring or SeasonId.Autumn && !mood.IsRainy && !mood.IsSnow)
+            DrawSeasonDrift(g, mood, time);
+    }
+
+    // v5.4: spring blossom petals and autumn leaves drifting across every region.
+    private struct Drift { public float X, Y, Vx, Vy, Phase, Size; public int Tone; }
+    private Drift[] _drift = Array.Empty<Drift>();
+    private SeasonId _driftSeason = SeasonId.Summer;
+    private float _driftLast = -1;
+
+    private void DrawSeasonDrift(Graphics g, SceneMood mood, float time)
+    {
+        if (_drift.Length == 0 || _driftSeason != mood.Season)
+        {
+            _driftSeason = mood.Season;
+            _drift = new Drift[mood.Season == SeasonId.Autumn ? 22 : 24];
+            for (int i = 0; i < _drift.Length; i++)
+                _drift[i] = new Drift
+                {
+                    X = (float)_rng.NextDouble() * _w, Y = (float)_rng.NextDouble() * _h,
+                    Vx = 3 + (float)_rng.NextDouble() * 6, Vy = 2.5f + (float)_rng.NextDouble() * 4,
+                    Phase = (float)_rng.NextDouble() * 6.28f, Size = 1.2f + (float)_rng.NextDouble() * 1.1f, Tone = i % 3
+                };
+        }
+        float dt = _driftLast < 0 ? 1f / 30f : Math.Clamp(time - _driftLast, 0f, 0.1f);
+        _driftLast = time;
+        bool autumn = mood.Season == SeasonId.Autumn;
+        Color[] leaf =
+        {
+            Color.FromArgb(235, 214, 98, 36), Color.FromArgb(235, 232, 164, 48), Color.FromArgb(235, 168, 60, 38)
+        };
+        var dim = SceneClock.Mix(Color.White, mood.Silhouette, 0.45f * (1f - mood.DayK));
+        for (int i = 0; i < _drift.Length; i++)
+        {
+            var d = _drift[i];
+            d.X += (d.Vx + MathF.Sin(time * 0.9f + d.Phase) * 3f) * dt;
+            d.Y += (d.Vy + MathF.Cos(time * 1.4f + d.Phase) * 1.4f) * dt;
+            if (d.X > _w + 4) d.X = -4;
+            if (d.Y > _h + 2) { d.Y = -2; d.X = (float)_rng.NextDouble() * _w; }
+            _drift[i] = d;
+            var c = autumn ? leaf[d.Tone] : Color.FromArgb(215, 255, 190, 214);
+            c = SceneClock.Mix(c, dim, 0.35f * (1f - mood.DayK));
+            using var br = new SolidBrush(c);
+            float s = d.Size * (0.8f + 0.2f * MathF.Sin(time * 3 + d.Phase));
+            var st = g.Save();
+            g.TranslateTransform(d.X, d.Y);
+            g.RotateTransform((time * 90f + d.Phase * 57f) % 360f);
+            g.FillEllipse(br, -s * 0.9f, -s * 0.5f, s * 1.8f, s);
+            g.Restore(st);
+        }
     }
 
     #region sky & celestial
@@ -1094,8 +1188,10 @@ internal sealed class DioramaRenderer
         bool night = lk > 0.5f;
         bool rain = mood.IsRainy;
         _trainLights = lk;
-        _frost = mood.IsSnow ? 0.55f + 0.45f * mood.SnowAmt : 0f;
-        _frostCol = mood.IsSnow ? RegionScenery.SnowTint(mood, 230) : Color.Empty;
+        bool covered = mood.SnowCover > 0.01f;
+        _frost = covered ? 0.55f + 0.45f * mood.SnowCover : 0f;
+        _frostCol = covered ? RegionScenery.SnowTint(mood, 230) : Color.Empty;
+        TrainProgress = (float)p;
         _headX0 = _trainX + trainW - 3; _headX1 = _trainX + trainW + 60; _headY = y;
 
         // Headlight beam (fades in with dusk)
@@ -1909,7 +2005,7 @@ internal sealed class DioramaRenderer
     /// <summary>Snow blanket on the ground line + soft winter haze above the horizon.</summary>
     private void DrawSnowGround(Graphics g, SceneMood mood, float time)
     {
-        float amt = 0.55f + 0.45f * mood.SnowAmt;
+        float amt = 0.55f + 0.45f * mood.SnowCover;
         // winter breath / haze hugging the horizon
         var hazeCol = SceneClock.Mix(Color.FromArgb(255, 120, 136, 190), Color.FromArgb(255, 226, 234, 246), mood.DayK);
         var hz = new RectangleF(0, _groundTop - 12, _w, 16);

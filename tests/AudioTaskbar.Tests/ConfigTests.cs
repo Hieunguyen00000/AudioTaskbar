@@ -194,7 +194,7 @@ public class ConfigTests
         var cfg = ConfigStore.Load(path);
         Assert.Equal(1f, cfg.TrainCrossingMinutes);
         Assert.Equal(AppConfig.CurrentConfigVersion, cfg.ConfigVersion);
-        Assert.Contains("\"configVersion\": 51", File.ReadAllText(path));
+        Assert.Contains($"\"configVersion\": {AppConfig.CurrentConfigVersion}", File.ReadAllText(path));
     }
 
     [Fact]
