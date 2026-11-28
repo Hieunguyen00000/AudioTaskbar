@@ -9,7 +9,9 @@ public enum VehicleKind
     Motorbike, CityBus, Cyclo, Taxi, Bicycle, FlowerBike,
     FishingBoat, Sailboat, LanternBoat,
     Mamachari, ClassicTaxi, KeiTruck,
-    VintageCar, TourBus, Car
+    VintageCar, TourBus, Car,
+    // v5.4
+    Scooter, YellowCab, Camel, Donkey, Ferry
 }
 
 public enum WaterKind { None, Sea, River, Lake }
@@ -94,6 +96,54 @@ public static class RegionCatalog
         Water2 = WaterKind.River
     };
 
+    // ----- v5.4 world destinations -----
+    public static readonly RegionProfile Sydney = new()
+    {
+        Id = "sydney", NameVi = "Sydney / Úc", WeatherCity = "Sydney", Lat = -33.8688, Lon = 151.2093,
+        Landmarks = new[] { "opera-house", "harbour-bridge", "sydney-tower" },
+        Filler = "harbour",
+        Road = new[] { (VehicleKind.Car, 2f), (VehicleKind.Taxi, 1.2f), (VehicleKind.Bicycle, 1.6f), (VehicleKind.CityBus, 0.8f) },
+        Water = new[] { (VehicleKind.Ferry, 1.6f), (VehicleKind.Sailboat, 1.8f) },
+        Water2 = WaterKind.Sea
+    };
+
+    public static readonly RegionProfile NewYork = new()
+    {
+        Id = "newyork", NameVi = "New York / Mỹ", WeatherCity = "New York", Lat = 40.7128, Lon = -74.0060,
+        Landmarks = new[] { "statue-liberty", "empire-state", "brooklyn-bridge" },
+        Filler = "manhattan",
+        Road = new[] { (VehicleKind.YellowCab, 4.5f), (VehicleKind.CityBus, 1f), (VehicleKind.Bicycle, 1.2f), (VehicleKind.Car, 1f) },
+        Water = new[] { (VehicleKind.Ferry, 1.2f), (VehicleKind.Sailboat, 0.5f) },
+        Water2 = WaterKind.River
+    };
+
+    public static readonly RegionProfile Rome = new()
+    {
+        Id = "rome", NameVi = "Roma / Ý", WeatherCity = "Rome", Lat = 41.9028, Lon = 12.4964,
+        Landmarks = new[] { "colosseum", "st-peters", "forum-pine" },
+        Filler = "roman",
+        Road = new[] { (VehicleKind.Scooter, 4f), (VehicleKind.Car, 1.4f), (VehicleKind.Bicycle, 1f), (VehicleKind.TourBus, 0.5f) }
+    };
+
+    public static readonly RegionProfile Giza = new()
+    {
+        Id = "giza", NameVi = "Cairo – Giza / Ai Cập", WeatherCity = "Cairo", Lat = 29.9792, Lon = 31.1342,
+        Landmarks = new[] { "pyramids", "sphinx", "minaret" },
+        Filler = "desert",
+        Road = new[] { (VehicleKind.Camel, 2.2f), (VehicleKind.Car, 1.5f), (VehicleKind.Motorbike, 1.2f), (VehicleKind.Taxi, 0.8f) },
+        Palms = true
+    };
+
+    public static readonly RegionProfile Santorini = new()
+    {
+        Id = "santorini", NameVi = "Santorini / Hy Lạp", WeatherCity = "Santorini", Lat = 36.3932, Lon = 25.4615,
+        Landmarks = new[] { "blue-dome", "windmill", "caldera-houses" },
+        Filler = "cycladic",
+        Road = new[] { (VehicleKind.Donkey, 1.8f), (VehicleKind.Scooter, 1.6f), (VehicleKind.Car, 1f) },
+        Water = new[] { (VehicleKind.Sailboat, 2f), (VehicleKind.FishingBoat, 1f) },
+        Water2 = WaterKind.Sea
+    };
+
     public static readonly RegionProfile Default = new()
     {
         Id = "default", NameVi = "Mặc định – Quê hương & Đô thị", WeatherCity = "",
@@ -102,7 +152,14 @@ public static class RegionCatalog
         Road = new[] { (VehicleKind.Bicycle, 2f), (VehicleKind.Car, 2f), (VehicleKind.Motorbike, 1.5f) }
     };
 
-    public static readonly RegionProfile[] All = { Hcmc, BariaVungTau, Hanoi, DanangHoiAn, Tokyo, Paris, Default };
+    public static readonly RegionProfile[] All = { Hcmc, BariaVungTau, Hanoi, DanangHoiAn, Tokyo, Paris, Sydney, NewYork, Rome, Giza, Santorini, Default };
+
+    /// <summary>Menu / portal order: Vietnam, then world destinations, then the default scene.</summary>
+    public static IEnumerable<(string Id, string Label)> PickList()
+    {
+        yield return ("auto", "Tự động theo máy");
+        foreach (var r in All) yield return (r.Id, r.Id == "default" ? "Mặc định (quê hương & đô thị)" : r.NameVi);
+    }
 
     public static RegionProfile Get(string? id)
         => All.FirstOrDefault(r => string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase)) ?? Default;
@@ -119,6 +176,11 @@ public static class RegionCatalog
             "danang" or "da-nang" or "hoian" or "hoi-an" => "danang-hoian",
             "japan" or "nhat-ban" => "tokyo",
             "france" or "phap" => "paris",
+            "australia" or "uc" or "opera-house" => "sydney",
+            "new-york" or "nyc" or "usa" or "my" => "newyork",
+            "roma" or "italy" or "y" => "rome",
+            "cairo" or "egypt" or "ai-cap" or "pyramids" => "giza",
+            "greece" or "hy-lap" => "santorini",
             _ => m
         };
         return All.Any(r => r.Id == m) ? m : "auto";
@@ -155,6 +217,11 @@ public static class RegionCatalog
         if (n.Contains("da nang") || n.Contains("danang") || n.Contains("hoi an") || n.Contains("hoian")) return DanangHoiAn;
         if (n.Contains("tokyo") || n.Contains("japan") || n.Contains("nhat ban")) return Tokyo;
         if (n.Contains("paris") || n.Contains("france")) return Paris;
+        if (n.Contains("sydney") || n.Contains("australia")) return Sydney;
+        if (n.Contains("new york") || n.Contains("manhattan") || n.Contains("brooklyn")) return NewYork;
+        if (n.Contains("rome") || n.Contains("roma") || n.Contains("italy")) return Rome;
+        if (n.Contains("cairo") || n.Contains("giza") || n.Contains("egypt")) return Giza;
+        if (n.Contains("santorini") || n.Contains("thira") || n.Contains("oia")) return Santorini;
         return null;
     }
 
@@ -167,6 +234,11 @@ public static class RegionCatalog
         if (lat is >= 15.75 and <= 16.25 && lon is >= 107.85 and <= 108.45) return DanangHoiAn;
         if (lat is >= 35.3 and <= 36.0 && lon is >= 139.2 and <= 140.1) return Tokyo;
         if (lat is >= 48.6 and <= 49.1 && lon is >= 2.0 and <= 2.7) return Paris;
+        if (lat is >= -34.2 and <= -33.6 && lon is >= 150.7 and <= 151.4) return Sydney;
+        if (lat is >= 40.5 and <= 40.95 && lon is >= -74.3 and <= -73.7) return NewYork;
+        if (lat is >= 41.7 and <= 42.1 && lon is >= 12.3 and <= 12.7) return Rome;
+        if (lat is >= 29.8 and <= 30.2 && lon is >= 31.0 and <= 31.4) return Giza;
+        if (lat is >= 36.3 and <= 36.5 && lon is >= 25.3 and <= 25.5) return Santorini;
         return null;
     }
 

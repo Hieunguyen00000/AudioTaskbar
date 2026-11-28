@@ -95,8 +95,8 @@ internal sealed class RegionScenery : IDisposable
 
     private void SnowCap(Graphics g, SceneMood mood, GraphicsPath path, float depth, int alpha)
     {
-        if (!mood.IsSnow || mood.SnowAmt <= 0.01f) return;
-        using var br = new SolidBrush(SnowTint(mood, (int)(alpha * (0.55f + 0.45f * mood.SnowAmt))));
+        if (mood.SnowCover <= 0.01f) return;
+        using var br = new SolidBrush(SnowTint(mood, (int)(alpha * (0.55f + 0.45f * mood.SnowCover))));
         g.FillRegion(br, CapOf(path, depth));
     }
 
@@ -165,6 +165,11 @@ internal sealed class RegionScenery : IDisposable
         "fuji" => 112, "tokyo-tower" => 19, "torii" => 17, "sakura" => 34,
         "eiffel" => 25, "arc-triomphe" => 22, "dome" => 22,
         "hills-bridge" => 70, "cozy-skyline" => 52,
+        "opera-house" => 40, "harbour-bridge" => 84, "sydney-tower" => 14,
+        "statue-liberty" => 16, "empire-state" => 16, "brooklyn-bridge" => 80,
+        "colosseum" => 40, "st-peters" => 34, "forum-pine" => 26,
+        "pyramids" => 92, "sphinx" => 26, "minaret" => 15,
+        "blue-dome" => 26, "windmill" => 14, "caldera-houses" => 58,
         _ => 20
     };
 
@@ -356,6 +361,115 @@ internal sealed class RegionScenery : IDisposable
                     if (rnd.NextDouble() < 0.6) Rect(_mid, x + 2 + (float)rnd.NextDouble() * (bw - 4), b - bh - 4, 1, 1.6f);
                     Windows(x, b - bh, bw, bh, 2.0f, rnd, 0.6f);
                     x += bw + 0.4f;
+                }
+                break;
+            case "harbour":
+                while (x < _w)
+                {
+                    float bw = 4 + (float)rnd.NextDouble() * 6;
+                    float bh = 4 + (float)Math.Pow(rnd.NextDouble(), 1.5) * 11;
+                    Rect(_mid, x, b - bh, bw, bh + 1);
+                    if (rnd.NextDouble() < 0.2) Poly(_mid, P(x, b - bh), P(x + bw * 0.5f, b - bh - 2.2f), P(x + bw, b - bh));
+                    Windows(x, b - bh, bw, bh, 2.1f, rnd, 0.5f);
+                    x += bw + 0.8f + (float)rnd.NextDouble() * 3f;
+                }
+                break;
+            case "manhattan":
+                while (x < _w)
+                {
+                    float bw = 4 + (float)rnd.NextDouble() * 4;
+                    float bh = 7 + (float)Math.Pow(rnd.NextDouble(), 1.2) * 16;
+                    Rect(_mid, x, b - bh, bw, bh + 1);
+                    if (rnd.NextDouble() < 0.3)
+                    {   // rooftop water tower on stilts
+                        float tx = x + bw * 0.3f;
+                        Rect(_mid, tx, b - bh - 2.6f, 1.9f, 2.0f);
+                        Poly(_mid, P(tx - 0.2f, b - bh - 2.6f), P(tx + 0.95f, b - bh - 3.6f), P(tx + 2.1f, b - bh - 2.6f));
+                        Rect(_mid, tx + 0.2f, b - bh - 0.7f, 0.3f, 0.8f); Rect(_mid, tx + 1.4f, b - bh - 0.7f, 0.3f, 0.8f);
+                    }
+                    Windows(x, b - bh, bw, bh, 1.9f, rnd, 0.55f);
+                    x += bw + 0.3f + (float)rnd.NextDouble() * 0.7f;
+                }
+                break;
+            case "roman":
+                while (x < _w)
+                {
+                    double r = rnd.NextDouble();
+                    if (r < 0.16)
+                    {   // umbrella pine
+                        float th = 8 + (float)rnd.NextDouble() * 4;
+                        Rect(_mid, x + 2.4f, b - th, 0.7f, th + 0.5f);
+                        _mid.AddEllipse(x - 0.6f, b - th - 2.4f, 7.2f, 3.4f);
+                        x += 7;
+                        continue;
+                    }
+                    if (r < 0.24)
+                    {   // campanile
+                        Rect(_mid, x, b - 13, 2.2f, 13.5f);
+                        Poly(_mid, P(x - 0.2f, b - 13), P(x + 1.1f, b - 15.2f), P(x + 2.4f, b - 13));
+                        _windows.Add(new RectangleF(x + 0.7f, b - 11, 0.8f, 1.6f));
+                        x += 3.2f;
+                        continue;
+                    }
+                    float bw = 5 + (float)rnd.NextDouble() * 5;
+                    float bh = 4 + (float)rnd.NextDouble() * 3.4f;
+                    Rect(_mid, x, b - bh, bw, bh + 1);
+                    Poly(_mid, P(x - 0.5f, b - bh), P(x + 1.4f, b - bh - 1.7f), P(x + bw - 1.4f, b - bh - 1.7f), P(x + bw + 0.5f, b - bh));
+                    Windows(x, b - bh, bw, bh, 2.2f, rnd, 0.5f);
+                    x += bw + 0.5f + (float)rnd.NextDouble() * 1.2f;
+                }
+                break;
+            case "desert":
+                {
+                    var crest = new List<PointF> { P(0, b + 1) };
+                    float cx = 0;
+                    while (cx < _w)
+                    {
+                        float span = 80 + (float)rnd.NextDouble() * 110;
+                        crest.Add(P(Math.Min(_w, cx + span * 0.5f), b - (3 + (float)rnd.NextDouble() * 8)));
+                        cx += span;
+                    }
+                    crest.Add(P(_w, b + 1));
+                    _far.StartFigure();
+                    _far.AddLine(0, _h, 0, b + 1);
+                    _far.AddCurve(crest.ToArray(), 0.5f);
+                    _far.AddLine(_w, b + 1, _w, _h);
+                    _far.CloseFigure();
+                    while (x < _w)
+                    {
+                        if (rnd.NextDouble() < 0.45)
+                        {
+                            Palm(x + 2, b + 0.5f, 7 + (float)rnd.NextDouble() * 4, -1.2f + (float)rnd.NextDouble() * 2.4f, rnd);
+                            x += 6 + (float)rnd.NextDouble() * 14;
+                        }
+                        else
+                        {
+                            float bw = 5 + (float)rnd.NextDouble() * 5, bh = 3 + (float)rnd.NextDouble() * 4;
+                            Rect(_mid, x, b - bh, bw, bh + 1);          // flat-roofed mud-brick house
+                            if (rnd.NextDouble() < 0.4) Rect(_mid, x + 0.8f, b - bh - 1.6f, bw * 0.45f, 1.6f);
+                            Windows(x, b - bh, bw, bh, 2.4f, rnd, 0.4f);
+                            x += bw + 5 + (float)rnd.NextDouble() * 18;
+                        }
+                    }
+                }
+                break;
+            case "cycladic":
+                {
+                    var wh = NewAccent(Color.FromArgb(255, 238, 240, 244), Color.FromArgb(255, 112, 120, 152));
+                    while (x < _w)
+                    {
+                        float bw = 4 + (float)rnd.NextDouble() * 4;
+                        float bh = 3 + (float)rnd.NextDouble() * 4;
+                        Rect(wh.Path, x, b - bh, bw, bh + 1);                       // whitewashed cube
+                        if (rnd.NextDouble() < 0.55) Rect(wh.Path, x + bw * 0.2f, b - bh - 2.4f, bw * 0.55f, 2.4f); // stacked terrace
+                        if (rnd.NextDouble() < 0.18)
+                        {
+                            var blue = NewAccent(Color.FromArgb(255, 40, 104, 190), Color.FromArgb(255, 30, 58, 124));
+                            blue.Path.AddPie(x + bw * 0.1f, b - bh - 3.6f, bw * 0.8f, 3.4f * 1.4f, 180, 180);
+                        }
+                        _windows.Add(new RectangleF(x + bw * 0.35f, b - bh + 1.2f, 0.9f, 1.1f));
+                        x += bw + 0.6f + (float)rnd.NextDouble() * 1.4f;
+                    }
                 }
                 break;
             default: // village
@@ -745,6 +859,268 @@ internal sealed class RegionScenery : IDisposable
                 for (float wx = c - 4.5f; wx < c + 4.5f; wx += 2.2f) _windows.Add(new RectangleF(wx, b - 9.6f, 0.9f, 2.4f));
                 break;
             }
+            case "opera-house":
+            {
+                var sails = NewAccent(Color.FromArgb(255, 244, 242, 238), Color.FromArgb(255, 188, 196, 224), glow: true);
+                void Sail(float x0, float w, float h, float apex)
+                {
+                    float ax = x0 + w * apex;
+                    sails.Path.StartFigure();
+                    sails.Path.AddBezier(P(x0, b - 2.6f), P(x0 + w * 0.04f, b - 2.6f - h * 0.7f), P(ax - w * 0.2f, b - 2.6f - h * 0.97f), P(ax, b - 2.6f - h));
+                    sails.Path.AddBezier(P(ax, b - 2.6f - h), P(ax + w * 0.28f, b - 2.6f - h * 0.55f), P(x0 + w * 0.86f, b - 2.6f - h * 0.2f), P(x0 + w, b - 2.6f));
+                    sails.Path.CloseFigure();
+                }
+                Sail(x + 2.0f, 12.5f, 15.5f, 0.30f); Sail(x + 6.8f, 11f, 12.5f, 0.34f); Sail(x + 11.2f, 9.5f, 9.5f, 0.40f);
+                Sail(x + 21.5f, 12f, 12f, 0.34f); Sail(x + 26.4f, 10.5f, 9.4f, 0.40f); Sail(x + 30.4f, 8.6f, 6.6f, 0.45f);
+                Rect(_sil, x, b - 2.8f, lw, 3.4f);                                // granite podium
+                _lights.Add(new LightFx { Kind = LightKind.TowerGlow, X = x + lw / 2, Y = b - 8, W = lw - 4, H = 14, Color = Color.FromArgb(255, 255, 214, 150) });
+                break;
+            }
+            case "harbour-bridge":
+            {
+                float deck = b - 7f, apexY = b - 27f, left = x + 6, right = x + lw - 6;
+                float Arch(float t) => deck - (deck - apexY) * (1f - (2f * t - 1f) * (2f * t - 1f));
+                const int N = 24;
+                for (int i = 0; i < N; i++)
+                {
+                    float t0 = i / (float)N, t1 = (i + 1) / (float)N;
+                    float xa = left + t0 * (right - left), xb = left + t1 * (right - left);
+                    Line(xa, Arch(t0), xb, Arch(t1), 1.0f);                                          // upper chord
+                    float lowA = Arch(t0) + 3.4f * MathF.Sin(t0 * MathF.PI), lowB = Arch(t1) + 3.4f * MathF.Sin(t1 * MathF.PI);
+                    Line(xa, lowA, xb, lowB, 0.8f);                                                   // lower chord
+                    if (i % 2 == 0) Line(xa, lowA, xa, deck, 0.45f);                                  // hangers
+                    if (i < N - 1 && i % 2 == 0) Line(xa, Arch(t0), xb + (xb - xa), lowB + 0.4f, 0.3f);
+                }
+                Line(x, deck, x + lw, deck, 1.5f);                                                    // deck
+                Rect(_sil, x + 1.4f, b - 15.5f, 4.6f, 15.5f);                                         // stone pylons
+                Rect(_sil, x + lw - 6f, b - 15.5f, 4.6f, 15.5f);
+                for (float wx = x + 8; wx < x + lw - 8; wx += 3.6f) _windows.Add(new RectangleF(wx, deck - 1.3f, 0.8f, 0.7f));
+                break;
+            }
+            case "sydney-tower":
+            {
+                float c = x + lw / 2;
+                Rect(_sil, c - 0.75f, b - 28, 1.5f, 28);
+                var gold = NewAccent(Color.FromArgb(255, 218, 170, 74), Color.FromArgb(255, 255, 214, 120), glow: true);
+                Poly(gold.Path, P(c - 4.2f, b - 24.5f), P(c + 4.2f, b - 24.5f), P(c + 3f, b - 28.8f), P(c - 3f, b - 28.8f));
+                Poly(gold.Path, P(c - 3f, b - 28.8f), P(c + 3f, b - 28.8f), P(c + 0.5f, b - 31.4f), P(c - 0.5f, b - 31.4f));
+                Line(c, b - 31.4f, c, b - 36.5f, 0.45f);
+                Rect(_sil, c - 1.9f, b - 3f, 3.8f, 3f);
+                _lights.Add(new LightFx { Kind = LightKind.RoofLed, X = c - 0.8f, Y = b - 36.6f, W = 1.6f, H = 0.8f, Color = Color.FromArgb(255, 255, 90, 80) });
+                break;
+            }
+            case "statue-liberty":
+            {
+                float c = x + lw / 2;
+                Rect(_sil, x + 1.5f, b - 2.2f, lw - 3, 2.2f);                                        // star fort base
+                Poly(_sil, P(c - 4.2f, b - 2.2f), P(c - 3f, b - 9), P(c + 3f, b - 9), P(c + 4.2f, b - 2.2f)); // pedestal
+                var green = NewAccent(Color.FromArgb(255, 108, 168, 148), Color.FromArgb(255, 78, 122, 122));
+                Poly(green.Path, P(c - 3f, b - 9), P(c - 2f, b - 17), P(c - 0.5f, b - 21.5f), P(c + 0.7f, b - 21.5f), P(c + 1.8f, b - 17), P(c + 3f, b - 9));
+                green.Path.AddEllipse(c - 1.5f, b - 24.6f, 3f, 3.2f);                                // head
+                for (int k = -2; k <= 2; k++) Line(c + k * 0.9f, b - 24.4f, c + k * 1.5f, b - 26.4f - Math.Abs(k) * -0.2f, 0.4f, 0, Color.FromArgb(255, 108, 168, 148)); // crown rays
+                Line(c + 1.2f, b - 20.5f, c + 4.2f, b - 26.5f, 1.0f, 0, Color.FromArgb(255, 108, 168, 148));    // raised arm
+                Line(c + 4.2f, b - 26.5f, c + 4.2f, b - 28.4f, 0.9f, 0, Color.FromArgb(255, 108, 168, 148));    // torch
+                Rect(green.Path, c - 3.2f, b - 18.6f, 1.8f, 2.6f);                                   // tablet
+                var flame = NewAccent(Color.FromArgb(255, 255, 196, 60), Color.FromArgb(255, 255, 214, 90), glow: true);
+                flame.Path.AddEllipse(c + 3.4f, b - 31.6f, 1.7f, 3.4f);
+                break;
+            }
+            case "empire-state":
+            {
+                float c = x + lw / 2;
+                Poly(_sil, P(c - 6.4f, b), P(c - 6.4f, b - 16), P(c - 4.6f, b - 16), P(c - 4.6f, b - 22), P(c - 3.2f, b - 22),
+                    P(c - 3.2f, b - 26.5f), P(c + 3.2f, b - 26.5f), P(c + 3.2f, b - 22), P(c + 4.6f, b - 22), P(c + 4.6f, b - 16), P(c + 6.4f, b - 16), P(c + 6.4f, b));
+                Windows(c - 6.4f, b - 16, 12.8f, 16, 1.9f, rnd, 0.5f);
+                var top = NewAccent(Color.FromArgb(255, 186, 190, 198), Color.FromArgb(255, 255, 212, 130), glow: true);
+                Poly(top.Path, P(c - 3.2f, b - 26.5f), P(c - 2.2f, b - 29.4f), P(c + 2.2f, b - 29.4f), P(c + 3.2f, b - 26.5f));
+                Poly(top.Path, P(c - 1.5f, b - 29.4f), P(c - 0.9f, b - 31.6f), P(c + 0.9f, b - 31.6f), P(c + 1.5f, b - 29.4f));
+                Line(c, b - 31.6f, c, b - 37f, 0.5f);
+                _lights.Add(new LightFx { Kind = LightKind.TowerGlow, X = c, Y = b - 24, W = 11, H = 18, Color = Color.FromArgb(255, 255, 190, 120) });
+                break;
+            }
+            case "brooklyn-bridge":
+            {
+                float deck = b - 7f;
+                float t1 = x + lw * 0.27f, t2 = x + lw * 0.73f, topY = b - 21f;
+                foreach (float tx in new[] { t1, t2 })
+                {
+                    Rect(_sil, tx - 3.2f, topY, 2.2f, 21f); Rect(_sil, tx + 1f, topY, 2.2f, 21f);        // twin stone piers
+                    Poly(_sil, P(tx - 3.2f, topY), P(tx - 2.1f, topY - 2.2f), P(tx - 1f, topY));          // pointed arches
+                    Poly(_sil, P(tx + 1f, topY), P(tx + 2.1f, topY - 2.2f), P(tx + 3.2f, topY));
+                    Rect(_sil, tx - 3.2f, topY + 5, 6.4f, 1.0f);
+                }
+                Line(x, deck, x + lw, deck, 1.4f);
+                void Cable(float xa, float ya, float xb, float yb, float sag)
+                {
+                    const int M = 14;
+                    for (int i = 0; i < M; i++)
+                    {
+                        float u0 = i / (float)M, u1 = (i + 1) / (float)M;
+                        float xa0 = xa + (xb - xa) * u0, xa1 = xa + (xb - xa) * u1;
+                        float ya0 = ya + (yb - ya) * u0 + sag * 4 * u0 * (1 - u0), ya1 = ya + (yb - ya) * u1 + sag * 4 * u1 * (1 - u1);
+                        Line(xa0, ya0, xa1, ya1, 0.5f);
+                    }
+                }
+                Cable(t1, topY, t2, topY, (deck - 2f) - topY);                // main span sags to the deck
+                Cable(x, deck - 0.6f, t1, topY, 2.2f); Cable(t2, topY, x + lw, deck - 0.6f, 2.2f);
+                for (int k = 1; k <= 5; k++)                                   // diagonal stays (the bridge's web)
+                {
+                    float dx = k * 5.5f;
+                    Line(t1, topY + 0.4f, t1 - dx, deck, 0.25f); Line(t1, topY + 0.4f, t1 + dx, deck, 0.25f);
+                    Line(t2, topY + 0.4f, t2 - dx, deck, 0.25f); Line(t2, topY + 0.4f, t2 + dx, deck, 0.25f);
+                }
+                for (float wx = x + 3; wx < x + lw - 3; wx += 3.2f) _windows.Add(new RectangleF(wx, deck - 1.3f, 0.8f, 0.7f));
+                break;
+            }
+            case "colosseum":
+            {
+                var stone = NewAccent(Color.FromArgb(255, 208, 178, 134), Color.FromArgb(255, 118, 98, 84), glow: true);
+                // tall outer wall on the left, the ruined side lower on the right
+                Poly(stone.Path, P(x + 0.5f, b), P(x + 0.5f, b - 12.5f), P(x + 3f, b - 13.4f), P(x + 22f, b - 13.4f), P(x + 25f, b - 11f),
+                    P(x + 27.5f, b - 8.6f), P(x + 31f, b - 7.8f), P(x + 34f, b - 6.4f), P(x + lw - 0.5f, b - 5.2f), P(x + lw - 0.5f, b));
+                var arches = NewAccent(Color.FromArgb(255, 112, 88, 66), Color.FromArgb(255, 255, 196, 112), glow: true);
+                for (float ax = x + 2f; ax < x + 22f; ax += 2.7f)
+                {
+                    arches.Path.AddPie(ax, b - 11.6f, 1.5f, 2.6f, 180, 180); Rect(arches.Path, ax, b - 10.3f, 1.5f, 1.3f);
+                    arches.Path.AddPie(ax, b - 7.6f, 1.5f, 2.6f, 180, 180); Rect(arches.Path, ax, b - 6.3f, 1.5f, 1.3f);
+                }
+                for (float ax = x + 22.5f; ax < x + lw - 3; ax += 2.7f)
+                {
+                    float top = ax < x + 28 ? 8.4f : 5.6f;
+                    arches.Path.AddPie(ax, b - top, 1.5f, 2.4f, 180, 180); Rect(arches.Path, ax, b - top + 1.2f, 1.5f, 1.3f);
+                }
+                Rect(arches.Path, x + 2f, b - 3.4f, lw - 5, 0.4f);
+                break;
+            }
+            case "st-peters":
+            {
+                float c = x + lw / 2;
+                var stone = NewAccent(Color.FromArgb(255, 218, 204, 178), Color.FromArgb(255, 104, 96, 92), glow: true);
+                Rect(stone.Path, c - 9, b - 8.5f, 18, 8.5f);                                           // facade
+                Poly(stone.Path, P(c - 9.6f, b - 8.5f), P(c, b - 11.4f), P(c + 9.6f, b - 8.5f));        // pediment
+                Rect(stone.Path, c - 5.6f, b - 15.6f, 11.2f, 4.4f);                                    // attic / drum base
+                Rect(stone.Path, c - 4.4f, b - 19.4f, 8.8f, 3.8f);                                     // drum
+                stone.Path.AddPie(c - 5.2f, b - 26.2f, 10.4f, 12.4f, 180, 180);                        // dome
+                Rect(stone.Path, c - 0.8f, b - 29.4f, 1.6f, 3.4f);                                     // lantern
+                Poly(stone.Path, P(c - 0.9f, b - 29.4f), P(c, b - 31f), P(c + 0.9f, b - 29.4f));
+                Line(c, b - 31f, c, b - 33.4f, 0.4f); Line(c - 0.8f, b - 32.6f, c + 0.8f, b - 32.6f, 0.4f); // cross
+                for (float cx = x + 1.2f; cx < c - 10; cx += 1.7f) { Rect(_sil, cx, b - 4.6f, 0.6f, 4.6f); }  // colonnades
+                for (float cx = c + 10.4f; cx < x + lw - 1; cx += 1.7f) { Rect(_sil, cx, b - 4.6f, 0.6f, 4.6f); }
+                Rect(_sil, x + 0.6f, b - 5.2f, c - 9.2f - x, 0.8f); Rect(_sil, c + 9f, b - 5.2f, x + lw - c - 9.6f, 0.8f);
+                for (float wx = c - 7; wx < c + 7; wx += 2.8f) _windows.Add(new RectangleF(wx, b - 6.4f, 0.9f, 2.4f));
+                break;
+            }
+            case "forum-pine":
+            {
+                var marble = NewAccent(Color.FromArgb(255, 226, 216, 198), Color.FromArgb(255, 112, 108, 112), glow: true);
+                Rect(marble.Path, x + 1, b - 1.2f, 15, 1.2f);
+                for (int i = 0; i < 3; i++)
+                {
+                    float cx = x + 2.4f + i * 4.6f;
+                    Rect(marble.Path, cx, b - 11 - (i == 2 ? 2f : 0), 1.5f, 10f + (i == 2 ? 2f : 0));  // fluted column
+                    Rect(marble.Path, cx - 0.5f, b - 11.8f - (i == 2 ? 2f : 0), 2.5f, 0.9f);               // capital
+                }
+                Rect(marble.Path, x + 1.6f, b - 13f, 10.2f, 1.2f);                                     // surviving architrave
+                // umbrella pine
+                float px = x + lw - 6;
+                Line(px, b, px + 0.5f, b - 11, 1.1f);
+                var pineCol = NewAccent(Color.FromArgb(255, 48, 98, 62), Color.FromArgb(255, 26, 46, 42));
+                pineCol.Path.AddEllipse(px - 4.8f, b - 15.5f, 10.4f, 5f);
+                pineCol.Path.AddEllipse(px - 3f, b - 17.6f, 7f, 3.6f);
+                break;
+            }
+            case "pyramids":
+            {
+                var sunSide = NewAccent(Color.FromArgb(255, 228, 188, 118), Color.FromArgb(255, 102, 88, 92));
+                var shade = NewAccent(Color.FromArgb(255, 188, 146, 88), Color.FromArgb(255, 70, 60, 70));
+                void Pyr(float bx, float w, float h)
+                {
+                    Poly(sunSide.Path, P(bx, b), P(bx + w / 2, b - h), P(bx + w * 0.55f, b));
+                    Poly(shade.Path, P(bx + w / 2, b - h), P(bx + w, b), P(bx + w * 0.55f, b));
+                }
+                Pyr(x + 28, 32, 18.5f);                // Menkaure (rear, small right)
+                Pyr(x + 62, 28, 11.2f);
+                Pyr(x + 2, 46, 26.5f);                 // Khufu (largest)
+                break;
+            }
+            case "sphinx":
+            {
+                var sand = NewAccent(Color.FromArgb(255, 206, 164, 100), Color.FromArgb(255, 88, 74, 78));
+                Poly(sand.Path, P(x + 9, b), P(x + 8.6f, b - 4.2f), P(x + 17, b - 5.2f), P(x + 23, b - 4f), P(x + 24.6f, b - 1.6f), P(x + 25.6f, b));
+                Rect(sand.Path, x, b - 1.8f, 10, 1.8f);                                                  // paws
+                Poly(sand.Path, P(x + 4.4f, b - 1.8f), P(x + 3.6f, b - 7), P(x + 5.1f, b - 8.6f), P(x + 9.4f, b - 8.2f), P(x + 10f, b - 4f)); // chest + neck
+                sand.Path.AddEllipse(x + 3.4f, b - 12.2f, 4f, 4.6f);                                      // face
+                Poly(sand.Path, P(x + 2.4f, b - 6.8f), P(x + 2.8f, b - 12f), P(x + 5.4f, b - 13.8f), P(x + 8.2f, b - 12f), P(x + 8.6f, b - 6.8f), P(x + 7.2f, b - 7.4f), P(x + 3.6f, b - 7.4f)); // nemes
+                break;
+            }
+            case "minaret":
+            {
+                Rect(_sil, x + 4.6f, b - 7.6f, 6.2f, 7.6f);
+                _sil.AddPie(x + 4.8f, b - 12.6f, 5.8f, 7.6f, 180, 180);
+                Line(x + 7.7f, b - 12.6f, x + 7.7f, b - 14.2f, 0.4f);
+                foreach (float mx in new[] { x + 1.4f, x + 13.6f })
+                {
+                    Rect(_sil, mx - 0.7f, b - 20f, 1.4f, 20f);
+                    Rect(_sil, mx - 1.5f, b - 15.6f, 3f, 0.8f);
+                    Poly(_sil, P(mx - 0.9f, b - 20f), P(mx, b - 22.8f), P(mx + 0.9f, b - 20f));
+                    Line(mx, b - 22.8f, mx, b - 24f, 0.35f);
+                    _windows.Add(new RectangleF(mx - 0.3f, b - 18.2f, 0.6f, 1.2f));
+                }
+                for (float wx = x + 5.4f; wx < x + 10.4f; wx += 1.7f) _windows.Add(new RectangleF(wx, b - 5.6f, 0.8f, 1.8f));
+                break;
+            }
+            case "blue-dome":
+            {
+                var white = NewAccent(Color.FromArgb(255, 244, 245, 248), Color.FromArgb(255, 176, 182, 210), glow: true);
+                var blue = NewAccent(Color.FromArgb(255, 36, 100, 188), Color.FromArgb(255, 34, 62, 128));
+                Rect(white.Path, x + 1, b - 4.6f, 5, 4.6f);                                               // neighbouring cube
+                Rect(white.Path, x + 6.4f, b - 8.4f, 11, 8.4f);                                           // church body
+                blue.Path.AddPie(x + 7.2f, b - 14.2f, 9.4f, 11.4f, 180, 180);                             // blue dome
+                Line(x + 11.9f, b - 14.2f, x + 11.9f, b - 16f, 0.4f, 0, Color.FromArgb(255, 244, 245, 248));
+                Line(x + 11.2f, b - 15.4f, x + 12.6f, b - 15.4f, 0.4f, 0, Color.FromArgb(255, 244, 245, 248));
+                Rect(white.Path, x + 18.4f, b - 14f, 4.4f, 14f);                                          // bell tower
+                Rect(blue.Path, x + 18.9f, b - 13f, 3.4f, 1.0f);
+                blue.Path.AddPie(x + 19f, b - 16.4f, 3.2f, 4.4f, 180, 180);
+                _windows.Add(new RectangleF(x + 19.9f, b - 11.2f, 1.2f, 2.4f));
+                _windows.Add(new RectangleF(x + 10.8f, b - 6.2f, 1.4f, 2.6f));
+                break;
+            }
+            case "windmill":
+            {
+                float c = x + lw / 2 - 0.5f;
+                var white = NewAccent(Color.FromArgb(255, 242, 243, 246), Color.FromArgb(255, 170, 176, 204), glow: true);
+                Poly(white.Path, P(c - 3f, b), P(c - 2.1f, b - 11), P(c + 2.1f, b - 11), P(c + 3f, b));
+                var cap = NewAccent(Color.FromArgb(255, 150, 96, 64), Color.FromArgb(255, 80, 58, 56));
+                Poly(cap.Path, P(c - 2.8f, b - 11), P(c, b - 14.6f), P(c + 2.8f, b - 11));
+                float hx = c, hy = b - 11.6f;
+                for (int k = 0; k < 4; k++)
+                {
+                    float a = MathF.PI / 4 + k * MathF.PI / 2;
+                    Line(hx, hy, hx + MathF.Cos(a) * 7.2f, hy - MathF.Sin(a) * 7.2f, 0.6f, 0, Color.FromArgb(255, 226, 214, 196));
+                }
+                _windows.Add(new RectangleF(c - 0.5f, b - 6, 1.0f, 1.6f));
+                break;
+            }
+            case "caldera-houses":
+            {
+                // volcanic cliff rising to the right, topped by cascading whitewashed houses and a blue dome
+                Poly(_sil, P(x, b), P(x + 6, b - 5), P(x + 16, b - 9), P(x + 30, b - 13), P(x + 44, b - 16), P(x + lw, b - 17), P(x + lw, b));
+                var white = NewAccent(Color.FromArgb(255, 240, 242, 246), Color.FromArgb(255, 148, 156, 190), glow: true);
+                var blue = NewAccent(Color.FromArgb(255, 36, 100, 188), Color.FromArgb(255, 34, 62, 128));
+                float CliffY(float px) => px < 6 ? b - px * 0.83f : px < 16 ? b - 5 - (px - 6) * 0.4f : px < 30 ? b - 9 - (px - 16) * 0.285f : px < 44 ? b - 13 - (px - 30) * 0.21f : b - 16 - (px - 44) * 0.07f;
+                for (float px = 4; px < lw - 4; px += 4.6f)
+                {
+                    float cy = CliffY(px + 2f);
+                    float bw = 3.6f + (float)rnd.NextDouble() * 1.6f, bh = 2.8f + (float)rnd.NextDouble() * 2.2f;
+                    Rect(white.Path, x + px, cy - bh, bw, bh + 0.8f);
+                    if (rnd.NextDouble() < 0.5) Rect(white.Path, x + px + 0.5f, cy - bh - 1.8f, bw * 0.6f, 1.8f);
+                    _windows.Add(new RectangleF(x + px + bw * 0.4f, cy - bh + 1f, 0.8f, 1f));
+                }
+                float dx = x + lw * 0.62f, dy = CliffY(dx - x + 1.5f);
+                blue.Path.AddPie(dx, dy - 5.8f, 4.6f, 5.4f, 180, 180);
+                Line(dx + 2.3f, dy - 5.8f, dx + 2.3f, dy - 7f, 0.35f, 0, Color.FromArgb(255, 240, 242, 246));
+                break;
+            }
             case "hills-bridge":
             {
                 Hill(_sil, x, lw * 0.55f, 9, b);
@@ -1025,6 +1401,11 @@ internal sealed class RegionScenery : IDisposable
         VehicleKind.VintageCar => (14, 18),
         VehicleKind.TourBus => (10, 13),
         VehicleKind.Car => (20, 28),
+        VehicleKind.Scooter => (14, 22),
+        VehicleKind.YellowCab => (18, 25),
+        VehicleKind.Camel => (4.5f, 6.5f),
+        VehicleKind.Donkey => (4f, 5.5f),
+        VehicleKind.Ferry => (2.6f, 4f),
         VehicleKind.FishingBoat => (2.2f, 3.6f),
         VehicleKind.Sailboat => (3, 5),
         VehicleKind.LanternBoat => (1.6f, 2.6f),
@@ -1035,7 +1416,8 @@ internal sealed class RegionScenery : IDisposable
     {
         VehicleKind.CityBus => 26, VehicleKind.TourBus => 24, VehicleKind.Taxi => 15, VehicleKind.Car => 14,
         VehicleKind.ClassicTaxi => 15, VehicleKind.VintageCar => 13, VehicleKind.KeiTruck => 12,
-        VehicleKind.Cyclo => 13, VehicleKind.FishingBoat => 12, VehicleKind.Sailboat => 9, VehicleKind.LanternBoat => 8,
+        VehicleKind.Cyclo => 13, VehicleKind.Scooter => 10, VehicleKind.YellowCab => 15, VehicleKind.Camel => 14, VehicleKind.Donkey => 11,
+        VehicleKind.Ferry => 15, VehicleKind.FishingBoat => 12, VehicleKind.Sailboat => 9, VehicleKind.LanternBoat => 8,
         _ => 10
     };
 
@@ -1084,6 +1466,10 @@ internal sealed class RegionScenery : IDisposable
                 VehicleKind.CityBus => Color.FromArgb(255, 40, 150, 80),
                 VehicleKind.Taxi => _rng.NextDouble() < 0.5 ? Color.FromArgb(255, 46, 160, 90) : Color.FromArgb(255, 236, 236, 236),
                 VehicleKind.ClassicTaxi => Color.FromArgb(255, 40, 40, 44),
+                VehicleKind.YellowCab => Color.FromArgb(255, 244, 196, 36),
+                VehicleKind.Camel => Color.FromArgb(255, 176, 132, 80),
+                VehicleKind.Donkey => Color.FromArgb(255, 132, 126, 120),
+                VehicleKind.Ferry => Color.FromArgb(255, 236, 238, 240),
                 VehicleKind.TourBus => Color.FromArgb(255, 200, 40, 44),
                 VehicleKind.KeiTruck => Color.FromArgb(255, 236, 236, 236),
                 VehicleKind.VintageCar => _rng.NextDouble() < 0.5 ? Color.FromArgb(255, 120, 170, 200) : Color.FromArgb(255, 200, 70, 60),
@@ -1255,6 +1641,7 @@ internal sealed class RegionScenery : IDisposable
                 break;
             }
             case VehicleKind.Taxi:
+            case VehicleKind.YellowCab:
             case VehicleKind.Car:
             case VehicleKind.ClassicTaxi:
             case VehicleKind.VintageCar:
@@ -1271,7 +1658,7 @@ internal sealed class RegionScenery : IDisposable
                     break;
                 }
                 bool classic = v.Kind == VehicleKind.ClassicTaxi;
-                float len = classic ? 15 : v.Kind == VehicleKind.Taxi ? 15 : 14;
+                float len = classic ? 15 : v.Kind is VehicleKind.Taxi or VehicleKind.YellowCab ? 15 : 14;
                 g.FillRectangle(body, 0, -4.8f, len, 3.4f);
                 if (classic)
                     g.FillPolygon(body, new[] { P(4, -4.8f), P(4.6f, -7.4f), P(10.2f, -7.4f), P(11, -4.8f) });
@@ -1279,13 +1666,65 @@ internal sealed class RegionScenery : IDisposable
                     g.FillPolygon(body, new[] { P(3, -4.8f), P(4.8f, -7.6f), P(10, -7.6f), P(12, -4.8f) });
                 g.FillRectangle(glass, 5.2f, -7f, 2.2f, 1.9f);
                 g.FillRectangle(glass, 8, -7f, 2.0f, 1.9f);
-                if (v.Kind is VehicleKind.Taxi or VehicleKind.ClassicTaxi)
+                if (v.Kind is VehicleKind.Taxi or VehicleKind.ClassicTaxi or VehicleKind.YellowCab)
                 {
                     using var sign = new SolidBrush(Color.FromArgb(255, 255, 214, 90));
                     g.FillRectangle(sign, 6.4f, -8.8f, 2.4f, 1.2f);
                 }
                 Wheel(3, 1.6f); Wheel(len - 3, 1.6f);
                 Headlight(len, -3.6f, 18); Tail(0, -3.6f);
+                break;
+            }
+            case VehicleKind.Scooter:
+            {
+                // Vespa-style scooter with a rounded body and a windscreen.
+                Wheel(1.9f, 1.5f); Wheel(8.2f, 1.5f);
+                g.FillPolygon(body, new[] { P(0.6f, -2.2f), P(1.2f, -5.2f), P(5.4f, -5.4f), P(6.6f, -3.8f), P(8.8f, -3.6f), P(9f, -2.2f), P(6f, -1.4f) });
+                g.DrawLine(pen, 8.2f, -1.6f, 7.8f, -6.4f);
+                g.DrawLine(pen, 7.2f, -6.4f, 8.8f, -6.4f);
+                g.FillRectangle(glass, 7.9f, -8.4f, 0.8f, 2.0f);
+                Rider(3.6f, -5.2f, Paints[v.Seed % Paints.Length]);
+                if (v.Seed % 3 == 0) Rider(1.9f, -4.9f, Paints[(v.Seed / 3) % Paints.Length]);
+                Headlight(9.2f, -3.8f, 14); Tail(0.4f, -3.2f);
+                break;
+            }
+            case VehicleKind.Camel:
+            case VehicleKind.Donkey:
+            {
+                bool camel = v.Kind == VehicleKind.Camel;
+                float sc = camel ? 1f : 0.78f;
+                var hide = SceneClock.Mix(v.Paint, mood.Silhouette, lit ? 0.55f : 0.22f);
+                using var hb = new SolidBrush(hide);
+                using var lp = new Pen(hide, 0.9f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                float stride = MathF.Sin(time * (camel ? 2.4f : 3.2f) + v.Seed) * 0.5f;
+                float legTop = -5.4f * sc;
+                foreach (var (lx, ph) in new[] { (2.2f, 0f), (3.6f, 3.1f), (8.0f, 3.1f), (9.4f, 0f) })
+                {
+                    float sw = MathF.Sin(time * (camel ? 2.4f : 3.2f) + v.Seed + ph) * 1.3f;
+                    g.DrawLine(lp, lx * sc + 1f, legTop, lx * sc + 1f + sw, 0f);
+                }
+                g.FillEllipse(hb, 1f * sc, -9.6f * sc, 10f * sc, 4.6f * sc);                         // body
+                if (camel) g.FillEllipse(hb, 3.6f * sc, -12.4f * sc, 3.2f, 3.4f);                    // hump
+                g.FillPolygon(hb, new[] { P(8.8f * sc, -8.6f * sc), P(11f * sc, -13f * sc), P(12.2f * sc, -12.6f * sc), P(10.2f * sc, -7.6f * sc) }); // neck
+                g.FillEllipse(hb, 11f * sc, -14.2f * sc, 3.6f * sc, 1.8f * sc);                      // head
+                if (!camel) { g.FillPolygon(hb, new[] { P(11.4f * sc, -14f * sc), P(11.8f * sc, -16.2f * sc), P(12.4f * sc, -14f * sc) }); }
+                g.DrawLine(lp, 1.2f * sc, -8.6f * sc, -0.4f * sc, -5.6f * sc + stride * 0.4f);        // tail
+                if (camel && v.Seed % 2 == 0) Rider(5.2f * sc, -11.6f * sc, Color.FromArgb(255, 226, 226, 214), conicalHat: false);
+                break;
+            }
+            case VehicleKind.Ferry:
+            {
+                float bob = MathF.Sin(time * 1.1f + v.Seed) * 0.35f;
+                g.TranslateTransform(0, bob);
+                var hull = SceneClock.Mix(Color.FromArgb(255, 34, 70, 120), mood.Silhouette, lit ? 0.55f : 0.2f);
+                using var hb = new SolidBrush(hull);
+                g.FillPolygon(hb, new[] { P(0, -2.6f), P(14.4f, -2.6f), P(13f, 0.4f), P(1.2f, 0.4f) });
+                g.FillRectangle(body, 1.6f, -5.4f, 10.6f, 2.8f);                                       // passenger deck
+                g.FillRectangle(body, 3.4f, -7.8f, 6f, 2.4f);                                          // bridge
+                for (float wx = 2.2f; wx < 11.4f; wx += 1.9f) g.FillRectangle(glass, wx, -4.8f, 1.2f, 1.1f);
+                g.FillRectangle(glass, 4f, -7.2f, 4.8f, 1.1f);
+                using var stack = new SolidBrush(SceneClock.Mix(Color.FromArgb(255, 200, 50, 40), mood.Silhouette, 0.3f));
+                g.FillRectangle(stack, 6f, -10f, 1.6f, 2.4f);
                 break;
             }
             case VehicleKind.KeiTruck:
