@@ -17,25 +17,103 @@ public sealed class TaskbarRegions
 
 public static class TaskbarService
 {
+    private static readonly object SecondaryCacheLock = new();
+    private static IntPtr[] _cachedSecondaries = Array.Empty<IntPtr>();
+
     public static List<TaskbarInfo> GetTaskbars()
     {
         var list = new List<TaskbarInfo>();
+        var seen = new HashSet<IntPtr>();
         var primary = Native.FindWindow("Shell_TrayWnd", null);
         if (primary != IntPtr.Zero && Native.GetWindowRect(primary, out var pr) && TaskbarGeometry.IsUsableBounds(pr.ToRectangle()))
+        {
+            seen.Add(primary);
             list.Add(new TaskbarInfo(primary, pr.ToRectangle(), true));
+        }
+
+        void ConsiderSecondary(IntPtr h)
+        {
+            if (h == IntPtr.Zero || h == primary || !seen.Add(h)) return;
+            if (!TryReadSecondary(h, out var info)) return;
+            list.Add(info);
+        }
 
         Native.EnumWindows((h, _) =>
         {
-            if (h == primary) return true;
-            if (!Native.IsWindowVisible(h)) return true;
-            if (Native.GetClass(h) != "Shell_SecondaryTrayWnd") return true;
-            if (!Native.GetWindowRect(h, out var r) || !TaskbarGeometry.IsUsableBounds(r.ToRectangle())) return true;
-            list.Add(new TaskbarInfo(h, r.ToRectangle(), false));
+            if (Native.GetClass(h) == "Shell_SecondaryTrayWnd")
+                ConsiderSecondary(h);
             return true;
         }, IntPtr.Zero);
 
+        // Opening Start on a secondary monitor can drop Shell_SecondaryTrayWnd
+        // from EnumWindows while the hwnd stays alive, visible, and the same
+        // size. FindWindowEx and last-known hwnds still see it.
+        IntPtr prev = IntPtr.Zero;
+        for (int i = 0; i < 16; i++)
+        {
+            var h = Native.FindWindowEx(IntPtr.Zero, prev, "Shell_SecondaryTrayWnd", null);
+            if (h == IntPtr.Zero) break;
+            ConsiderSecondary(h);
+            prev = h;
+        }
+
+        IntPtr[] cached;
+        lock (SecondaryCacheLock) cached = _cachedSecondaries;
+        foreach (var recovered in MergeSecondaryTaskbars(Array.Empty<TaskbarInfo>(), cached, primary,
+                     h => TryReadSecondary(h, out var info) ? info : null))
+            ConsiderSecondary(recovered.Hwnd);
+
+        var secondaries = list.Where(b => !b.IsPrimary).Select(b => b.Hwnd).ToArray();
+        lock (SecondaryCacheLock) _cachedSecondaries = secondaries;
         return list;
     }
+
+    /// <summary>
+    /// A secondary tray is still usable if its hwnd is alive and has a real
+    /// bar rect — even when EnumWindows missed it (Start on that monitor).
+    /// </summary>
+    internal static bool TryReadSecondary(IntPtr hwnd, out TaskbarInfo info)
+    {
+        info = default;
+        if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd)) return false;
+        if (!Native.GetWindowRect(hwnd, out var r)) return false;
+        var bounds = r.ToRectangle();
+        if (!TaskbarGeometry.IsUsableBounds(bounds)) return false;
+        info = new TaskbarInfo(hwnd, bounds, false);
+        return true;
+    }
+
+    /// <summary>
+    /// Combine the secondary trays found in this pass with last-known hwnds
+    /// that are still alive, without duplicating the primary bar.
+    /// </summary>
+    internal static List<TaskbarInfo> MergeSecondaryTaskbars(
+        IReadOnlyList<TaskbarInfo> found,
+        IEnumerable<IntPtr> knownSecondaries,
+        IntPtr primary,
+        Func<IntPtr, TaskbarInfo?> tryRead)
+    {
+        var list = found.ToList();
+        var seen = new HashSet<IntPtr>(list.Select(b => b.Hwnd));
+        if (primary != IntPtr.Zero) seen.Add(primary);
+        foreach (var h in knownSecondaries)
+        {
+            if (h == IntPtr.Zero || !seen.Add(h)) continue;
+            var info = tryRead(h);
+            if (info is { } t) list.Add(t);
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Keep an existing overlay when its bar is listed this pass; park it
+    /// (preserve the diorama) when a still-alive hwnd was missed this pass;
+    /// dispose only when the hwnd is truly gone.
+    /// </summary>
+    internal static TaskbarOverlayRetention DecideOverlayRetention(bool listedInThisPass, bool hwndStillAlive)
+        => listedInThisPass
+            ? TaskbarOverlayRetention.Keep
+            : hwndStillAlive ? TaskbarOverlayRetention.Park : TaskbarOverlayRetention.Dispose;
 
     public static bool IsAutoHidden(Rectangle bounds)
         => TaskbarGeometry.IsAutoHidden(bounds);
@@ -156,3 +234,5 @@ public static class TaskbarService
         return true;
     }
 }
+
+internal enum TaskbarOverlayRetention { Keep, Park, Dispose }

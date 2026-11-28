@@ -62,6 +62,8 @@ internal sealed class TrayApp : ApplicationContext
     // v5
     private readonly TaskbarLayoutProbe _layout;
     private readonly List<BackdropWindow> _backdrops = new();
+    private readonly Dictionary<IntPtr, OverlayWindow> _parkedOverlays = new();
+    private readonly Dictionary<IntPtr, BackdropWindow> _parkedBackdrops = new();
     private int _tapFailedPid;
     private string? _tapBlockedReason;
     private bool _attachInFlight;
@@ -1255,36 +1257,111 @@ internal sealed class TrayApp : ApplicationContext
             seen.Add(b.Hwnd);
         }
         foreach (var dead in _regions.Keys.Where(k => !seen.Contains(k)).ToList())
+        {
+            // Keep last-good regions while the tray hwnd is only transiently
+            // missing from this pass (Start on a secondary monitor).
+            if (Native.IsWindow(dead)) continue;
             _regions.Remove(dead);
-        while (_backdrops.Count > bars.Count)
-        {
-            var last = _backdrops[^1];
-            _backdrops.RemoveAt(_backdrops.Count - 1);
-            try { last.HideNow(); last.Close(); last.Dispose(); } catch { }
         }
-        while (_backdrops.Count < bars.Count) _backdrops.Add(new BackdropWindow());
-        for (int i = 0; i < bars.Count; i++) _backdrops[i].TaskbarHwnd = bars[i].Hwnd;
 
-        while (_overlays.Count > bars.Count)
+        RetainBarWindows(bars);
+    }
+
+    /// <summary>
+    /// Park, rather than dispose, an overlay whose taskbar hwnd is still
+    /// alive but was missing from this pass. Disposing wiped the diorama
+    /// when EnumWindows dropped Shell_SecondaryTrayWnd during Start.
+    /// </summary>
+    private void RetainBarWindows(List<TaskbarInfo> bars)
+    {
+        var wanted = new HashSet<IntPtr>(bars.Select(b => b.Hwnd));
+
+        for (int i = _overlays.Count - 1; i >= 0; i--)
         {
-            var last = _overlays[^1];
-            _overlays.RemoveAt(_overlays.Count - 1);
-            last.Close();
-            last.Dispose();
+            var o = _overlays[i];
+            var h = o.TaskbarHwnd;
+            var decision = TaskbarService.DecideOverlayRetention(wanted.Contains(h), h != IntPtr.Zero && Native.IsWindow(h));
+            if (decision == TaskbarOverlayRetention.Keep) continue;
+            _overlays.RemoveAt(i);
+            if (decision == TaskbarOverlayRetention.Park)
+            {
+                try { o.Hide(); } catch { }
+                _parkedOverlays[h] = o;
+            }
+            else
+            {
+                try { o.Close(); o.Dispose(); } catch { }
+                _parkedOverlays.Remove(h);
+            }
         }
-        while (_overlays.Count < bars.Count)
+
+        for (int i = _backdrops.Count - 1; i >= 0; i--)
         {
-            var w = new OverlayWindow();
-            w.Show();
-            _overlays.Add(w);
+            var b = _backdrops[i];
+            var h = b.TaskbarHwnd;
+            var decision = TaskbarService.DecideOverlayRetention(wanted.Contains(h), h != IntPtr.Zero && Native.IsWindow(h));
+            if (decision == TaskbarOverlayRetention.Keep) continue;
+            _backdrops.RemoveAt(i);
+            if (decision == TaskbarOverlayRetention.Park)
+            {
+                try { b.HideNow(); } catch { }
+                _parkedBackdrops[h] = b;
+            }
+            else
+            {
+                try { b.HideNow(); b.Close(); b.Dispose(); } catch { }
+                _parkedBackdrops.Remove(h);
+            }
         }
-        for (int i = 0; i < bars.Count; i++)
+
+        var nextOverlays = new List<OverlayWindow>(bars.Count);
+        var nextBackdrops = new List<BackdropWindow>(bars.Count);
+        foreach (var bar in bars)
         {
-            _overlays[i].TaskbarHwnd = bars[i].Hwnd;
-            _overlays[i].IsPrimaryTaskbar = bars[i].IsPrimary;
-            _overlays[i].MoveTo(bars[i].Bounds);
-            _overlays[i].ReassertZ(_fused);
+            var existing = _overlays.FirstOrDefault(o => o.TaskbarHwnd == bar.Hwnd);
+            if (existing is null && _parkedOverlays.Remove(bar.Hwnd, out var parked))
+                existing = parked;
+            if (existing is null)
+            {
+                existing = new OverlayWindow();
+                existing.Show();
+            }
+            existing.TaskbarHwnd = bar.Hwnd;
+            existing.IsPrimaryTaskbar = bar.IsPrimary;
+            existing.MoveTo(bar.Bounds);
+            existing.ReassertZ(_fused);
+            if (!existing.Visible)
+            {
+                existing.Show();
+                existing.ReassertZ(_fused);
+            }
+            nextOverlays.Add(existing);
+
+            var existingBd = _backdrops.FirstOrDefault(b => b.TaskbarHwnd == bar.Hwnd);
+            if (existingBd is null && _parkedBackdrops.Remove(bar.Hwnd, out var parkedBd))
+                existingBd = parkedBd;
+            existingBd ??= new BackdropWindow();
+            existingBd.TaskbarHwnd = bar.Hwnd;
+            nextBackdrops.Add(existingBd);
         }
+        _overlays.Clear();
+        _overlays.AddRange(nextOverlays);
+        _backdrops.Clear();
+        _backdrops.AddRange(nextBackdrops);
+    }
+
+    private void DisposeParkedBarWindows()
+    {
+        foreach (var o in _parkedOverlays.Values)
+        {
+            try { o.Close(); o.Dispose(); } catch { }
+        }
+        _parkedOverlays.Clear();
+        foreach (var b in _parkedBackdrops.Values)
+        {
+            try { b.HideNow(); b.Close(); b.Dispose(); } catch { }
+        }
+        _parkedBackdrops.Clear();
     }
 
     private void UpdateTip()
@@ -1322,6 +1399,7 @@ internal sealed class TrayApp : ApplicationContext
         _overlays.Clear();
         foreach (var b in _backdrops) { try { b.HideNow(); b.Close(); b.Dispose(); } catch { } }
         _backdrops.Clear();
+        DisposeParkedBarWindows();
         try { _layout.Dispose(); } catch { }
         try { _tap.Detach(Log); } catch { }
         _transparency.Restore();
