@@ -227,7 +227,9 @@ internal sealed class TaskbarLayoutProbe : IDisposable
             var cls = Native.GetClass(h);
             if (cls is "TrayNotifyWnd" or "Start" or "TrayButton" or "TrayClockWClass" or "MSTaskSwWClass" or "MSTaskListWClass")
             {
-                if (r.Width < bounds.Width * 0.6)
+                int itemAlong = TaskbarGeometry.IsVertical(bounds) ? r.Height : r.Width;
+                int barAlong = TaskbarGeometry.Length(bounds);
+                if (itemAlong < barAlong * 0.6)
                 {
                     items.Add(r);
                     legacy++;
@@ -241,32 +243,50 @@ internal sealed class TaskbarLayoutProbe : IDisposable
         if (uia == 0)
         {
             // 3) Conservative fallback: without UIA we cannot see XAML buttons, so
-            // protect everything except a narrow strip at the far left. Never guess widths.
-            int keep = Math.Min(bounds.Width / 8, bounds.Height * 3);
-            var guard = Rectangle.FromLTRB(bounds.Left + keep, bounds.Top, bounds.Right, bounds.Bottom);
+            // protect everything except a narrow strip at the start of the bar
+            // (left on a horizontal bar, top on a vertical bar). Never guess sizes.
+            var guard = FallbackConservativeCutout(bounds);
             items.Add(guard);
             snap.Source = "fallback-conservative(legacy=" + legacy + ")";
         }
         else snap.Source = "uia(" + uia + ")+legacy(" + legacy + ")";
 
         snap.UiaCount = uia;
-        snap.Items = MergeNearby(items, 1);
+        snap.Items = MergeNearby(items, 1, TaskbarGeometry.IsVertical(bounds));
         snap.TaskArea = task.Count > 0 ? task.Aggregate(Rectangle.Union) : Rectangle.Empty;
         snap.TrayArea = tray.Count > 0 ? tray.Aggregate(Rectangle.Union) : Rectangle.Empty;
         return snap;
     }
 
-    /// <summary>Merge overlapping / touching rects (in X) into column bands for a simpler mask.</summary>
-    private static List<Rectangle> MergeNearby(List<Rectangle> rects, int gap)
+    /// <summary>
+    /// Conservative cut-out used when UIA returns no items: keep a narrow start
+    /// strip (left or top) and treat the rest of the bar as occupied.
+    /// </summary>
+    internal static Rectangle FallbackConservativeCutout(Rectangle bounds)
     {
-        var sorted = rects.OrderBy(r => r.Left).ToList();
+        if (TaskbarGeometry.IsVertical(bounds))
+        {
+            int keep = Math.Min(Math.Max(8, bounds.Height / 8), bounds.Width * 3);
+            return Rectangle.FromLTRB(bounds.Left, bounds.Top + keep, bounds.Right, bounds.Bottom);
+        }
+        int keepH = Math.Min(Math.Max(8, bounds.Width / 8), bounds.Height * 3);
+        return Rectangle.FromLTRB(bounds.Left + keepH, bounds.Top, bounds.Right, bounds.Bottom);
+    }
+
+    /// <summary>Merge overlapping / touching rects along the bar's long axis.</summary>
+    private static List<Rectangle> MergeNearby(List<Rectangle> rects, int gap, bool vertical = false)
+    {
+        var sorted = vertical
+            ? rects.OrderBy(r => r.Top).ToList()
+            : rects.OrderBy(r => r.Left).ToList();
         var outList = new List<Rectangle>();
         foreach (var r in sorted)
         {
             if (outList.Count > 0)
             {
                 var last = outList[^1];
-                if (r.Left <= last.Right + gap)
+                bool touch = vertical ? r.Top <= last.Bottom + gap : r.Left <= last.Right + gap;
+                if (touch)
                 {
                     outList[^1] = Rectangle.Union(last, r);
                     continue;

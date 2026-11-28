@@ -21,7 +21,7 @@ public static class TaskbarService
     {
         var list = new List<TaskbarInfo>();
         var primary = Native.FindWindow("Shell_TrayWnd", null);
-        if (primary != IntPtr.Zero && Native.GetWindowRect(primary, out var pr) && pr.Width > 0 && pr.Height > 0)
+        if (primary != IntPtr.Zero && Native.GetWindowRect(primary, out var pr) && TaskbarGeometry.IsUsableBounds(pr.ToRectangle()))
             list.Add(new TaskbarInfo(primary, pr.ToRectangle(), true));
 
         Native.EnumWindows((h, _) =>
@@ -29,7 +29,7 @@ public static class TaskbarService
             if (h == primary) return true;
             if (!Native.IsWindowVisible(h)) return true;
             if (Native.GetClass(h) != "Shell_SecondaryTrayWnd") return true;
-            if (!Native.GetWindowRect(h, out var r) || r.Width <= 0 || r.Height <= 0) return true;
+            if (!Native.GetWindowRect(h, out var r) || !TaskbarGeometry.IsUsableBounds(r.ToRectangle())) return true;
             list.Add(new TaskbarInfo(h, r.ToRectangle(), false));
             return true;
         }, IntPtr.Zero);
@@ -38,7 +38,7 @@ public static class TaskbarService
     }
 
     public static bool IsAutoHidden(Rectangle bounds)
-        => bounds.Width <= 4 || bounds.Height <= 4;
+        => TaskbarGeometry.IsAutoHidden(bounds);
 
     public static TaskbarRegions GetRegions(TaskbarInfo info, AppConfig cfg, TaskbarLayoutSnapshot? layout)
     {
@@ -69,10 +69,12 @@ public static class TaskbarService
     public static List<(int L, int R)> FreeSpans(TaskbarRegions regions, int width, int guard, int minWidth = 8)
     {
         var spans = new List<(int L, int R)> { (0, width) };
+        bool vertical = TaskbarGeometry.IsVertical(regions.Bounds);
         foreach (var c in regions.Cutouts)
         {
-            int l = c.Left - regions.Bounds.X - guard;
-            int r = c.Right - regions.Bounds.X + guard;
+            var (a, b) = TaskbarGeometry.AlongSpan(c, regions.Bounds);
+            int l = a - guard;
+            int r = b + guard;
             var next = new List<(int L, int R)>();
             foreach (var s in spans)
             {

@@ -78,7 +78,8 @@ internal sealed class OverlayWindow : Form
         EnsureBuffer(bounds.Width, bounds.Height);
         _rain = Array.Empty<RainDrop>();
         _clouds = Array.Empty<CloudBlob>();
-        _diorama.Reset();
+        // Do not Reset the diorama: a genuine size/edge change must re-layout
+        // but must not re-seed vehicles, landmarks or the day-cycle.
     }
 
     // v5 layout cache (physical pixels, client coords)
@@ -117,14 +118,18 @@ internal sealed class OverlayWindow : Form
         int W = _rw, H = _rh;
         var mood = SceneClock.Compose(ctx.Weather, ctx.Cfg, DateTime.Now);
         bool behind = ctx.Fused && ctx.BehindOk;
-        // Per-monitor DPI: the scene is authored for a 48 px bar and scaled
-        // to the real physical height (60 px at 125 %, 72 px at 150 %...).
-        float s = Math.Max(0.5f, H / 48f);
-        int logicalW = (int)Math.Ceiling(W / s);
+        var barRect = ctx.Regions.Bounds.IsEmpty ? new Rectangle(0, 0, W, H) : ctx.Regions.Bounds;
+        bool vertical = TaskbarGeometry.IsVertical(barRect) || (H > W);
+        int thick = vertical ? W : H;
+        int along = vertical ? H : W;
+        // Per-monitor DPI / Small-Large: the scene is authored for a 48 px thickness
+        // and scaled to the real physical thickness (32 / 48 / 72 / 150% ...).
+        float s = Math.Max(0.5f, thick / 48f);
+        int logicalW = (int)Math.Ceiling(along / s);
         using (var g = Graphics.FromImage(buffer))
         {
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-            UpdateLayout(g, ctx, mood, s);
+            UpdateLayout(g, ctx, mood, s, along, thick, vertical);
 
             g.CompositingMode = CompositingMode.SourceOver;
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -138,7 +143,7 @@ internal sealed class OverlayWindow : Form
                 ? new RectangleF(_badgeRect.X / s, _badgeRect.Y / s, _badgeRect.Width / s, _badgeRect.Height / s)
                 : RectangleF.Empty);
             var st = g.Save();
-            g.ScaleTransform(s, s);
+            ApplyBarTransform(g, s, W, H, vertical, barRect);
             _diorama.Draw(g, ctx, mood, ctx.Time);
             g.Restore(st);
 
@@ -146,7 +151,10 @@ internal sealed class OverlayWindow : Form
                 DimUnderIcons(g, ctx);
 
             if (ctx.ShowWeather && _badgeLevel >= 0 && !_badgeRect.IsEmpty)
-                DioramaRenderer.DrawBadge(g, mood, _badgeRect, H, _badgeLevel);
+            {
+                var badge = vertical ? MapBadgeToScreen(_badgeRect, W, H, barRect) : _badgeRect;
+                DioramaRenderer.DrawBadge(g, mood, badge, vertical ? W : H, _badgeLevel);
+            }
         }
         // Safe mode (not truly behind the taskbar): punch crisp, DPI-exact
         // holes around every UIA-measured taskbar item. Never skipped.
@@ -154,7 +162,43 @@ internal sealed class OverlayWindow : Form
             ApplyCutoutMask(buffer);
     }
 
-    private void UpdateLayout(Graphics g, FrameContext ctx, SceneMood mood, float s)
+    /// <summary>
+    /// Map the 48 px-tall panorama onto the bar: scale by thickness, and for a
+    /// vertical bar rotate so the scene runs along the long axis with the ground
+    /// toward the desktop (right side of a left bar, left side of a right bar).
+    /// </summary>
+    internal static void ApplyBarTransform(Graphics g, float s, int width, int height, bool vertical, Rectangle barRect)
+    {
+        if (!vertical)
+        {
+            g.ScaleTransform(s, s);
+            return;
+        }
+        Rectangle mon;
+        try { mon = Screen.FromRectangle(barRect).Bounds; }
+        catch { mon = Rectangle.Empty; }
+        bool leftSide = TaskbarGeometry.IsLeftSide(barRect, mon);
+        // GDI+ Matrix(m11,m12,m21,m22,dx,dy): x' = m11 x + m21 y + dx; y' = m12 x + m22 y + dy
+        // Left bar: (lx,ly) -> (s*ly, s*lx). Right bar: (lx,ly) -> (width - s*ly, s*lx).
+        if (leftSide)
+            g.MultiplyTransform(new Matrix(0, s, s, 0, 0, 0));
+        else
+            g.MultiplyTransform(new Matrix(0, s, -s, 0, width, 0));
+    }
+
+    private static RectangleF MapBadgeToScreen(RectangleF badge, int width, int height, Rectangle barRect)
+    {
+        Rectangle mon;
+        try { mon = Screen.FromRectangle(barRect).Bounds; }
+        catch { mon = Rectangle.Empty; }
+        bool leftSide = TaskbarGeometry.IsLeftSide(barRect, mon);
+        // badge is in (along, thickness) space.
+        if (leftSide)
+            return new RectangleF(badge.Y, badge.X, badge.Height, badge.Width);
+        return new RectangleF(width - badge.Y - badge.Height, badge.X, badge.Height, badge.Width);
+    }
+
+    private void UpdateLayout(Graphics g, FrameContext ctx, SceneMood mood, float s, int along, int thick, bool vertical)
     {
         string text = ctx.ShowWeather ? mood.TemperatureText + "|" + mood.ConditionVi + "|" + mood.Place + "|" + ctx.Cfg.WeatherPosition : "-";
         string key = ctx.Regions.Signature + "|" + _rw + "x" + _rh + "|" + text + "|" + ctx.Region.Id;
@@ -165,10 +209,10 @@ internal sealed class OverlayWindow : Form
 
         int pad = Math.Max(2, (int)Math.Round(2 * s));
         int feather = Math.Max(4, (int)Math.Round(6 * s));
-        var spans = TaskbarService.FreeSpans(ctx.Regions, _rw, pad + feather, 6);
+        var spans = TaskbarService.FreeSpans(ctx.Regions, along, pad + feather, 6);
 
-        // Column visibility: 0 inside (cutout + pad), smooth 6px (scaled) feather outside.
-        _colVis = LayoutMath.ColumnVisibility(ctx.Regions.Cutouts, ctx.Regions.Bounds, _rw, pad, feather);
+        // Visibility along the long axis: 0 inside (cutout + pad), smooth feather outside.
+        _colVis = LayoutMath.ColumnVisibility(ctx.Regions.Cutouts, ctx.Regions.Bounds, along, pad, feather);
 
         // Weather HUD: largest-fitting free span (left or right preference).
         _badgeRect = RectangleF.Empty;
@@ -179,7 +223,7 @@ internal sealed class OverlayWindow : Form
             for (int level = 0; level <= 2 && _badgeLevel < 0; level++)
             {
                 var size = DioramaRenderer.MeasureBadge(g, mood, _rh, level);
-                var rect = LayoutMath.PlaceBadge(spans, size, margin, _rh, ctx.Cfg.WeatherPosition == "right");
+                var rect = LayoutMath.PlaceBadge(spans, size, margin, thick, ctx.Cfg.WeatherPosition == "right");
                 if (rect.IsEmpty) continue;
                 _badgeRect = rect;
                 _badgeLevel = level;
@@ -199,8 +243,8 @@ internal sealed class OverlayWindow : Form
             else free.Add((sp.L, sp.R));
         }
         float totalFree = free.Sum(f => f.R - f.L);
-        if (TaskbarLayoutHold.ShouldExpandCollapsedSpansToFullWidth(ctx.Regions.LayoutSource, totalFree, _rw))
-            free = new List<(float L, float R)> { (0, _rw) };
+        if (TaskbarLayoutHold.ShouldExpandCollapsedSpansToFullWidth(ctx.Regions.LayoutSource, totalFree, along))
+            free = new List<(float L, float R)> { (0, along) };
         _logicalSpans = free.Select(f => (f.L / s, f.R / s)).ToList();
         LastLayoutInfo = $"cutouts={ctx.Regions.Cutouts.Count} spans=[{string.Join(", ", spans.Select(x => x.L + "-" + x.R))}] badge={(_badgeLevel >= 0 ? $"L{_badgeLevel}@{_badgeRect.X:0}+{_badgeRect.Width:0}" : "none")} scale={s:0.00}";
     }
@@ -208,13 +252,17 @@ internal sealed class OverlayWindow : Form
     private void ApplyCutoutMask(Bitmap bmp)
     {
         int w = bmp.Width, h = bmp.Height;
-        if (_colVis.Length != w) return;
+        bool vertical = _colVis.Length == h && h > w;
+        if (!vertical && _colVis.Length != w) return;
+        if (vertical && _colVis.Length != h) return;
         var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format32bppPArgb);
         try
         {
             int stride = Math.Abs(data.Stride);
             var buf = new byte[stride * h];
             System.Runtime.InteropServices.Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+            if (!vertical)
+            {
             for (int x = 0; x < w; x++)
             {
                 float vis = _colVis[x];
@@ -230,6 +278,26 @@ internal sealed class OverlayWindow : Form
                     buf[i + 3] = (byte)((buf[i + 3] * mul) >> 8);
                 }
             }
+            }
+            else
+            {
+            for (int y = 0; y < h; y++)
+            {
+                float vis = _colVis[y];
+                if (vis >= 0.999f) continue;
+                int mul = Math.Clamp((int)(vis * 256f), 0, 256);
+                int row = y * stride;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x * 4;
+                    if (mul == 0) { buf[i] = buf[i + 1] = buf[i + 2] = buf[i + 3] = 0; continue; }
+                    buf[i] = (byte)((buf[i] * mul) >> 8);
+                    buf[i + 1] = (byte)((buf[i + 1] * mul) >> 8);
+                    buf[i + 2] = (byte)((buf[i + 2] * mul) >> 8);
+                    buf[i + 3] = (byte)((buf[i + 3] * mul) >> 8);
+                }
+            }
+            }
             System.Runtime.InteropServices.Marshal.Copy(buf, 0, data.Scan0, buf.Length);
         }
         finally { bmp.UnlockBits(data); }
@@ -240,7 +308,7 @@ internal sealed class OverlayWindow : Form
         // Truly behind the taskbar: icons sit on top; a faint calm band keeps them readable.
         using var br = new SolidBrush(Color.FromArgb(46, 6, 8, 14));
         foreach (var c in ctx.Regions.Cutouts)
-            g.FillRectangle(br, c.Left - ctx.Regions.Bounds.X, 0, c.Width, _rh);
+            g.FillRectangle(br, c.Left - ctx.Regions.Bounds.X, c.Top - ctx.Regions.Bounds.Y, c.Width, c.Height);
     }
 
     private void DrawBackground(Graphics g, FrameContext ctx, float live)

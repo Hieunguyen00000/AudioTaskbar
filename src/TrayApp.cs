@@ -1079,7 +1079,7 @@ internal sealed class TrayApp : ApplicationContext
                     + " bounds=" + reg.Bounds.Width + "x" + reg.Bounds.Height + " cutouts="
                     + string.Join(",", reg.Cutouts.Select(c => (c.Left - reg.Bounds.Left) + "-" + (c.Right - reg.Bounds.Left))));
             _regions[o.TaskbarHwnd] = reg;
-            if (snap.Bounds != o.Bounds && snap.Bounds.Width > 4 && snap.Bounds.Height > 4)
+            if (TaskbarGeometry.IsUsableBounds(snap.Bounds) && snap.Bounds != o.Bounds)
                 o.MoveTo(snap.Bounds);
         }
     }

@@ -136,13 +136,17 @@ internal static class TapSignature
 }
 
 /// <summary>
-/// Crash-loop circuit breaker: if Explorer exits within <see cref="Window"/> of a TAP attach,
-/// assume the TAP was involved and never attach again for this session.
+/// Crash-loop circuit breaker: if Explorer exits twice within <see cref="Window"/> of a TAP
+/// attach, assume the TAP was involved and never attach again for this session.
+/// A single exit (taskbar Personalization, user restart of Explorer) is not enough —
+/// those are expected and TAP must be allowed to re-attach via TaskbarCreated.
 /// </summary>
 internal sealed class CrashLoopBreaker
 {
     public static readonly TimeSpan Window = TimeSpan.FromSeconds(90);
+    public const int ExitsToTrip = 2;
     private DateTime _attachedAt = DateTime.MinValue;
+    private int _exitsInWindow;
     public bool Tripped { get; private set; }
     public string? Reason { get; private set; }
 
@@ -151,18 +155,83 @@ internal sealed class CrashLoopBreaker
     /// <summary>Call when the attached Explorer went away. Returns true when the breaker trips.</summary>
     public bool OnExplorerExited(DateTime now)
     {
+        if (Tripped) return true;
         if (_attachedAt == DateTime.MinValue) return false;
         var since = now - _attachedAt;
         if (since >= TimeSpan.Zero && since < Window)
         {
-            Tripped = true;
-            Reason = "explorer-exited-soon-after-attach";
-            return true;
+            _exitsInWindow++;
+            if (_exitsInWindow >= ExitsToTrip)
+            {
+                Tripped = true;
+                Reason = "explorer-exited-soon-after-attach";
+                return true;
+            }
+            return false;
         }
         return false;
     }
 
     public bool AllowsAttach => !Tripped;
+}
+
+/// <summary>Orientation and auto-hide geometry for a taskbar of any edge (bottom/top/left/right).</summary>
+internal static class TaskbarGeometry
+{
+    public static bool IsVertical(Rectangle bounds)
+        => bounds.Height > bounds.Width;
+
+    public static int Thickness(Rectangle bounds)
+        => IsVertical(bounds) ? bounds.Width : bounds.Height;
+
+    public static int Length(Rectangle bounds)
+        => IsVertical(bounds) ? bounds.Height : bounds.Width;
+
+    public static bool IsUsableBounds(Rectangle bounds)
+        => bounds.Width >= 8 && bounds.Height >= 8;
+
+    /// <summary>
+    /// Auto-hide can shrink the hwnd to a 2 px strip *or* slide a full-size hwnd
+    /// mostly off-screen (Win11 often keeps 48 px height at Y=screenBottom-2).
+    /// Treat either as hidden so the overlay does not sit on the reveal hotspot.
+    /// </summary>
+    public static bool IsAutoHidden(Rectangle bounds, Rectangle monitor)
+    {
+        if (bounds.Width <= 4 || bounds.Height <= 4) return true;
+        if (monitor.Width <= 0 || monitor.Height <= 0) return false;
+        var vis = Rectangle.Intersect(bounds, monitor);
+        if (vis.IsEmpty) return true;
+        return vis.Width <= 4 || vis.Height <= 4;
+    }
+
+    public static bool IsAutoHidden(Rectangle bounds)
+    {
+        if (bounds.Width <= 4 || bounds.Height <= 4) return true;
+        try
+        {
+            var mon = System.Windows.Forms.Screen.FromRectangle(bounds).Bounds;
+            return IsAutoHidden(bounds, mon);
+        }
+        catch
+        {
+            return bounds.Width <= 4 || bounds.Height <= 4;
+        }
+    }
+
+    /// <summary>Item span along the bar's long axis, in client coordinates.</summary>
+    public static (int L, int R) AlongSpan(Rectangle item, Rectangle bounds)
+    {
+        if (IsVertical(bounds))
+            return (item.Top - bounds.Top, item.Bottom - bounds.Top);
+        return (item.Left - bounds.Left, item.Right - bounds.Left);
+    }
+
+    /// <summary>True when the bar sits on the left edge (desktop is to its right).</summary>
+    public static bool IsLeftSide(Rectangle bounds, Rectangle monitor)
+    {
+        if (monitor.Width <= 0) return bounds.X <= 0;
+        return (bounds.X - monitor.X) <= (monitor.Right - bounds.Right);
+    }
 }
 
 internal static class SceneMath
@@ -190,8 +259,9 @@ internal static class LayoutMath
         Array.Fill(vis, 1f);
         foreach (var c in cutouts)
         {
-            int l = c.Left - bounds.X - pad;
-            int r = c.Right - bounds.X + pad;
+            var (spanL, spanR) = TaskbarGeometry.AlongSpan(c, bounds);
+            int l = spanL - pad;
+            int r = spanR + pad;
             int a = Math.Max(0, l - feather), b = Math.Min(width, r + feather);
             for (int x = a; x < b; x++)
             {

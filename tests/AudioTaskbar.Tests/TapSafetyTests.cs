@@ -24,12 +24,25 @@ public class TapSafetyTests
     }
 
     [Fact]
-    public void Explorer_exit_within_90s_trips_the_breaker()
+    public void A_single_explorer_exit_within_90s_does_not_trip()
+    {
+        // Personalization changes (position, size, auto-hide) restart Explorer once.
+        var b = new CrashLoopBreaker();
+        var t0 = new DateTime(2026, 11, 27, 15, 0, 0);
+        b.RecordAttach(t0);
+        Assert.False(b.OnExplorerExited(t0.AddSeconds(30)));
+        Assert.False(b.Tripped);
+        Assert.True(b.AllowsAttach);
+    }
+
+    [Fact]
+    public void Two_explorer_exits_within_90s_trip_the_breaker()
     {
         var b = new CrashLoopBreaker();
         var t0 = new DateTime(2026, 11, 27, 15, 0, 0);
         b.RecordAttach(t0);
-        Assert.True(b.OnExplorerExited(t0.AddSeconds(30)));
+        Assert.False(b.OnExplorerExited(t0.AddSeconds(20)));
+        Assert.True(b.OnExplorerExited(t0.AddSeconds(40)));
         Assert.True(b.Tripped);
         Assert.False(b.AllowsAttach);
         Assert.False(string.IsNullOrWhiteSpace(b.Reason));
@@ -64,6 +77,7 @@ public class TapSafetyTests
         var t0 = DateTime.Now;
         b.RecordAttach(t0);
         b.OnExplorerExited(t0.AddSeconds(10));
+        b.OnExplorerExited(t0.AddSeconds(20));
         b.RecordAttach(t0.AddMinutes(10));
         b.OnExplorerExited(t0.AddMinutes(30));
         Assert.True(b.Tripped);
