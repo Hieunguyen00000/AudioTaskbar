@@ -94,12 +94,12 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |------|------|----------|---------|
 | `mode` | string | `"diorama"` | `diorama` (hoặc `scene`): cảnh vật. `spectrum` / `waveform` / `both`: bật lại visualizer âm thanh tương ứng nếu `showSpectrum`/`showWaveform` đang tắt. |
-| `showTrain` | bool | `true` | Tàu hỏa vào ga từ trái, chậm dần, dừng ở sân ga nhỏ (khách xuống rồi lên), rời ga và tăng tốc về bên phải (đầu máy, toa, đèn, khói). Menu: *Cảnh vật → Tàu hỏa*. |
-| `showAirplane` | bool | `true` | v5.4.1: máy bay lăn bánh từ mép trái, cất cánh, leo lên, bay ngang cao giữa thanh, rồi hạ dần và rời khỏi tầm nhìn ở thấp gần mép phải (không hạ cánh, không nhà ga hay hành khách). Đường băng ngắn ở bên trái khoảng trống đủ chỗ; xe cộ không chạy vào đó. Thanh quá hẹp thì không vẽ đường băng, máy bay vẫn bay. Menu: *Cảnh vật → Máy bay*. |
+| `showTrain` | bool | `true` | Tàu hỏa vào ga từ trái, chậm dần, dừng ở sân ga nhỏ (khách xuống rồi lên), rời ga và tăng tốc về bên phải (đầu máy, toa, đèn, khói). v5.4.2: chạy lâu hơn, dừng ga ngắn hơn — trong một vòng, chạy 84 % (trước 76 %), dừng ga 12 % (trước 20 %); vòng 2 phút: chạy 100,8 s (trước 91,2 s), dừng 14,4 s (trước 24 s). Menu: *Cảnh vật → Tàu hỏa*. |
+| `showAirplane` | bool | `true` | v5.4.2: không còn đường băng. Máy bay chỉ có ba trạng thái: xuất hiện đã ở trên không, thấp, ở mép trái và leo dần; bay ngang giữ độ cao qua giữa thanh; hạ dần và biến mất ở mép phải. Không có gì trên mặt đất, xe cộ và tàu không phải tránh chỗ nào. Menu: *Cảnh vật → Máy bay*. |
 | `showCyclist` | bool | `true` | Người đi xe đạp (đèn đêm, dù khi mưa). *Cảnh vật → Xe đạp*. |
 | `showAmbientDetails` | bool | `true` | Chim, đom đóm, sao băng, khinh khí cầu, đèn phố. *Cảnh vật → Chim & đèn phố*. |
 | `showWeatherEffects` | bool | `true` | Mưa, gợn nước, sấm chớp, mây nhiều lớp. *Cảnh vật → Thời tiết*. |
-| `weatherPreview` | string | `"live"` | Scene xem trước: `live` (theo thời tiết thật + giờ hệ thống), `sunny`, `cloudy`, `rain`, `storm`, `snow` (v5.2, *Tuyết rơi*), `night`. Chấp nhận alias tiếng Việt (`nắng đẹp`, `mây trôi`, `mưa rào`, `giông bão`, `tuyết rơi`/`tuyet`, `đêm sao`, …). v5.3.2: chọn `night` (*Đêm sao*) từ bảng điều khiển / menu khay / lệnh xem trước sẽ đặt luôn `timeMode = "night"`; các giá trị khác không đổi `timeMode`. Sửa tay trong file thì không tự đổi. |
+| `weatherPreview` | string | `"live"` | Scene xem trước: `live` (theo thời tiết thật + giờ hệ thống), `random` (v5.4.2, *Ngẫu nhiên*), `sunny`, `cloudy`, `rain`, `storm`, `snow` (v5.2, *Tuyết rơi*), `night`. Chấp nhận alias tiếng Việt (`nắng đẹp`, `mây trôi`, `mưa rào`, `giông bão`, `tuyết rơi`/`tuyet`, `đêm sao`, …). v5.3.2: chọn `night` (*Đêm sao*) từ bảng điều khiển / menu khay / lệnh xem trước sẽ đặt luôn `timeMode = "night"`; các giá trị khác không đổi `timeMode`. Sửa tay trong file thì không tự đổi. |
 | `showWeather` | bool | `true` | Thẻ nhiệt độ + trạng thái trên taskbar. |
 | `showWeatherAmbient` | bool | `true` | (Tương thích cũ) hiệu ứng ambient thời tiết trên overlay. |
 | `weatherPosition` | string | `"left"` | Vị trí thẻ: `left` hoặc `right`. |
@@ -114,13 +114,13 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |------|------|----------|---------|
-| `airplaneCycleMinutes` | float | `3` | v5.4: số phút giữa các lần cất cánh (lăn bánh → cất cánh → leo lên → bay ngang → hạ dần → rời khỏi tầm nhìn), 0.5–240. |
+| `airplaneCycleMinutes` | float | `3` | v5.4: số phút cho một vòng bay (vắng → xuất hiện thấp ở mép trái, leo → bay ngang → hạ dần, biến mất ở mép phải), 0.5–240. |
 | `trainCrossingMinutes` | float | `2` | Số phút cho một vòng của đoàn tàu: vào ga chậm dần (36 %), dừng trả khách (10 %) và đón khách (10 %), rời ga tăng tốc (40 %), nghỉ ngắn (4 %) (0.25–240). v5.0 mặc định 25 (config cũ còn `25` được tự đổi một lần khi nâng lên v5.1); từ v5.4 mặc định là `2` phút cho một vòng đời. Giá trị bạn đã lưu (kể cả `1`) không bao giờ bị ghi đè. |
 | `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy; `day` = cố định ban ngày (~10:30–12:00, dao động nhẹ); `night` = cố định ban đêm (~23:30–00:00). Giá trị lạ → `cycle`. Đổi trong portal hoặc menu khay *Ngày & đêm*. |
 | `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ, **tùy chỉnh 0,5–10080** (30 giây – 7 ngày; v5.3.1 bỏ giới hạn cũ 2–1440). 30 → mỗi giờ ảo = 75 giây; 1440 → nhịp như giờ thật nhưng lệch pha. Giá trị ≤ 0 / NaN / vô hạn → `30`; ngoài khoảng bị kẹp về 0,5 hoặc 10080. Đổi trong portal (*Độ dài chu kỳ*) áp dụng ngay, không nhảy cảnh (app tự chỉnh `dayCycleOffsetHours`). |
 | `dayCycleOffsetHours` | float | `0` | Dịch đồng hồ ảo (giờ, 0–24), ví dụ `6` để chu kỳ bắt đầu gần bình minh. |
-| `configVersion` | int | `54` | Phiên bản schema để migrate một lần (app tự ghi, không cần sửa). |
-| `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `sydney`, `newyork`, `rome`, `giza`, `santorini` (v5.4), `default`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |
+| `configVersion` | int | `56` | Phiên bản schema để migrate một lần (app tự ghi, không cần sửa). |
+| `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `sydney`, `newyork` (v5.4), `default`. v5.4.2: `rome`, `giza`, `santorini` đã bỏ — file cũ còn ghi các giá trị này tự chuyển về `auto`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |
 | `showWeatherHud` | bool | `false` | (Bỏ từ v5.4) Thẻ nhiệt độ trên taskbar không còn được vẽ; khóa này bị bỏ qua và tự về `false`. Vị trí, nhiệt độ, điều kiện thời tiết xem trong bảng điều khiển. |
 | `weatherFollowsRegion` | bool | `false` | Khi chọn khu vực bằng tay: lấy thời tiết theo tọa độ khu vực đó thay vì vị trí máy. |
 | `tapMode` | string | `"auto"` | Khóa ẩn để khắc phục sự cố (không có trên giao diện): `auto` thử gắn TAP (bỏ qua nếu có SAC); `off` luôn dùng chế độ an toàn. |
@@ -170,15 +170,55 @@ Bảo vệ khi file config hỏng (v5.3): JSON lỗi / sai kiểu không làm ap
 
 | Khóa | Mặc định | Ý nghĩa |
 |---|---|---|
-| `season` | `"summer"` | `spring`, `summer`, `autumn`, `winter` (chấp nhận `xuân`, `hạ`/`hè`, `thu`, `đông`). Hè là giao diện cũ. Chọn thời tiết *Tuyết rơi* tự đặt `winter`; rời mùa đông khi đang chọn tuyết thì thời tiết về *Thực tế*. |
-| `seasonCycleEnabled` | `false` | Tự đổi mùa theo vòng xuân → hè → thu → đông, bắt đầu từ `season`. |
-| `seasonCycleMinutes` | `30` | Số phút thật cho mỗi mùa (0,5–10080). Đổi mùa/độ dài/bật-tắt thì vòng chạy lại từ `season`. |
-| `weatherCycleMode` | `"off"` | `off`; `interval` = đổi mỗi `weatherCycleMinutes` phút theo thứ tự nắng → mây → mưa → (giông/tuyết); `random` = chờ ngẫu nhiên trong `[weatherCycleRandomMinMinutes, weatherCycleRandomMaxMinutes]` rồi chọn thời tiết hợp mùa (không lặp lại liền kề, tuyết chỉ vào mùa đông). Điểm bắt đầu là thời tiết bạn chọn. Chỉ ảnh hưởng cảnh đang chạy, không ghi đè `weatherPreview`. |
-| `weatherCycleMinutes` | `10` | Chu kỳ của chế độ `interval` (0,5–1440). |
-| `weatherCycleRandomMinMinutes` / `weatherCycleRandomMaxMinutes` | `5` / `20` | Khoảng chờ của chế độ `random`. |
+| `season` | `"summer"` | `spring`, `summer`, `autumn`, `winter` (chấp nhận `xuân`, `hạ`/`hè`, `thu`, `đông`), hoặc hai chế độ tự động (v5.4.2): `cycle` = *Tự đổi mùa* (xuân → hè → thu → đông, mỗi mùa `seasonCycleMinutes` phút, bắt đầu từ mùa thực tế hiện tại), `real` = *Thực tế* (mùa thật theo ngày và vị trí, xem bên dưới). Hè là giao diện cũ. Chọn thời tiết *Tuyết rơi* tự đặt `winter`; rời mùa đông khi đang chọn tuyết thì thời tiết về *Thực tế*. |
+| `seasonCycleMinutes` | `30` | Số phút thật cho mỗi mùa ở chế độ `cycle` (0,5–10080). Bảng điều khiển chỉ hiện ô này khi chọn *Tự đổi mùa*. |
+| `weatherPreview` = `"random"` | — | v5.4.2 *Ngẫu nhiên*: chờ ngẫu nhiên trong `[weatherCycleRandomMinMinutes, weatherCycleRandomMaxMinutes]` rồi chọn thời tiết hợp mùa (không lặp lại liền kề, tuyết chỉ vào mùa đông). Trước lần đổi đầu tiên cảnh theo thời tiết thật. Chỉ ảnh hưởng cảnh đang chạy. |
+| `weatherCycleRandomMinMinutes` / `weatherCycleRandomMaxMinutes` | `5` / `20` | Khoảng chờ của *Ngẫu nhiên* (0,5–1440). Bảng điều khiển hiện dòng *Đổi sau mỗi* chỉ khi chọn *Ngẫu nhiên*. |
 | `showIconPadding` | `true` | Vùng đệm (nền xám mờ + viền khoét) quanh icon ứng dụng trên taskbar. `false` = cảnh vật sát icon, không có dải xám. |
 | `soundMasterVolume` | `0` | Âm lượng tổng 0–100. |
-| `soundVolumes` | tất cả `0` | Âm lượng từng hiệu ứng 0–100: `rain`, `thunder`, `wind`, `traffic`, `horns`, `train`, `airplane`, `birds`, `insects`, `animals`, `waves`. Âm thực tế = tổng × từng hiệu ứng × mức cảnh (khu vực, thời tiết, mùa, giờ). |
+| `soundVolumes` | tất cả `0` | Âm lượng từng hiệu ứng 0–100: `rain`, `thunder`, `wind`, `traffic`, `horns`, `train`, `airplane`, `birds`, `insects`, `animals`, `waves`. Âm thực tế = tổng × từng hiệu ứng × mức cảnh (khu vực, thời tiết, mùa, giờ). Khi `soundAutoMix` bật, chỉ các hiệu ứng có trong `soundManual` dùng giá trị ở đây. |
+| `soundAutoMix` | `true` | v5.4.2 *Tự phối theo cảnh*: mỗi hiệu ứng dùng mức chuẩn theo cảnh (bảng dưới). Tắt đi thì mức đang nghe trở thành giá trị của bạn trong `soundVolumes`. |
+| `soundManual` | `[]` | v5.4.2: các hiệu ứng bạn đã kéo tay — tự phối không đụng tới. Nút *Phối lại theo cảnh* xóa danh sách này (âm lượng tổng giữ nguyên). |
+
+### Khóa đã bỏ ở v5.4.2 (vẫn đọc được từ file cũ)
+
+| Khóa cũ | Chuyển thành |
+|---|---|
+| `seasonCycleEnabled: true` | `season = "cycle"` |
+| `weatherCycleMode: "random"` | `weatherPreview = "random"`, giữ khoảng min/max |
+| `weatherCycleMode: "interval"` + `weatherCycleMinutes: N` | `weatherPreview = "random"` với min = max = N |
+| `regionMode`: `rome` / `giza` / `santorini` | `auto` |
+
+### Mùa *Thực tế* (v5.4.2)
+
+Vị trí lấy theo khu vực đang chọn (hoặc tọa độ thời tiết khi *Tự động*); không rõ thì dùng TP. Hồ Chí Minh (10,78° B).
+
+- **Vĩ độ ≥ 18°** (Hà Nội 21°, Tokyo, Paris, New York, Sydney …): mùa khí tượng. Bắc bán cầu: xuân tháng 3–5, hè 6–8, thu 9–11, đông 12–2.
+- **Nhiệt đới, vĩ độ < 18°** (TP.HCM, Vũng Tàu, Đà Nẵng …): không có mùa đông thật, nên ánh xạ theo cảm nhận: **xuân tháng 1–2** (Tết, hoa mai), **hè tháng 3–7** (nắng nóng, đầu mùa mưa), **thu tháng 8–12** (mưa nhiều, dịu hơn). Không bao giờ ra mùa đông / tuyết.
+- **Nam bán cầu** (Sydney, Jakarta …): lệch 6 tháng — Sydney tháng 1 là hè, tháng 7 là đông.
+
+### Phối âm chuẩn theo cảnh (v5.4.2)
+
+Âm lượng tổng (`soundMasterVolume`) **chỉ do bạn chỉnh** — mặc định 0 (im lặng), không preset hay migration nào thay đổi. Tự phối chỉ đặt mức của từng hiệu ứng:
+
+| Hiệu ứng | Mức nền | Điều chỉnh theo cảnh |
+|---|---|---|
+| `rain` | 55 | +10 khi mưa, +20 khi giông bão |
+| `thunder` | 60 | +20 khi giông bão |
+| `wind` | 30 | +15 giông bão; +5 mùa thu, +10 mùa đông |
+| `traffic` | 35 | tới +20 ở đô thị lớn (New York, TP.HCM, Hà Nội); −10 ban đêm; −5 khi mưa |
+| `horns` | 15 | tới +15 ở đô thị; −10 ban đêm; −5 khi mưa |
+| `train` | 45 | tới +5 ở đô thị |
+| `airplane` | 40 | −10 khi giông bão |
+| `birds` | 45 | tới +15 ban ngày (ít hơn ở đô thị); −20 ban đêm; −15 khi mưa |
+| `insects` | 35 | dế ban đêm tới +25 (mạnh nhất mùa hè); −10 khi mưa; −15 mùa đông |
+| `animals` | 30 | tới +15 ban đêm ở vùng quê; −5 khi mưa |
+| `waves` | 35 | tới +30 ở vùng biển (Vũng Tàu, Sydney, Đà Nẵng); thêm tới +10 khi giông |
+
+Kết quả kẹp trong 0–100 rồi vẫn nhân với âm lượng tổng và mức cảnh như trước. Kéo một thanh hiệu ứng = hiệu ứng đó thành "tay" (ghi vào `soundManual`), các hiệu ứng khác vẫn tự phối. Nhãn giá trị ghi `· tự` cho hiệu ứng đang tự phối.
+
+Nâng cấp lên `configVersion` 56: `soundAutoMix = true`; nếu âm lượng tổng > 0 (bạn đã nghe với mix riêng) thì mọi hiệu ứng được giữ nguyên là "tay"; nếu tổng = 0 thì chỉ hiệu ứng nào > 0 được giữ, còn lại theo cảnh. `soundMasterVolume` không đổi. Chạy lại migration không thay đổi gì thêm.
+
 
 Nâng cấp từ bản cũ: `configVersion` lên `54`, mọi âm lượng **luôn đặt 0** (kể cả file cũ có sẵn giá trị lạ), mùa = `summer`, các chu kỳ tắt, `showIconPadding = true`, `showWeatherHud = false`. Các lựa chọn khác giữ nguyên. Âm thanh là các bản thu CC0 nhúng sẵn trong exe (cộng gió/máy bay/tiếng ray tàu tổng hợp), không cần file ngoài; tạm dừng khi hiệu ứng bị tắt (F8) và dừng hẳn khi thoát.
 

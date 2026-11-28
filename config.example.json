@@ -44,18 +44,18 @@
   // v5.3.1: độ dài 1 ngày ảo ở chế độ cycle, tùy chỉnh 0.5 – 10080 phút (mặc định 30)
   "dayCycleMinutes": 30,
   "dayCycleOffsetHours": 0,
-  // v5.4: mùa (spring | summer | autumn | winter), tự đổi mùa, vùng đệm xám quanh icon
+  // v5.4.2: mùa — "real" (Thực tế, theo ngày và vị trí) | "cycle" (Tự đổi mùa) | spring | summer | autumn | winter
   "season": "summer",
-  "seasonCycleEnabled": false,
   "seasonCycleMinutes": 30,
   "showIconPadding": true,
-  // v5.4: thời tiết tự đổi — "off" | "interval" (mỗi N phút) | "random" (ngẫu nhiên trong khoảng)
-  "weatherCycleMode": "off",
-  "weatherCycleMinutes": 10,
+  // v5.4.2: weatherPreview = "random" (Ngẫu nhiên) đổi thời tiết sau một khoảng ngẫu nhiên trong [min, max] phút
   "weatherCycleRandomMinMinutes": 5,
   "weatherCycleRandomMaxMinutes": 20,
-  // v5.4: âm thanh nền, MẶC ĐỊNH TẤT CẢ = 0 (im lặng). 0–100
+  // âm thanh nền 0–100. Âm lượng tổng MẶC ĐỊNH = 0 (im lặng) và chỉ do bạn chỉnh.
+  // v5.4.2: soundAutoMix = tự phối từng hiệu ứng theo cảnh; hiệu ứng trong soundManual dùng giá trị soundVolumes của bạn
   "soundMasterVolume": 0,
+  "soundAutoMix": true,
+  "soundManual": [],
   "soundVolumes": { "rain": 0, "thunder": 0, "wind": 0, "traffic": 0, "horns": 0, "train": 0, "airplane": 0, "birds": 0, "insects": 0, "animals": 0, "waves": 0 },
   // v5.3: bảng điều khiển + tự động cập nhật
   "startMinimized": false,

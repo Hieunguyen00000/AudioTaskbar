@@ -31,12 +31,23 @@ Windows 11 64-bit. Không cần quyền Administrator, không cần cài .NET.
 
 1. Tải từ [Release mới nhất](https://github.com/Hieunguyen00000/AudioTaskbar/releases/latest):
    - **`AudioTaskbar.exe`** — bản portable, double-click là chạy; hoặc
-   - **`AudioTaskbar-Setup-5.4.1.exe`** — bộ cài theo user (shortcut, tùy chọn khởi động cùng Windows).
+   - **`AudioTaskbar-Setup-5.4.2.exe`** — bộ cài theo user (shortcut, tùy chọn khởi động cùng Windows).
 2. Tìm icon **Audio Taskbar** ở khay hệ thống (gần đồng hồ, đôi khi nằm trong mũi tên overflow).
 3. Nhấn **F8** để bật/tắt hiệu ứng. Nhấp đúp icon khay để mở bảng điều khiển.
 
 > **Smart App Control / SmartScreen.** Bản phát hành hiện **chưa ký số**, nên Windows có thể cảnh báo hoặc chặn file tải từ internet (đặc biệt khi Smart App Control đang bật). SmartScreen: *More info* → *Run anyway*. Chi tiết và lộ trình ký số miễn phí: [Code signing policy](docs/CODE_SIGNING.md). Khi `TaskbarTap.dll` bị chặn, app tự chuyển sang chế độ khoét icon an toàn — không lách SAC.
 
+
+## Có gì mới trong v5.4.2
+
+- **Bảng điều khiển hiển thị đúng ở mọi mức scale.** Cửa sổ tự co giãn theo DPI của từng màn hình (PerMonitorV2, 100–200 %): cột nhãn, ô chọn và thẻ tự rộng theo nội dung, không còn chữ bị cắt hay xuống dòng. Màn hình thấp thì chỉ có thanh cuộn dọc, nằm cạnh nội dung (không che cột bên phải).
+- **Mùa: thêm *Tự đổi mùa* và *Thực tế* ngay trong danh sách.** *Thực tế* lấy mùa thật theo ngày và vị trí, có tính bán cầu; vùng nhiệt đới như TP.HCM dùng ánh xạ riêng (xuân tháng 1–2, hè 3–7, thu 8–12, không có đông). Ô *Xuân → hè → thu → đông* riêng đã bỏ; ô số phút chỉ hiện khi chọn *Tự đổi mùa*.
+- **Thời tiết: thêm *Ngẫu nhiên*** thay cho cài đặt *Tự đổi thời tiết*. Dòng *Đổi sau mỗi … phút* chỉ hiện khi chọn *Ngẫu nhiên*. Cấu hình cũ đang bật tự đổi chuyển sang *Ngẫu nhiên*.
+- **Máy bay không còn đường băng.** Máy bay xuất hiện đã ở trên không, thấp ở mép trái, leo dần; bay ngang qua giữa; rồi hạ dần và biến mất ở mép phải. Không có gì trên mặt đất.
+- **Phối âm chuẩn theo cảnh** (*Tự phối theo cảnh*, bật mặc định): mưa và sấm mạnh khi giông, dế về đêm, sóng ở vùng biển, xe cộ ở đô thị. Hiệu ứng nào bạn kéo tay thì được giữ nguyên; nút *Phối lại theo cảnh* đưa tất cả về mức chuẩn. **Âm lượng tổng chỉ do bạn chỉnh** (mặc định 0). Chi tiết: [docs/configuration.md](docs/configuration.md#phối-âm-chuẩn-theo-cảnh-v542).
+- **Tàu hỏa chạy lâu hơn, dừng ga ngắn hơn:** với vòng 2 phút, chạy 100,8 s (trước 91,2 s), dừng ga 14,4 s (trước 24 s).
+- **Bỏ khu vực Rome, Cairo – Giza và Santorini.** Cấu hình đang chọn các khu vực này tự chuyển về *Tự động*.
+- Dòng trạng thái đầu bảng điều khiển gọn hơn: *Đang bật · F8 bật/tắt* (bỏ *Hòa nền sau icon*).
 
 ## Có gì mới trong v5.4.1
 
@@ -69,16 +80,15 @@ Thay đổi trong bảng điều khiển được xem trước ngay; bấm **Lư
 | Mở bảng điều khiển | Nhấp đúp icon khay, chọn *Mở bảng điều khiển*, hoặc chạy lại `AudioTaskbar.exe` |
 | Ẩn cửa sổ, app vẫn chạy | **Đóng (Ẩn xuống khay)** hoặc nút ✕ |
 | Thoát hẳn, trả taskbar gốc | **Kết thúc (Thoát)** trên bảng điều khiển hoặc menu khay |
-| Khu vực | *Cảnh vật & Thời tiết* — Tự động theo máy, TP. Hồ Chí Minh, Bà Rịa – Vũng Tàu, Hà Nội, Đà Nẵng – Hội An, Tokyo, Paris, **Sydney, New York, Rome, Giza, Santorini** (v5.4), Mặc định |
-| Thời tiết | *Thực tế* (Open-Meteo) hoặc xem trước: Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Tuyết rơi, **Đêm sao** |
+| Khu vực | *Cảnh vật & Thời tiết* — Tự động theo máy, TP. Hồ Chí Minh, Bà Rịa – Vũng Tàu, Hà Nội, Đà Nẵng – Hội An, Tokyo, Paris, **Sydney, New York** (v5.4), Mặc định |
+| Thời tiết | *Thực tế* (Open-Meteo), **Ngẫu nhiên** (đổi sau khoảng phút ngẫu nhiên, hợp mùa) hoặc xem trước: Nắng đẹp, Mây trôi, Mưa rào, Giông bão, Tuyết rơi, **Đêm sao** |
 | Ngày & đêm | Theo chu kỳ tùy chỉnh, theo giờ thật, cố định ban ngày, cố định ban đêm |
 | Độ dài chu kỳ | `0,5`–`10080` phút/ngày (30 giây đến 7 ngày). Chỉ bật khi đang ở chế độ chu kỳ |
-| Tàu hỏa | Bật/tắt và số **phút/vòng**: tàu vào ga chậm dần, dừng ở sân ga nhỏ, khách xuống rồi khách lên, đóng cửa, rời ga và tăng tốc |
-| Máy bay | Bật/tắt và số **phút/vòng** (mặc định 3, khoảng cách giữa các lần cất cánh): lăn bánh từ mép trái, cất cánh, leo lên, bay ngang cao giữa thanh, hạ dần và rời khỏi tầm nhìn ở thấp gần mép phải (không hạ cánh). Đường băng ngắn ở bên trái, xe cộ không chạy vào đó; thanh quá hẹp thì không vẽ đường băng nhưng máy bay vẫn bay |
-| Mùa | *Mùa xuân/hè/thu/đông*, hoặc *Tự đổi mùa* với số phút mỗi mùa |
-| Thời tiết tự đổi | *Tự đổi thời tiết*: theo chu kỳ (phút) hoặc ngẫu nhiên trong khoảng |
+| Tàu hỏa | Bật/tắt và số **phút/vòng**: tàu vào ga chậm dần, dừng ngắn ở sân ga nhỏ, khách xuống rồi khách lên, đóng cửa, rời ga và tăng tốc |
+| Máy bay | Bật/tắt và số **phút/vòng** (mặc định 3): xuất hiện thấp trên không ở mép trái và leo dần, bay ngang qua giữa thanh, hạ dần và biến mất ở mép phải. Không có đường băng |
+| Mùa | *Thực tế* (theo ngày và vị trí), *Tự đổi mùa* (kèm số phút mỗi mùa), hoặc *Mùa xuân/hè/thu/đông* |
 | Phương tiện, chi tiết nền, hiệu ứng thời tiết, vùng đệm icon | Các ô kiểm trên bảng điều khiển |
-| Âm thanh nền | Mục *Âm thanh nền* (thu gọn): âm lượng tổng + từng hiệu ứng, mặc định 0. Bản thu CC0 (mưa rừng, sấm khớp tia chớp, …); nguồn trong [`NOTICE.md`](NOTICE.md) |
+| Âm thanh nền | Mục *Âm thanh nền* (thu gọn): âm lượng tổng (mặc định 0, chỉ bạn chỉnh) + từng hiệu ứng, tự phối theo cảnh hoặc kéo tay. Bản thu CC0 (mưa rừng, sấm khớp tia chớp, …); nguồn trong [`NOTICE.md`](NOTICE.md) |
 | Lưu thay đổi | Nút **Lưu cấu hình** |
 | Khởi động cùng Windows | Ô *Hệ thống* (mặc định tắt) |
 | Cập nhật | Tự kiểm tra và cài khi mở app (bật mặc định); nút *Kiểm tra & cập nhật* trong *Cài đặt* hoặc menu khay |
@@ -97,14 +107,15 @@ Cấu hình, log và cache nằm ở `%LOCALAPPDATA%\AudioTaskbar\` (`config.jso
 | `timeMode` | `"cycle"` | `cycle` (chu kỳ tùy chỉnh), `real` (giờ thật), `day`, `night` |
 | `dayCycleMinutes` | `30` | Độ dài một ngày ảo khi `timeMode` là `cycle` (`0.5`–`10080`) |
 | `regionMode` | `"auto"` | `"auto"` hoặc chọn khu vực trong bảng điều khiển |
-| `weatherPreview` | `"live"` | `live`, `sunny`, `cloudy`, `rain`, `storm`, `snow`, `night` (Đêm sao) |
-| `season` | `"summer"` | `spring`, `summer`, `autumn`, `winter` |
-| `seasonCycleEnabled` / `seasonCycleMinutes` | `false` / `30` | Tự đổi mùa, số phút mỗi mùa |
-| `weatherCycleMode` | `"off"` | `off`, `interval`, `random` (kèm `weatherCycleMinutes`, `weatherCycleRandom{Min,Max}Minutes`) |
+| `weatherPreview` | `"live"` | `live`, `random` (Ngẫu nhiên), `sunny`, `cloudy`, `rain`, `storm`, `snow`, `night` (Đêm sao) |
+| `season` | `"summer"` | `real` (Thực tế), `cycle` (Tự đổi mùa), `spring`, `summer`, `autumn`, `winter` |
+| `seasonCycleMinutes` | `30` | Số phút mỗi mùa khi `season` là `cycle` |
+| `weatherCycleRandom{Min,Max}Minutes` | `5` / `20` | Khoảng chờ của thời tiết *Ngẫu nhiên* |
 | `showIconPadding` | `true` | Vùng đệm xám quanh icon |
-| `soundMasterVolume`, `soundVolumes` | tất cả `0` | Âm thanh nền 0–100 |
+| `soundMasterVolume`, `soundVolumes` | tất cả `0` | Âm thanh nền 0–100 (tổng chỉ do bạn chỉnh) |
+| `soundAutoMix` / `soundManual` | `true` / `[]` | Tự phối từng hiệu ứng theo cảnh; danh sách hiệu ứng đã kéo tay |
 | `trainCrossingMinutes` | `2` | Số phút cho một vòng của tàu: vào ga, dừng đón/trả khách, rời ga |
-| `showAirplane` | `true` | Máy bay: cất cánh từ trái, bay ngang, hạ dần và rời ở thấp bên phải |
+| `showAirplane` | `true` | Máy bay: xuất hiện thấp bên trái và leo, bay ngang, hạ dần và biến mất bên phải |
 | `airplaneCycleMinutes` | `3` | Số phút cho một vòng của máy bay (0.5–240) |
 | `hotkey` | `"F8"` | Phím tắt toàn cục (ví dụ `Ctrl+Alt+F8`) |
 | `autoUpdateEnabled` | `true` | Tự kiểm tra GitHub Release |

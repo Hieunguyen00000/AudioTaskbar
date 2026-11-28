@@ -8,7 +8,7 @@ https://github.com/Hieunguyen00000/AudioTaskbar/blob/main/PRIVACY.md
 
 Store ID: `9PMQLC03S8Z6` · Display name: `Audio Taskbar` · Publisher: `Hubert Nguyen`
 
-Upload the package `AudioTaskbar_5.4.1.0_x64.msix` on the Packages page, and the 300×300 tile `packaging/msix/StoreListing/StoreTile300x300.png` in Store logos (1:1 App tile icon). Desktop screenshots must be PNG, 1366×768 or larger.
+Upload the package `AudioTaskbar_5.4.2.0_x64.msix` on the Packages page, and the 300×300 tile `packaging/msix/StoreListing/StoreTile300x300.png` in Store logos (1:1 App tile icon). Desktop screenshots must be PNG, 1366×768 or larger.
 
 ---
 
