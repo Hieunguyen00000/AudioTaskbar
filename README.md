@@ -64,7 +64,7 @@ Thay đổi trong bảng điều khiển được xem trước ngay; bấm **Lư
 
 | Việc | Cách |
 |------|------|
-| Bật / tắt hiệu ứng | **F8** hoặc phím tắt cũng hiện trên dòng trạng thái đầu bảng điều khiển |
+| Bật / tắt hiệu ứng | Phím tắt **F8** (hiện trên dòng trạng thái đầu bảng điều khiển) |
 | Mở bảng điều khiển | Nhấp đúp icon khay, chọn *Mở bảng điều khiển*, hoặc chạy lại `AudioTaskbar.exe` |
 | Ẩn cửa sổ, app vẫn chạy | **Đóng (Ẩn xuống khay)** hoặc nút ✕ |
 | Thoát hẳn, trả taskbar gốc | **Kết thúc (Thoát)** trên bảng điều khiển hoặc menu khay |
