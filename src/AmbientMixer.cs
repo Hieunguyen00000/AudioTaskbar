@@ -30,13 +30,14 @@ internal sealed class AmbientMixer
     private readonly float _levelK = 1f - MathF.Exp(-Block / (2.5f * Dsp.Rate));  // ~2.5 s scene fade
 
     public TrainSource Train { get; } = new();
+    public ThunderSampleSource Thunder { get; } = new();
     public AirplaneSource Airplane { get; } = new();
 
     public AmbientMixer()
     {
         void Add(string id, ISoundSource s) => _slots[id] = new Slot { Src = s };
         Add(SoundEffects.Rain, new SampleLoopSource(SampleBank.RainLoop));
-        Add(SoundEffects.Thunder, new ThunderSampleSource());
+        Add(SoundEffects.Thunder, Thunder);
         Add(SoundEffects.Wind, new WindSource());
         Add(SoundEffects.Traffic, new SampleLoopSource(SampleBank.Traffic, 0.9f));
         Add(SoundEffects.Horns, new HornSampleSource());
@@ -59,6 +60,16 @@ internal sealed class AmbientMixer
                 slot.TargetGain = SoundScape.Gain(_master, v);
                 if (slot.TargetGain > 0f && slot.Src is IWarmable w) w.Warm();   // decode its recordings in the background
             }
+        }
+    }
+
+    /// <summary>A lightning strike was flashed <paramref name="ageSeconds"/> ago: the thunder follows it. Ignored while the thunder volume is 0, the effects are paused or there is no storm.</summary>
+    public void Strike(LightningStrike strike, double ageSeconds = 0)
+    {
+        lock (_lock)
+        {
+            var slot = _slots[SoundEffects.Thunder];
+            if (!_paused && slot.TargetGain > 0f && slot.TargetLevel > 0.05f) Thunder.Strike(strike, ageSeconds);   // level > 0 = a storm
         }
     }
 
@@ -165,7 +176,20 @@ internal sealed class AmbientEngine : IDisposable
     private bool _failed;
     private bool _disposed;
 
-    public AmbientEngine(Action<string>? log = null) => _log = log;
+    private readonly LightningSchedule _lightning;
+
+    /// <param name="lightning">The lightning every diorama flashes; each flashed strike becomes thunder here.</param>
+    public AmbientEngine(Action<string>? log = null, LightningSchedule? lightning = null)
+    {
+        _log = log;
+        _lightning = lightning ?? LightningSchedule.Shared;
+        _lightning.Shown += OnStrikeShown;
+    }
+
+    private void OnStrikeShown(LightningStrike s)
+    {
+        if (!_disposed) _mixer.Strike(s, Math.Max(0, _lightning.Now - s.Time));
+    }
 
     public AmbientMixer Mixer => _mixer;
     public bool DeviceOpen => _out is not null;
@@ -252,6 +276,7 @@ internal sealed class AmbientEngine : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _lightning.Shown -= OnStrikeShown;
         _mixer.Paused = true;
         CloseDevice();
     }

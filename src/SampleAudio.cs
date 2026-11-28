@@ -23,11 +23,17 @@ internal static class SampleBank
 {
     public const string ResourcePrefix = "AudioTaskbar.Sounds.";
 
-    // One-line swap for the rain recording (any embedded name without ".ogg"): Mưa A = Raphael.Malfliet 689960.
+    // One-line swap for the rain recording (any embedded name without ".ogg"): Rain A = Borgory 651189, outdoor heavy rain.
     public const string RainLoop = "rain";
     public const string Birds = "birds", Waves = "waves", Traffic = "traffic", Crickets = "crickets", Cicadas = "cicadas";
     public const string Horn = "horn", TrainHorn = "trainhorn", Rooster = "rooster", Dog = "dog";
-    public static readonly string[] Thunder = { "thunder1", "thunder2", "thunder3", "thunder4", "thunder5" };
+    /// <summary>The thunder recordings and where (seconds into the file) the first crack / onset sits.</summary>
+    public static readonly (string Name, float Onset)[] ThunderClips =
+    {
+        ("thunder1", 0.03f), ("thunder2", 0.03f), ("thunder3", 0.03f), ("thunder4", 0.03f),
+        ("thunder5", 0.03f), ("thunder6", 0.03f), ("thunder7", 0.03f), ("thunder8", 0.03f)
+    };
+    public const float ThunderTrim = 1.0f;   // the clips are normalised to about -16 LUFS (loud, full band)
     public static readonly string[] Frogs = { "frogs1", "frogs2" };
 
     // Gentle per-recording level trims (the loops are normalised to about -18 LUFS, the clips to about -20 LUFS).
@@ -120,18 +126,25 @@ internal static class SampleBank
     }
 }
 
-/// <summary>Plays one clip once (optionally delayed and resampled) into the output.</summary>
+/// <summary>Plays one clip once (optionally delayed, resampled and low-passed) into the output.</summary>
 internal sealed class SampleVoice
 {
     private SampleClip? _clip;
     private double _pos, _rate = 1, _delay;
+    private float _lpCoef = 1f, _lpL, _lpR;
     public float GL = 1f, GR = 1f;
     public bool Active => _clip is not null;
 
-    public void Start(SampleClip? clip, float rate, float delaySeconds)
+    /// <param name="delaySeconds">Silence before it starts; negative = skip that much of the clip's start (so a crack that sits
+    /// <c>onset</c> seconds into the file can land exactly on time).</param>
+    /// <param name="lowpassCoef">One-pole coefficient (<see cref="Dsp.OnePoleCoef"/>), 1 = no filtering.</param>
+    public void Start(SampleClip? clip, float rate, float delaySeconds, float lowpassCoef = 1f)
     {
-        _clip = clip; _pos = 0; _rate = rate <= 0 ? 1 : rate; _delay = delaySeconds * Dsp.Rate;
-        if (clip is null || clip.Frames < 2) _clip = null;
+        _clip = clip; _rate = rate <= 0 ? 1 : rate;
+        _pos = delaySeconds < 0 ? -delaySeconds * Dsp.Rate : 0;
+        _delay = delaySeconds > 0 ? delaySeconds * Dsp.Rate : 0;
+        _lpCoef = lowpassCoef; _lpL = _lpR = 0;
+        if (clip is null || clip.Frames < 2 || _pos >= clip.Frames - 1) _clip = null;
     }
 
     public void Mix(float[] l, float[] r, int frames, float gl, float gr)
@@ -139,6 +152,7 @@ internal sealed class SampleVoice
         var c = _clip;
         if (c is null) return;
         int last = c.Frames - 1;
+        bool mono = ReferenceEquals(c.L, c.R);
         for (int i = 0; i < frames; i++)
         {
             if (_delay > 0) { _delay--; continue; }
@@ -146,7 +160,8 @@ internal sealed class SampleVoice
             if (j >= last) { _clip = null; return; }
             float f = (float)(_pos - j);
             float sl = c.L[j] + (c.L[j + 1] - c.L[j]) * f;
-            float sr = ReferenceEquals(c.L, c.R) ? sl : c.R[j] + (c.R[j + 1] - c.R[j]) * f;
+            float sr = mono ? sl : c.R[j] + (c.R[j + 1] - c.R[j]) * f;
+            if (_lpCoef < 1f) { _lpL += _lpCoef * (sl - _lpL); _lpR += _lpCoef * (sr - _lpR); sl = _lpL; sr = _lpR; }
             l[i] += sl * gl; r[i] += sr * gr;
             _pos += _rate;
         }
@@ -269,26 +284,72 @@ internal abstract class SampleEventSource : ISoundSource, IWarmable
 }
 
 /// <summary>
-/// Thunder: one-shots cut from a recorded storm, at random intervals that shorten with rain intensity
-/// (level = storm strength, aux = rain intensity 0..1; about every 70 s in light rain, every 18 s in a downpour).
+/// Thunder, driven by lightning: every strike that was flashed on the diorama (see <see cref="LightningSchedule"/>) is queued
+/// with <see cref="Strike"/>; the crack of the recording then lands <see cref="LightningStrike.ThunderDelay"/> seconds after
+/// the flash (close = almost at once, far = up to ~2.8 s), quieter, duller and a little slower the farther it is. There is no
+/// thunder without a strike, and a strike is only dropped by <see cref="AmbientMixer.Strike"/> (volume 0, paused, or no storm).
 /// </summary>
-internal sealed class ThunderSampleSource : SampleEventSource
+internal sealed class ThunderSampleSource : ISoundSource, IWarmable
 {
+    private readonly object _lock = new();
+    private readonly Queue<(LightningStrike S, double Age)> _pending = new();
+    private readonly SampleVoice[] _voices = new SampleVoice[8];
+    private readonly FastRng _rng = new(41);
     private int _last = -1;
-    public ThunderSampleSource() : base(41, 4, 8) { }
-    protected override float MinLevel => 0.05f;
-    protected override string[] Names => SampleBank.Thunder;
-    /// <summary>Mean seconds between strikes for a rain intensity 0..1.</summary>
-    public static float MeanInterval(float rainIntensity) => Dsp.Lerp(70f, 18f, Math.Clamp(rainIntensity, 0f, 1f));
-    protected override double NextInterval(float level, float aux) => MeanInterval(aux) * Rng.Range(0.6f, 1.4f);
+    private long _heard, _rendered;
+    private readonly List<(long Id, double CrackAt)> _plays = new();
 
-    protected override void Spawn(float level, float aux)
+    public ThunderSampleSource() { for (int i = 0; i < _voices.Length; i++) _voices[i] = new SampleVoice(); }
+
+    public void Warm() => SampleBank.Warm(SampleBank.ThunderClips.Select(c => c.Name).ToArray());
+
+    /// <summary>How many strikes have been turned into thunder so far.</summary>
+    public long Heard => Interlocked.Read(ref _heard);
+
+    /// <summary>Test hook: for each strike turned into thunder, the strike id and when its crack lands on this source's own timeline (seconds rendered).</summary>
+    internal (long Id, double CrackAt)[] Plays { get { lock (_lock) return _plays.ToArray(); } }
+
+    /// <summary>A strike was flashed <paramref name="ageSeconds"/> ago.</summary>
+    public void Strike(LightningStrike s, double ageSeconds)
     {
-        int k = (int)(Rng.Unit() * SampleBank.Thunder.Length) % SampleBank.Thunder.Length;
-        if (k == _last) k = (k + 1) % SampleBank.Thunder.Length;
+        lock (_lock) if (_pending.Count < 16) _pending.Enqueue((s, Math.Max(0, ageSeconds)));
+    }
+
+    public void Render(float[] l, float[] r, int frames, float level, float aux)
+    {
+        List<(LightningStrike S, double Age)>? due = null;
+        lock (_lock)
+            while (_pending.Count > 0) (due ??= new()).Add(_pending.Dequeue());
+        if (due is not null)
+            foreach (var (s, age) in due) Spawn(s, age);
+        foreach (var v in _voices)
+            if (v.Active) v.Mix(l, r, frames, v.GL, v.GR);
+        _rendered += frames;
+    }
+
+    private void Spawn(LightningStrike s, double age)
+    {
+        var clips = SampleBank.ThunderClips;
+        int k = (int)(_rng.Unit() * clips.Length) % clips.Length;
+        if (k == _last) k = (k + 1) % clips.Length;
         _last = k;
-        float dist = Rng.Range(0f, 1f);
-        Play(SampleBank.Thunder[k], (1f - dist * 0.55f) * 1.2f, Rng.Range(-0.7f, 0.7f), Rng.Range(0.92f, 1.08f));
+        var clip = SampleBank.Get(clips[k].Name);
+        if (clip is null) return;
+        foreach (var v in _voices)
+            if (!v.Active)
+            {
+                float rate = LightningStrike.ThunderRateFor(s.Distance) * _rng.Range(0.97f, 1.03f);
+                float gain = LightningStrike.ThunderGainFor(s.Distance) * SampleBank.ThunderTrim * 1.41f;
+                var (gl, gr) = Dsp.Pan((s.X01 * 2f - 1f) * 0.7f);       // it comes from where the bolt hit
+                v.GL = gl * gain; v.GR = gr * gain;
+                float cutoff = LightningStrike.ThunderCutoffFor(s.Distance);
+                // the crack sits clips[k].Onset s into the file: start so that it lands ThunderDelay after the flash
+                float delay = s.ThunderDelay - (float)age - clips[k].Onset / rate;
+                v.Start(clip, rate, delay, cutoff >= 19000f ? 1f : Dsp.OnePoleCoef(cutoff));
+                Interlocked.Increment(ref _heard);
+                lock (_lock) { _plays.Add((s.Id, _rendered / (double)Dsp.Rate + s.ThunderDelay - age)); if (_plays.Count > 512) _plays.RemoveAt(0); }
+                return;
+            }
     }
 }
 

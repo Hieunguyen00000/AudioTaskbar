@@ -603,9 +603,9 @@ internal sealed class OverlayWindow : Form
                 g.FillEllipse(br, d.X, d.Y, 2.2f, 2.2f);
             }
         }
-        if (kind == WeatherKind.Storm && (int)(ctx.Time * 10) % 47 == 0)
+        if (kind == WeatherKind.Storm && _diorama.FlashLevel > 0.3f)   // the same lightning strike as the diorama (and the thunder)
         {
-            using var flash = new SolidBrush(Color.FromArgb(28, 200, 220, 255));
+            using var flash = new SolidBrush(Color.FromArgb((int)(28 * _diorama.FlashLevel), 200, 220, 255));
             g.FillRectangle(flash, 0, 0, Width, Height);
         }
     }

@@ -531,8 +531,12 @@ internal sealed partial class DioramaRenderer
     internal RegionScenery Scenery => _scenery;
     private float _balloonX = 0.35f;
     private float _flash;          // 0..1 lightning envelope
-    private float _flashCool;
     private float _flashX;
+    private long _lightCursor;
+    /// <summary>The strikes this renderer flashes come from here, and so does the thunder (see <see cref="LightningSchedule"/>).</summary>
+    internal LightningSchedule Lightning { get; set; } = LightningSchedule.Shared;
+    /// <summary>0..1 brightness of the flash right now (the overlay uses it too).</summary>
+    internal float FlashLevel => _flash;
     private float _shootX = -1, _shootY, _shootLife;
     private bool _ready;
 
@@ -589,6 +593,7 @@ internal sealed partial class DioramaRenderer
         if (ctx.Cfg.ShowWeatherEffects || mood.IsCloudy)
             DrawClouds(g, mood, time, far: true);
 
+        StepLightning(mood, ctx.Cfg.ShowWeatherEffects);
         if (mood.IsStorm && ctx.Cfg.ShowWeatherEffects)
             DrawLightning(g, mood, time);
 
@@ -1027,16 +1032,26 @@ internal sealed partial class DioramaRenderer
         }
     }
 
+    /// <summary>Takes the strikes that are due from the shared schedule and flashes them; a flashed strike is what the thunder follows.</summary>
+    private void StepLightning(SceneMood mood, bool showEffects)
+    {
+        var sched = Lightning;
+        double now = sched.Now;
+        sched.Advance(now, mood.IsStorm);
+        if (!mood.IsStorm) return;
+        foreach (var s in sched.StrikesSince(_lightCursor))
+        {
+            _lightCursor = s.Id;
+            if (!showEffects || now - s.Time > 0.75) continue;      // not drawn (or long past): no flash, so no thunder either
+            _flash = LightningStrike.FlashPowerFor(s.Distance);
+            _flashX = _w * (0.18f + 0.64f * s.X01);
+            sched.MarkShown(s);
+        }
+    }
+
     private void DrawLightning(Graphics g, SceneMood mood, float time)
     {
-        _flashCool -= 1f / 30f;
         if (_flash > 0) _flash = Math.Max(0, _flash - 0.08f);
-        if (_flashCool <= 0 && _rng.NextDouble() < 0.012)
-        {
-            _flash = 1f;
-            _flashCool = 3.5f + (float)_rng.NextDouble() * 5f;
-            _flashX = _w * (0.18f + 0.64f * (float)_rng.NextDouble());
-        }
         if (_flash < 0.15f) return;
         float x0 = _flashX;
         using var bolt = new Pen(Color.FromArgb((int)(_flash * 200), 230, 236, 255), 1.4f);

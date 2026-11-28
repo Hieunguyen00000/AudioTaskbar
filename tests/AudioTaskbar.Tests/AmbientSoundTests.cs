@@ -110,7 +110,8 @@ public class AmbientSoundTests
         var m = new AmbientMixer();
         m.SetVolumes(100, Only(id, 100));
         m.SetScene(Scene(1f, 0.5f));
-        var x = Render(m, 48000 * 25);   // long enough for sparse events (thunder, horns, animals)
+        if (id == "thunder") m.Strike(new LightningStrike(1, 0, 0.5f, 0.2f));   // thunder only follows a flashed lightning strike
+        var x = Render(m, 48000 * 25);   // long enough for sparse events (horns, animals)
         Assert.All(x, v => Assert.True(float.IsFinite(v) && Math.Abs(v) <= 1f));
         Assert.True(Rms(x, 48000 * 2) > 0.002, $"{id} is silent");
     }
@@ -153,6 +154,7 @@ public class AmbientSoundTests
             var m = new AmbientMixer();
             m.SetVolumes(80, All(70));
             m.SetScene(Scene(0.8f, 0.4f));
+            m.Strike(new LightningStrike(1, 0, 0.3f, 0.5f));
             return Render(m, 48000 * 6, chunk);
         }
         var a = Run(8000);
@@ -351,7 +353,7 @@ public class AmbientSoundTests
     private static readonly string[] ExpectedAssets =
     {
         "birds", "cicadas", "crickets", "dog", "frogs1", "frogs2", "horn", "rain", "rooster",
-        "thunder1", "thunder2", "thunder3", "thunder4", "thunder5", "traffic", "trainhorn", "waves"
+        "thunder1", "thunder2", "thunder3", "thunder4", "thunder5", "thunder6", "thunder7", "thunder8", "traffic", "trainhorn", "waves"
     };
     private static readonly string[] BedAssets = { "birds", "cicadas", "crickets", "rain", "traffic", "waves" };
 
@@ -367,7 +369,7 @@ public class AmbientSoundTests
             Assert.InRange(s.Length, 5_000, 700_000);
             total += s.Length;
         }
-        Assert.InRange(total, 1_000_000, 4_500_000);
+        Assert.InRange(total, 1_000_000, 4_800_000);
 
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
         var src = Path.Combine(root, "src");
@@ -385,7 +387,7 @@ public class AmbientSoundTests
 
         // every recording is credited in NOTICE.md (Freesound id + CC0)
         var notice = File.ReadAllText(Path.Combine(root, "NOTICE.md"));
-        foreach (var id in new[] { "689960", "578523", "578524", "679517", "488065", "583074", "640718", "582624", "502204", "792440", "591873" })
+        foreach (var id in new[] { "651189", "840628", "574412", "434359", "243614", "717888", "647420", "527186", "578523", "578524", "679517", "488065", "583074", "640718", "582624", "502204", "792440", "591873" })
             Assert.Contains(id, notice);
         Assert.Contains("CC0", notice);
         Assert.DoesNotContain("ships no recorded audio", notice, StringComparison.OrdinalIgnoreCase);
@@ -414,16 +416,5 @@ public class AmbientSoundTests
             avg /= c.L.Length - 1;
             Assert.True(Math.Abs(c.L[0] - c.L[^1]) < Math.Max(0.02, avg * 8), $"{n}: loop seam");
         }
-    }
-
-    [Fact]
-    public void Thunder_comes_more_often_in_heavier_rain_and_the_rain_swap_is_one_constant()
-    {
-        Assert.True(ThunderSampleSource.MeanInterval(1f) < ThunderSampleSource.MeanInterval(0f) / 3f);
-        Assert.Contains(SampleBank.RainLoop, SampleBank.EmbeddedNames());
-        var hcmc = R("hcmc");
-        var storm = SoundScape.Targets(hcmc, Mood("storm", 12), SeasonId.Summer)["thunder"];
-        Assert.True(storm.Level > 0.5f);
-        Assert.True(storm.Aux > 0.3f, "thunder aux carries the rain intensity");
     }
 }

@@ -24,14 +24,15 @@ Do not combine this binary with GPL-licensed Explorer TAP code in a
 way that would create a derivative work unless you are prepared to
 apply GPL-3 terms to the combination.
 
-# Ambient sound (v5.4.1)
+# Ambient sound (v5.4.2)
 
 Rain, thunder, traffic, car horns, the train horn, birds, insects, animals and
 waves are **real recordings**, all released under **CC0 1.0** (public domain
 dedication, https://creativecommons.org/publicdomain/zero/1.0/), so no
 attribution is legally required; they are credited here anyway. They are
-embedded in the exe as OGG Vorbis (about 3.2 MiB in total, `src/Sounds/`)
+embedded in the exe as OGG Vorbis (about 3.8 MiB in total, `src/Sounds/`)
 and decoded at run time with NAudio.Vorbis 1.5.0 and NVorbis (both MIT).
+Thunder is tied to the lightning flash of the diorama: each flash is one strike with a distance, the crack follows the flash after 0.04-2.8 s, quieter, duller (low-pass 20 kHz down to 1.4 kHz) and slightly slower the farther the strike. The thunder clips themselves are not filtered; they start about 0.03 s before their crack, are high-passed at 20 Hz, 2.5 s fade-out and normalised to about -16 LUFS.
 The wind, the airplane and the train rumble / rail clack are still generated
 by original DSP code (`src/AmbientSynth.cs`). rainymood.com was used only as
 a reference for the *feel*; none of its audio was used.
@@ -45,8 +46,14 @@ about -18 LUFS for loops, -20 LUFS for one-shots).
 
 | Embedded file(s) | Title - author (Freesound id) | Use | Processing | Size |
 |---|---|---|---|---|
-| `rain.ogg` | "Heavy rain and hail on window during light thunderstorm" - Raphael.Malfliet ([689960](https://freesound.org/people/Raphael.Malfliet/sounds/689960/)) | rain loop | 36 s window (from 6:21), 3 s cross-fade; the close thunder strikes avoided | 511 KiB |
-| `thunder1-5.ogg` | same recording (689960) | thunder one-shots at random intervals, more often in heavier rain | five strikes cut from the same recording (about 6:05, 8:17, 8:53, 9:48 and 2:48), 11 s each, fades, low-pass 1.5 kHz so the clip's own rain hiss is not stacked on the rain loop | 603 KiB |
+| `rain.ogg` | "Heavy Rain Regen Starkregen Raining Atmosphere Ambient Forest Wald" - Borgory ([651189](https://freesound.org/people/Borgory/sounds/651189/)) | rain loop (heavy rain outdoors, forest) | 40 s window, 3 s cross-fade, 40 Hz high-pass | 602 KiB |
+| `thunder1.ogg` | "Closeup Thunder Strike 01" - loganzsound ([840628](https://freesound.org/people/loganzsound/sounds/840628/)) | thunder one-shot (close strike) | 11 s from the crack, full band | 158 KiB |
+| `thunder2.ogg` | "Thunder big crack explosive close ms 77mel 190903.flac" - TRP ([574412](https://freesound.org/people/TRP/sounds/574412/)) | thunder one-shot (explosive close crack) | 12 s, full band | 153 KiB |
+| `thunder3.ogg` | "Close lightning strike 2018 07 07" - csengeri ([434359](https://freesound.org/people/csengeri/sounds/434359/)) | thunder one-shot (close strike) | 12 s, full band | 170 KiB |
+| `thunder4.ogg` | "Thunderstorm lightning strike" - foad ([243614](https://freesound.org/people/foad/sounds/243614/)) | thunder one-shot (strike with a long rumble) | 14 s, mono, full band | 117 KiB |
+| `thunder5.ogg` | "230812 Thunder, med crack, rain stops dry rolling, Stratford 9am 2am" - TRP ([717888](https://freesound.org/people/TRP/sounds/717888/)) | thunder one-shot (sharp crack, dry rolling) | 8 s, full band | 117 KiB |
+| `thunder6.ogg`, `thunder7.ogg` | "mountain thunder" - bruno.auzet ([647420](https://freesound.org/people/bruno.auzet/sounds/647420/)) | thunder one-shots (deep rolling) | two excerpts, 13 s and 10 s, full band | 340 KiB |
+| `thunder8.ogg` | "Scary Thunder" - steffcaffrey ([527186](https://freesound.org/people/steffcaffrey/sounds/527186/)) | thunder one-shot (deep, scary) | 11 s, full band | 147 KiB |
 | `birds.ogg` | "Birds singing, Dawn chorus" - SamsterBirdies ([578523](https://freesound.org/people/SamsterBirdies/sounds/578523/)) | bird loop | 36 s window, 2.5 s cross-fade, 120 Hz high-pass | 539 KiB |
 | `waves.ogg` | "Calm ocean waves" - SamsterBirdies ([578524](https://freesound.org/people/SamsterBirdies/sounds/578524/)) | waves loop | 40 s window, 3 s cross-fade | 489 KiB |
 | `traffic.ogg` | "Barcelona city light traffic from terrace" - Juno24 ([679517](https://freesound.org/people/Juno24/sounds/679517/)) | traffic loop | 40 s window, 3 s cross-fade, 60 Hz high-pass | 530 KiB |
