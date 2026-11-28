@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace AudioTaskbar.Tests;
 
-/// <summary>v5.4: lifecycle state machines of the train (stop at a platform) and the airplane (take off, cruise, descend, leave low), pure functions.</summary>
+/// <summary>Lifecycle state machines of the train (stop at a platform) and the airplane (v5.4.2: climb in, cruise, descend out — airborne only), pure functions.</summary>
 public class TransitCycleTests
 {
     private const float BarW = 1200f, TrainW = 141f, StopLeft = 700f;
@@ -32,24 +32,36 @@ public class TransitCycleTests
     [InlineData(150.0)]
     public void Train_phase_durations_are_fractions_of_the_configured_period(double periodSeconds)
     {
-        // timing in seconds: stopped (alight + board) takes 20 % of the period, approach 36 %, depart 40 %
+        // v5.4.2 timing in seconds: stopped (alight + board) takes 12 % of the period (was 20 %), approach 42 % (was 36 %), depart 42 % (was 40 %)
         double Seconds(TrainPhase ph) => TrainCycle.Plan.First(r => r.Id == (int)ph).Frac * periodSeconds;
-        Assert.Equal(0.36 * periodSeconds, Seconds(TrainPhase.Approach), 6);
-        Assert.Equal(0.20 * periodSeconds, Seconds(TrainPhase.Alight) + Seconds(TrainPhase.Board), 6);
-        Assert.Equal(0.40 * periodSeconds, Seconds(TrainPhase.Depart), 6);
+        Assert.Equal(0.42 * periodSeconds, Seconds(TrainPhase.Approach), 6);
+        Assert.Equal(0.12 * periodSeconds, Seconds(TrainPhase.Alight) + Seconds(TrainPhase.Board), 6);
+        Assert.Equal(0.42 * periodSeconds, Seconds(TrainPhase.Depart), 6);
         // a clock running at that period lands in the right phase at the right second
         double p = TransitMath.Cycle(0, 0.04 * periodSeconds + 0.5, periodSeconds);
         Assert.Equal(TrainPhase.Approach, TrainCycle.PhaseAt(p).Phase);
-        p = TransitMath.Cycle(0, (0.40 + 0.01) * periodSeconds, periodSeconds);
+        p = TransitMath.Cycle(0, (0.46 + 0.01) * periodSeconds, periodSeconds);
         Assert.Equal(TrainPhase.Alight, TrainCycle.PhaseAt(p).Phase);
-        p = TransitMath.Cycle(0, (0.60 + 0.01) * periodSeconds, periodSeconds);
+        p = TransitMath.Cycle(0, (0.58 + 0.01) * periodSeconds, periodSeconds);
         Assert.Equal(TrainPhase.Depart, TrainCycle.PhaseAt(p).Phase);
+    }
+
+    [Fact]
+    public void Train_runs_longer_and_stops_shorter_than_in_v541()
+    {
+        // default 2-minute cycle: running (approach + depart) 100.8 s (was 91.2 s), standing at the platform 14.4 s (was 24 s)
+        const double period = 120;
+        double Frac(TrainPhase ph) => TrainCycle.Plan.First(r => r.Id == (int)ph).Frac;
+        Assert.Equal(100.8, (Frac(TrainPhase.Approach) + Frac(TrainPhase.Depart)) * period, 6);
+        Assert.Equal(14.4, (Frac(TrainPhase.Alight) + Frac(TrainPhase.Board)) * period, 6);
+        Assert.True((Frac(TrainPhase.Approach) + Frac(TrainPhase.Depart)) * period > 91.2);
+        Assert.True((Frac(TrainPhase.Alight) + Frac(TrainPhase.Board)) * period < 24);
     }
 
     [Fact]
     public void Train_slows_down_stops_at_the_platform_and_then_speeds_up()
     {
-        double a0 = TransitMath.StartOf(TrainCycle.Plan, 1), a1 = a0 + 0.36;
+        double a0 = TransitMath.StartOf(TrainCycle.Plan, 1), a1 = a0 + TrainCycle.Plan[1].Frac;
         float lastX = float.MinValue, lastSpeed = float.MaxValue;
         for (double p = a0 + 1e-6; p < a1; p += 0.002)
         {
@@ -99,7 +111,7 @@ public class TransitCycleTests
         Assert.Equal(0f, depart.Doors); Assert.Equal(1f, depart.Boarding);
         // the doors close at the very end of boarding and open at the start of alighting
         double b0 = TransitMath.StartOf(TrainCycle.Plan, (int)TrainPhase.Board);
-        Assert.True(TrainCycle.Evaluate(b0 + 0.099, BarW, TrainW, StopLeft).Doors < 0.2f);
+        Assert.True(TrainCycle.Evaluate(b0 + TrainCycle.Plan[(int)TrainPhase.Board].Frac * 0.99, BarW, TrainW, StopLeft).Doors < 0.2f);
         Assert.True(TrainCycle.Evaluate(TrainCycle.StopStart + 0.0005, BarW, TrainW, StopLeft).Doors < 0.2f);
     }
 
@@ -116,19 +128,17 @@ public class TransitCycleTests
 
     // ───────── airplane ─────────
 
-    private static TakeoffStrip Strip() => TakeoffStrip.Plan(new[] { (100f, 640f) }, BarW);
+    private static readonly PlanePhase[] Order = { PlanePhase.Away, PlanePhase.Climb, PlanePhase.Cruise, PlanePhase.Descent };
 
     [Fact]
-    public void Airplane_plan_covers_one_period_in_lifecycle_order()
+    public void Airplane_plan_has_only_three_airborne_phases_after_the_gap()
     {
         Assert.Equal(1.0, PlaneCycle.Plan.Sum(r => r.Frac), 9);
-        Assert.Equal(new[] { PlanePhase.Away, PlanePhase.Roll, PlanePhase.Liftoff, PlanePhase.Climb,
-                             PlanePhase.Cruise, PlanePhase.Descent, PlanePhase.Exit },
-            PlaneCycle.Plan.Select(r => (PlanePhase)r.Id));
+        Assert.Equal(Order, PlaneCycle.Plan.Select(r => (PlanePhase)r.Id));
+        Assert.Equal(Order, Enum.GetValues<PlanePhase>());   // no roll, lift-off or exit phase exists any more
         var seen = new List<PlanePhase>();
         for (double p = 0; p < 1; p += 0.0005) { var ph = PlaneCycle.PhaseAt(p).Phase; if (seen.Count == 0 || seen[^1] != ph) seen.Add(ph); }
-        Assert.Equal(new[] { PlanePhase.Away, PlanePhase.Roll, PlanePhase.Liftoff, PlanePhase.Climb,
-                             PlanePhase.Cruise, PlanePhase.Descent, PlanePhase.Exit }, seen);
+        Assert.Equal(Order, seen);
     }
 
     [Theory]
@@ -139,136 +149,69 @@ public class TransitCycleTests
     {
         double period = minutes * 60;
         double Seconds(PlanePhase ph) => PlaneCycle.Plan.First(r => r.Id == (int)ph).Frac * period;
-        Assert.Equal(0.12 * period, Seconds(PlanePhase.Roll), 6);
-        Assert.Equal(0.26 * period, Seconds(PlanePhase.Cruise), 6);
-        Assert.Equal(0.12 * period, Seconds(PlanePhase.Descent), 6);
-        Assert.Equal(period, PlaneCycle.Plan.Sum(r => r.Frac * period), 6);
-        // the visible flight (everything except the away gap) is 82 % of the cycle
-        Assert.Equal(0.82 * period, period - Seconds(PlanePhase.Away), 6);
-        double p = TransitMath.Cycle(0.25, 0, period);
-        Assert.Equal(0.25, p, 9);
+        Assert.Equal(0.28 * period, Seconds(PlanePhase.Climb), 6);
+        Assert.Equal(0.24 * period, Seconds(PlanePhase.Cruise), 6);
+        Assert.Equal(0.28 * period, Seconds(PlanePhase.Descent), 6);
+        Assert.Equal(0.80 * period, period - Seconds(PlanePhase.Away), 6);
         Assert.Equal(0.5, TransitMath.Cycle(0.25, 0.25 * period, period), 9);
-        Assert.Equal(0.25, TransitMath.Cycle(0.25, period, period), 6);
     }
 
-    [Fact]
-    public void Takeoff_strip_sits_at_the_left_of_the_leftmost_wide_enough_span()
+    [Theory]
+    [InlineData(1200f)]
+    [InlineData(700f)]
+    [InlineData(3840f)]
+    public void The_plane_appears_low_at_the_left_climbs_holds_and_descends_out_at_the_right(float barW)
     {
-        var st = Strip();
-        Assert.True(st.HasStrip);
-        Assert.Equal(100f, st.L);
-        Assert.Equal(100f + TakeoffStrip.DefaultLen, st.R);
-        Assert.True(st.R <= 640f);
-        // nothing wide enough: no strip is drawn (the plane still flies)
-        Assert.False(TakeoffStrip.Plan(new[] { (0f, 50f), (200f, 250f) }, BarW).HasStrip);
-        Assert.True(TakeoffStrip.Plan(new[] { (10f, 10f + TakeoffStrip.MinSpan) }, BarW).HasStrip);
-        var whole = TakeoffStrip.Plan(Array.Empty<(float, float)>(), BarW);
-        Assert.True(whole.HasStrip); Assert.Equal(0f, whole.L); Assert.Equal(TakeoffStrip.DefaultLen, whole.R);
-        // the train station goes into a different span than the strip when there is one
-        var spans = new[] { (100f, 640f), (760f, 960f) };
-        Assert.Equal((760f, 960f), TakeoffStrip.StationSpan(spans, BarW, st));
-        // one span only: the platform starts just after the strip
-        var one = TakeoffStrip.StationSpan(new[] { (100f, 640f) }, BarW, st);
-        Assert.True(one.L >= st.R); Assert.Equal(640f, one.R);
-    }
-
-    [Fact]
-    public void Airplane_runs_through_the_whole_lifecycle_in_order()
-    {
-        var st = Strip();
-        PlaneState S(double p) => PlaneCycle.Evaluate(p, BarW, st);
-        double Start(PlanePhase ph) => PlaneCycle.StartOf(ph);
-        double Dur(PlanePhase ph) => PlaneCycle.Plan.First(r => r.Id == (int)ph).Frac;
-        PlaneState At(PlanePhase ph, float t) => S(Start(ph) + Dur(ph) * t);
-
-        Assert.False(At(PlanePhase.Away, 0.5f).Visible);
-
-        // roll: on the short left strip, accelerating, still on the ground
-        var r0 = At(PlanePhase.Roll, 0.05f); var r1 = At(PlanePhase.Roll, 0.98f);
-        Assert.True(r0.OnGround && r1.OnGround); Assert.Equal(0f, r0.Alt);
-        Assert.True(r1.X > r0.X); Assert.True(r1.Speed > r0.Speed); Assert.True(r1.Thrust > r0.Thrust);
-        Assert.InRange(r0.X, st.L, st.R); Assert.InRange(r1.X, st.L, st.R);
-        Assert.True(r0.X < st.L + TakeoffStrip.PlaneLen);   // starts at the left end
-
-        // lift off at the end of the strip: leaves the ground, nose comes up
-        var k0 = At(PlanePhase.Liftoff, 0.05f); var k1 = At(PlanePhase.Liftoff, 0.99f);
-        Assert.True(k1.X > k0.X); Assert.True(k1.Alt > k0.Alt); Assert.True(k1.PitchDeg > 8f);
-        Assert.False(k1.OnGround); Assert.True(k1.Thrust > 0.9f);
-
-        // climb to cruise height
-        var c0 = At(PlanePhase.Climb, 0.05f); var c1 = At(PlanePhase.Climb, 0.5f); var c2 = At(PlanePhase.Climb, 0.999f);
-        Assert.True(c0.Alt < c1.Alt && c1.Alt < c2.Alt); Assert.Equal(PlaneCycle.CruiseAlt, c2.Alt, 1);
-        Assert.False(c0.OnGround);
-
-        // cruise high across the middle of the bar
-        var u0 = At(PlanePhase.Cruise, 0.05f); var u1 = At(PlanePhase.Cruise, 0.5f); var u2 = At(PlanePhase.Cruise, 0.99f);
-        Assert.True(u1.X > u0.X && u2.X > u1.X);
-        Assert.InRange(u0.Alt, PlaneCycle.CruiseAlt - 1.2f, PlaneCycle.CruiseAlt + 1.2f);
-        Assert.InRange(u1.Alt, PlaneCycle.CruiseAlt - 1.2f, PlaneCycle.CruiseAlt + 1.2f);
-        Assert.True(u1.X > BarW * 0.25f && u1.X < BarW * 0.9f);
-        Assert.False(u0.OnGround);
-
-        // descend near the right: loses altitude, still flying
-        var d0 = At(PlanePhase.Descent, 0.02f); var d1 = At(PlanePhase.Descent, 0.5f); var d2 = At(PlanePhase.Descent, 0.999f);
-        Assert.True(d0.Alt > d1.Alt && d1.Alt > d2.Alt);
-        Assert.Equal(PlaneCycle.ExitAlt, d2.Alt, 1);
-        Assert.False(d0.OnGround || d1.OnGround || d2.OnGround);
-        Assert.True(d0.Alt > 0f && d2.Alt > 0f);
-        Assert.True(d2.X > d0.X);
-
-        // leave the view low at the right, without landing
-        var e0 = At(PlanePhase.Exit, 0.05f); var e2 = At(PlanePhase.Exit, 0.999f);
-        Assert.Equal(PlaneCycle.ExitAlt, e0.Alt, 1); Assert.Equal(PlaneCycle.ExitAlt, e2.Alt, 1);
-        Assert.False(e0.OnGround || e2.OnGround);
-        Assert.True(e2.X >= BarW);
-        Assert.True(e2.X > e0.X);
-    }
-
-    [Fact]
-    public void Airplane_position_has_no_jumps_between_phases_and_never_moves_backwards()
-    {
-        var st = Strip();
-        float prevX = float.MinValue; double prevP = 0;
-        PlaneState? prev = null;
-        for (double p = PlaneCycle.StartOf(PlanePhase.Roll); p < 1; p += 0.0004)
-        {
-            var s = PlaneCycle.Evaluate(p, BarW, st);
-            Assert.True(s.X >= prevX - 0.001f, $"moves backwards at p={p:F4}");
-            if (prev is { } q) Assert.True(MathF.Abs(s.X - q.X) < 14f && MathF.Abs(s.Alt - q.Alt) < 3f, $"jump at p={p:F4} (prev {prevP:F4}): dx={s.X - q.X}, dalt={s.Alt - q.Alt}");
-            prevX = s.X; prevP = p; prev = s;
-        }
-        for (double p = 0; p < 1; p += 0.001)
-        {
-            var s = PlaneCycle.Evaluate(p, BarW, st);
-            Assert.True(float.IsFinite(s.X) && float.IsFinite(s.Alt) && float.IsFinite(s.PitchDeg));
-            if (s.Phase == PlanePhase.Roll) { Assert.Equal(0f, s.Alt); Assert.True(s.OnGround); }
-            // after leaving the ground it never lands again
-            if (s.Phase is PlanePhase.Climb or PlanePhase.Cruise or PlanePhase.Descent or PlanePhase.Exit)
-            { Assert.True(s.Alt > 0f); Assert.False(s.OnGround); }
-        }
-    }
-
-    [Fact]
-    public void Without_a_strip_the_plane_still_takes_off_from_the_left_and_leaves_low_at_the_right()
-    {
-        var none = new TakeoffStrip(false, 0, 0);
         var seen = new List<PlanePhase>();
-        float prevX = float.MinValue; float minExit = float.MaxValue; float maxCruise = 0;
-        for (double p = 0; p < 1; p += 0.002)
+        float prevX = float.MinValue, maxCruise = 0f, minCruise = float.MaxValue;
+        PlaneState first = default, last = default; bool any = false;
+        for (double p = 0; p < 1; p += 0.0005)
         {
-            var s = PlaneCycle.Evaluate(p, BarW, none);
+            var s = PlaneCycle.Evaluate(p, barW);
             if (seen.Count == 0 || seen[^1] != s.Phase) seen.Add(s.Phase);
-            if (!s.Visible) continue;
-            Assert.True(s.X >= prevX - 0.001f); prevX = s.X;
-            if (s.Phase == PlanePhase.Cruise) maxCruise = Math.Max(maxCruise, s.Alt);
-            if (s.Phase == PlanePhase.Exit) minExit = Math.Min(minExit, s.Alt);
-            if (s.Phase is PlanePhase.Descent or PlanePhase.Exit) Assert.False(s.OnGround);
+            if (!s.Visible) { Assert.Equal(PlanePhase.Away, s.Phase); continue; }
+            if (!any) { first = s; any = true; }
+            last = s;
+            Assert.True(s.Alt > 0f, "the plane never touches the ground");
+            Assert.True(s.X >= prevX - 0.001f, "it never moves backwards");
+            if (prevX > float.MinValue) Assert.True(s.X - prevX < barW * 0.01f, "no jumps");
+            prevX = s.X;
+            if (s.Phase == PlanePhase.Cruise) { maxCruise = Math.Max(maxCruise, s.Alt); minCruise = Math.Min(minCruise, s.Alt); }
         }
-        Assert.Equal(new[] { PlanePhase.Away, PlanePhase.Roll, PlanePhase.Liftoff, PlanePhase.Climb,
-                             PlanePhase.Cruise, PlanePhase.Descent, PlanePhase.Exit }, seen);
-        Assert.True(prevX >= BarW);
-        Assert.True(maxCruise > 15f);
-        Assert.True(minExit < 6f && minExit > 0f);   // leaves low, but does not land
+        Assert.Equal(Order, seen);
+        // appears in the air, low, right at the left edge …
+        Assert.Equal(PlanePhase.Climb, first.Phase);
+        Assert.True(first.X <= 0f && first.X >= -PlaneCycle.PlaneLen);
+        Assert.InRange(first.Alt, 3f, 7f);
+        // … holds its height across the middle …
+        Assert.True(minCruise > PlaneCycle.CruiseAlt - 1f && maxCruise < PlaneCycle.CruiseAlt + 1f);
+        // … and leaves low, still flying, past the right edge
+        Assert.Equal(PlanePhase.Descent, last.Phase);
+        Assert.True(last.X >= barW);
+        Assert.InRange(last.Alt, 3f, 7f);
+    }
+
+    [Fact]
+    public void Climb_rises_and_descent_sinks_slowly_and_monotonically()
+    {
+        float prev = 0f;
+        for (float t = 0.01f; t < 1f; t += 0.01f)
+        {
+            var s = PlaneCycle.Evaluate(PlaneCycle.StartOf(PlanePhase.Climb) + 0.28 * t, 1200f);
+            Assert.True(s.Alt >= prev - 1e-4f); prev = s.Alt;
+            Assert.InRange(s.PitchDeg, 0f, 8f);   // gentle nose-up, never a steep take-off
+        }
+        prev = float.MaxValue;
+        for (float t = 0.01f; t < 1f; t += 0.01f)
+        {
+            var s = PlaneCycle.Evaluate(PlaneCycle.StartOf(PlanePhase.Descent) + 0.28 * t, 1200f);
+            Assert.True(s.Alt <= prev + 1e-4f); prev = s.Alt;
+            Assert.InRange(s.PitchDeg, -6f, 0.01f);
+        }
+        // the middle third of the bar is cruise
+        var (enter, cruiseStart, descentStart, exit) = PlaneCycle.Marks(1200f);
+        Assert.True(cruiseStart > 1200f * 0.25f && descentStart < 1200f * 0.75f && descentStart > cruiseStart);
+        Assert.True(enter < 0f && exit > 1200f);
     }
 
     [Fact]
@@ -276,7 +219,7 @@ public class TransitCycleTests
     {
         foreach (var p in new[] { double.NaN, double.PositiveInfinity, -3.7, 5.25 })
         {
-            var s = PlaneCycle.Evaluate(p, BarW, Strip());
+            var s = PlaneCycle.Evaluate(p, BarW);
             Assert.True(float.IsFinite(s.X));
             var t = TrainCycle.Evaluate(p, BarW, TrainW, StopLeft);
             Assert.True(float.IsFinite(t.X));
@@ -320,7 +263,7 @@ public class TransitConfigTests
         var c = new AppConfig(); c.Normalize();
         Assert.True(c.ShowAirplane);
         Assert.Equal(3f, c.AirplaneCycleMinutes);
-        Assert.Equal(55, AppConfig.CurrentConfigVersion);
+        Assert.Equal(56, AppConfig.CurrentConfigVersion);
         Assert.Contains(SoundEffects.Airplane, SoundEffects.Ids);
         Assert.Equal(0, c.SoundVolumes[SoundEffects.Airplane]);
         Assert.All(c.SoundVolumes.Values, v => Assert.Equal(0, v));
@@ -465,8 +408,8 @@ public class TransitRenderTests
 
     public static IEnumerable<object[]> PlanePhases()
     {
-        foreach (var (ph, t) in new[] { (PlanePhase.Roll, 0.3), (PlanePhase.Roll, 0.9), (PlanePhase.Liftoff, 0.5),
-                                        (PlanePhase.Climb, 0.6), (PlanePhase.Cruise, 0.5), (PlanePhase.Descent, 0.6), (PlanePhase.Exit, 0.12) })
+        foreach (var (ph, t) in new[] { (PlanePhase.Climb, 0.08), (PlanePhase.Climb, 0.6), (PlanePhase.Cruise, 0.5),
+                                        (PlanePhase.Descent, 0.4), (PlanePhase.Descent, 0.85) })
             yield return new object[] { ph.ToString() + t, PlaneCycle.StartOf(ph) + PlaneCycle.Plan.First(r => r.Id == (int)ph).Frac * t };
     }
 
@@ -476,7 +419,7 @@ public class TransitRenderTests
     {
         // a wide free span with only a narrow tray cut-out on the right, so the whole flight is visible
         const string cut = "1180-1200";
-        var without = Render(true, false, 0.05, null, cut);     // same take-off strip, plane away
+        var without = Render(true, false, 0.05, null, cut);     // plane away
         var with = Render(true, false, p, null, cut);
         Assert.True(Diff(without, with, 0, 1180) > 8, $"{name}: nothing drawn for the airplane");
         // icon cut-out: every pixel stays fully transparent, with the plane on or off
@@ -487,14 +430,12 @@ public class TransitRenderTests
     [Fact]
     public void The_airplane_is_hidden_in_the_away_phase_and_when_switched_off()
     {
-        var off = Render(false, false, null, null);
-        var away = Render(true, false, 0.05, null);
-        // away: only the (static) take-off strip differs from "off", and it is the same as the strip alone
-        var strip = Render(true, false, 0.0, null);
-        Assert.Equal(0, Diff(away, strip));
-        var rolling = Render(true, false, PlaneCycle.StartOf(PlanePhase.Roll) + 0.05, null);
-        Assert.True(Diff(away, rolling) > 20);
-        Assert.True(Diff(off, away) > 20);    // the short take-off strip exists while the plane is away
+        var off = Render(false, false, null, null, "1180-1200");
+        var away = Render(true, false, 0.05, null, "1180-1200");
+        // v5.4.2: no runway — with the plane away the scene is pixel-identical to the airplane switched off
+        Assert.Equal(0, Diff(off, away));
+        var climbing = Render(true, false, PlaneCycle.StartOf(PlanePhase.Climb) + 0.1, null, "1180-1200");
+        Assert.True(Diff(away, climbing) > 20);
     }
 
     public static IEnumerable<object[]> TrainPhases()
@@ -520,9 +461,10 @@ public class TransitRenderTests
     public void The_train_stands_at_a_platform_with_passengers_that_move()
     {
         double a0 = TransitMath.StartOf(TrainCycle.Plan, (int)TrainPhase.Alight);
-        var early = Render(false, true, null, a0 + 0.10 * 0.2);
-        var mid = Render(false, true, null, a0 + 0.10 * 0.5);
-        var late = Render(false, true, null, a0 + 0.10 * 0.9);
+        double fr = TrainCycle.Plan[(int)TrainPhase.Alight].Frac;
+        var early = Render(false, true, null, a0 + fr * 0.2);
+        var mid = Render(false, true, null, a0 + fr * 0.5);
+        var late = Render(false, true, null, a0 + fr * 0.9);
         Assert.True(Diff(early, mid) > 3);       // people step out of the doors: pixels change, the train itself does not move
         Assert.True(Diff(mid, late) > 3);
         // doors open vs closed
@@ -531,31 +473,26 @@ public class TransitRenderTests
     }
 
     [Fact]
-    public void A_narrow_bar_without_room_for_a_strip_still_shows_the_plane()
+    public void A_narrow_bar_with_small_gaps_still_shows_the_plane()
     {
-        // free spans of 50 px: too narrow for a take-off strip, but wide enough to see the plane fly through
         const int w = 700;
         const string cut = "0-80,130-280,330-700";
-        Assert.False(TakeoffStrip.Plan(new[] { (80f, 130f), (280f, 330f) }, w).HasStrip);
         var off = Render(false, false, null, null, cut, w);
-        // pick a cycle position whose fuselage centre sits in a free gap (the plane still flies without a strip)
-        var none = new TakeoffStrip(false, 0, 0);
         double pVis = -1;
         for (double p = 0; p < 1; p += 0.002)
         {
-            var s = PlaneCycle.Evaluate(p, w, none);
+            var s = PlaneCycle.Evaluate(p, w);
             if (s.Visible && ((s.X > 95 && s.X < 115) || (s.X > 295 && s.X < 315))) { pVis = p; break; }
         }
         Assert.True(pVis > 0, "the flight path never crosses a free gap");
         var on = Render(true, false, pVis, null, cut, w);
         Assert.True(Diff(off, on, 0, w) > 10);
-        // no strip is drawn: a plane-less cycle moment is identical to the switched-off scene
         var awayOn = Render(true, false, 0.05, null, cut, w);
         Assert.Equal(0, Diff(off, awayOn, 0, w));
     }
 
     [Fact]
-    public void Night_scenes_light_up_the_strip_and_the_train()
+    public void Night_scenes_light_up_the_plane_and_the_train()
     {
         var day = Render(true, true, PlaneCycle.StartOf(PlanePhase.Cruise) + 0.4, TrainCycle.StopStart + 0.02, hour: 12f);
         var night = Render(true, true, PlaneCycle.StartOf(PlanePhase.Cruise) + 0.4, TrainCycle.StopStart + 0.02, hour: 22f, weather: "night");
@@ -563,9 +500,9 @@ public class TransitRenderTests
     }
 }
 
-/// <summary>v5.4: the short take-off strip is at the left, and road vehicles never drive onto it.</summary>
+/// <summary>v5.4.2: no take-off strip — road vehicles and the train ignore the airplane completely.</summary>
 [Collection("Statics")]
-public class TakeoffStripRoadTests
+public class NoRunwayRoadTests
 {
     private const int W = 1200;
 
@@ -578,11 +515,11 @@ public class TakeoffStripRoadTests
         return result;
     }
 
-    /// <summary>Draws many frames (about 3 minutes of scene time) and returns every road-vehicle extent seen after each frame.</summary>
-    private static (List<(float L, float R, int Lane)> seen, (float L, float R)? zone, int frames) Run(string region, bool airplane, List<(float L, float R)> spans, bool traffic = true, float seconds = 180f)
+    /// <summary>Draws many frames and returns every road-vehicle extent seen after each frame, plus the train's platform span.</summary>
+    private static (List<(float L, float R, int Lane)> seen, int frames) Run(string region, bool airplane, List<(float L, float R)> spans, float seconds = 120f)
         => Sta(() =>
         {
-            var cfg = new AppConfig { RegionMode = region, WeatherPreview = "sunny", TimeMode = "real", ShowAirplane = airplane, ShowCyclist = traffic };
+            var cfg = new AppConfig { RegionMode = region, WeatherPreview = "sunny", TimeMode = "real", ShowAirplane = airplane, ShowCyclist = true };
             cfg.Normalize();
             var reg = RegionCatalog.All.First(r => r.Id == region);
             var d = new DioramaRenderer();
@@ -602,122 +539,32 @@ public class TakeoffStripRoadTests
                     d.Draw(g, ctx, mood, t);
                     seen.AddRange(d.Scenery.RoadExtents());
                 }
-                return (seen, d.Scenery.NoRoadZone, n);
+                return (seen, n);
             }
             finally { SceneClock.HourOverride = null; }
         });
 
-    public static IEnumerable<object[]> Regions() => new[] { "hcmc", "hanoi", "newyork", "tokyo", "default" }.Select(r => new object[] { r });
-
     [Theory]
-    [MemberData(nameof(Regions))]
-    public void No_road_vehicle_is_ever_inside_the_takeoff_strip_while_it_exists(string region)
+    [InlineData("hcmc")]
+    [InlineData("newyork")]
+    [InlineData("default")]
+    public void Road_traffic_is_identical_with_the_airplane_on_or_off(string region)
     {
         var spans = new List<(float L, float R)> { (98f, 412f), (768f, 972f) };
-        var st = TakeoffStrip.Plan(spans, W);
-        Assert.True(st.HasStrip);
-        Assert.Equal(98f, st.L);
-        Assert.Equal(98f + TakeoffStrip.DefaultLen, st.R);
-        var (seen, zone, frames) = Run(region, true, spans);
-        Assert.Equal((st.L, st.R), zone);
-        Assert.True(frames > 600);
-        Assert.NotEmpty(seen);   // there was traffic elsewhere, so the test is meaningful
-        Assert.DoesNotContain(seen, e => e.R > st.L && e.L < st.R);
-        // traffic still runs on the rest of the first span (past the short strip) and on the second span
-        Assert.Contains(seen, e => e.R > st.R + 4f && e.L < 412f);
-        Assert.Contains(seen, e => e.R > 768f && e.L < 972f);
-    }
-
-    [Fact]
-    public void Traffic_that_is_already_on_the_strip_when_it_appears_is_cleared_at_once()
-    {
-        var spans = new List<(float L, float R)> { (98f, 412f), (768f, 972f) };
-        var st = TakeoffStrip.Plan(spans, W);
-        var (before, zone0, _) = Run("hcmc", false, spans, seconds: 60f);
-        Assert.Null(zone0);
-        Assert.Contains(before, e => e.R > st.L && e.L < st.R);
-        var (after, zone1, _) = Run("hcmc", true, spans, seconds: 60f);
-        Assert.Equal((st.L, st.R), zone1);
-        Assert.DoesNotContain(after, e => e.R > st.L && e.L < st.R);
-    }
-
-    [Fact]
-    public void No_strip_on_narrow_spans_leaves_road_traffic_unchanged()
-    {
-        // no span wide enough for a strip: nothing is blocked and the traffic is identical with the airplane on or off
-        var narrow = new List<(float L, float R)> { (98f, 142f), (308f, 352f) };
-        Assert.False(TakeoffStrip.Plan(narrow, W).HasStrip);
-        var (on, zoneOn, _) = Run("hcmc", true, narrow, seconds: 60f);
-        var (off, zoneOff, _) = Run("hcmc", false, narrow, seconds: 60f);
-        Assert.Null(zoneOn); Assert.Null(zoneOff);
+        var (on, frames) = Run(region, true, spans);
+        var (off, _) = Run(region, false, spans);
+        Assert.True(frames > 400);
+        Assert.NotEmpty(on);
         Assert.Equal(off, on);
-        Assert.Contains(on, e => e.R > 98f && e.L < 142f);
+        // vehicles use the far left of the first span too (where the old take-off strip used to be)
+        Assert.Contains(on, e => e.R > 98f && e.L < 98f + 96f);
     }
 
     [Fact]
-    public void Switching_the_airplane_off_lets_traffic_drive_through_again()
+    public void The_train_platform_uses_the_widest_span_without_a_runway_gap()
     {
-        var spans = new List<(float L, float R)> { (98f, 412f) };
-        var (_, zone, _) = Run("hcmc", false, spans, seconds: 5f);
-        Assert.Null(zone);
-    }
-
-    [Fact]
-    public void The_ground_run_stays_on_the_strip_and_the_plane_leaves_low_at_the_right()
-    {
-        foreach (var spans in new[] { new[] { (98f, 412f) }, new[] { (10f, 94f) }, new[] { (200f, 1000f) }, new[] { (0f, 1200f) } })
-        {
-            var st = TakeoffStrip.Plan(spans, W);
-            Assert.True(st.HasStrip);
-            Assert.True(st.R <= spans[0].Item2 && st.L >= spans[0].Item1);
-            var (start, lift, climbStart, cruiseStart, descentStart, exitStart, exit) = PlaneCycle.Marks(W, st);
-            Assert.InRange(start, st.L, st.R);
-            Assert.InRange(lift, start, st.R + 0.01f);
-            Assert.True(exit >= W);
-            Assert.True(cruiseStart > climbStart && descentStart > cruiseStart && exitStart > descentStart);
-            for (double p = 0; p < 1; p += 0.0005)
-            {
-                var s = PlaneCycle.Evaluate(p, W, st);
-                if (s.Visible && s.OnGround && s.Phase == PlanePhase.Roll) Assert.InRange(s.X, st.L, st.R);
-                if (s.Visible && s.OnGround) Assert.InRange(s.X, st.L, st.R + 20f);
-                if (s.Phase is PlanePhase.Descent or PlanePhase.Exit)
-                { Assert.False(s.OnGround); Assert.True(s.Alt > 0f); }
-            }
-            var last = PlaneCycle.Evaluate(PlaneCycle.StartOf(PlanePhase.Exit) + 0.08 * 0.999, W, st);
-            Assert.True(last.X >= W); Assert.Equal(PlaneCycle.ExitAlt, last.Alt, 1); Assert.False(last.OnGround);
-        }
-    }
-
-    [Fact]
-    public void The_runway_is_drawn_only_on_the_short_left_strip()
-    {
-        // render with a cut-out layout: the dark strip appears under the short left take-off runway only
-        var cfg = new AppConfig { RegionMode = "hcmc", WeatherPreview = "sunny", TimeMode = "real", ShowAirplane = true, ShowTrain = false, ShowCyclist = false, ShowAmbientDetails = false };
-        cfg.Normalize();
-        var bytes = Sta(() =>
-        {
-            SceneClock.HourOverride = 12f; DioramaRenderer.DebugPlaneCycle = 0.05;
-            try
-            {
-                var regions = new TaskbarRegions { Bounds = new Rectangle(0, 0, W, 48), Signature = "420-760,980-1200" };
-                regions.Cutouts.Add(Rectangle.FromLTRB(420, 0, 760, 48)); regions.Cutouts.Add(Rectangle.FromLTRB(980, 0, 1200, 48));
-                using var ow = new OverlayWindow(); var an = new Analyzer();
-                Bitmap? last = null;
-                for (int i = 0; i < 3; i++) { last?.Dispose(); last = ow.RenderOffscreen(W, 48, new FrameContext { Cfg = cfg, Analyzer = an, Regions = regions, Time = 30f + i / 30f, Region = RegionCatalog.All.First(r => r.Id == "hcmc") }); }
-                var bd = last!.LockBits(new Rectangle(0, 0, W, 48), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                var b = new byte[bd.Stride * 48]; System.Runtime.InteropServices.Marshal.Copy(bd.Scan0, b, 0, b.Length); last.UnlockBits(bd); last.Dispose();
-                return b;
-            }
-            finally { SceneClock.HourOverride = null; DioramaRenderer.DebugPlaneCycle = null; }
-        });
-        int stride = bytes.Length / 48;
-        // runway asphalt is the dark grey strip at y = 46 (below the centre-line dashes)
-        bool Asphalt(int x) { int i = 46 * stride + x * 4; return bytes[i + 3] > 200 && Math.Abs(bytes[i] - bytes[i + 1]) < 14 && Math.Abs(bytes[i + 1] - bytes[i + 2]) < 18 && bytes[i] is > 50 and < 110; }
-        int onStrip = Enumerable.Range(20, 70).Count(Asphalt);        // the short strip sits at the left of the first free span
-        Assert.True(onStrip > 30, "take-off strip missing at the left");
-        int pastStrip = Enumerable.Range(200, 180).Count(Asphalt);    // the rest of the first span is ordinary road, not runway
-        Assert.True(pastStrip < 30, $"runway leaks past the short strip ({pastStrip} px)");
-        int otherSpan = Enumerable.Range(790, 160).Count(Asphalt);
-        Assert.True(otherSpan < 30, $"runway leaks into the second span ({otherSpan} px)");
+        var spans = new List<(float L, float R)> { (98f, 412f), (768f, 972f) };
+        Assert.Equal((98f, 412f), TrainCycle.StationSpan(spans, W));
+        Assert.Equal((0f, (float)W), TrainCycle.StationSpan(new List<(float L, float R)>(), W));
     }
 }

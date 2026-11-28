@@ -40,9 +40,6 @@ internal static class SoundScape
         "paris" => new(0.55f, 0.50f, 0.50f, 0.20f, 0.08f, 0.25f, 0.10f, 0.55f),
         "sydney" => new(0.50f, 0.30f, 0.75f, 0.40f, 0.85f, 0.50f, 0.20f, 0.60f),
         "newyork" => new(1.00f, 1.00f, 0.20f, 0.15f, 0.10f, 0.30f, 0.05f, 0.80f),
-        "rome" => new(0.70f, 0.75f, 0.65f, 0.40f, 0.03f, 0.25f, 0.15f, 0.40f),
-        "giza" => new(0.40f, 0.50f, 0.20f, 0.30f, 0.00f, 0.90f, 0.55f, 0.00f),
-        "santorini" => new(0.12f, 0.05f, 0.45f, 0.80f, 0.85f, 0.70f, 0.35f, 0.00f),
         _ => new(0.30f, 0.15f, 0.80f, 0.55f, 0.05f, 0.30f, 0.55f, 0.35f) // default: quiet town and countryside
     };
 
@@ -108,4 +105,94 @@ internal static class SoundScape
     /// <summary>Master (0..100) × per-effect volume (0..100) → linear 0..1 gain. 0 whenever either is 0.</summary>
     public static float Gain(int master, int effect)
         => Math.Clamp(master, 0, 100) / 100f * (Math.Clamp(effect, 0, 100) / 100f);
+}
+
+/// <summary>
+/// v5.4.2 "Tự phối theo cảnh": standard per-effect volumes (0..100, the numbers the sliders show) that follow the scene.
+/// The scene level of <see cref="SoundScape.Targets"/> still shapes each sound on top (no rain sound without rain, no waves
+/// inland); these volumes set how the sounds sit against each other, so a storm is rain + thunder first, a night is crickets
+/// and frogs, a coast is waves and a city is traffic. Effects the user set by hand (<see cref="AppConfig.SoundManual"/>) keep
+/// their own value, and the master volume is never touched (it is 0 until the user raises it).
+/// </summary>
+internal static class SoundMix
+{
+    /// <summary>Base volumes of the standard mix before the scene shifts them.</summary>
+    public static readonly IReadOnlyDictionary<string, int> Base = new Dictionary<string, int>
+    {
+        [SoundEffects.Rain] = 55, [SoundEffects.Thunder] = 60, [SoundEffects.Wind] = 30, [SoundEffects.Traffic] = 35,
+        [SoundEffects.Horns] = 15, [SoundEffects.Train] = 45, [SoundEffects.Airplane] = 40, [SoundEffects.Birds] = 45,
+        [SoundEffects.Insects] = 35, [SoundEffects.Animals] = 30, [SoundEffects.Waves] = 35
+    };
+
+    /// <summary>Standard volumes for the scene: region × weather × season × time of day. Pure, unit-tested.</summary>
+    public static Dictionary<string, int> Preset(RegionProfile region, SceneMood mood, SeasonId season)
+    {
+        var t = SoundScape.Traits(region.Id);
+        float day = Math.Clamp(mood.DayK, 0f, 1f), night = 1f - day;
+        bool storm = mood.IsStorm, rainy = mood.IsRainy || storm;
+        float coast = Math.Clamp((t.Waves - 0.3f) / 0.5f, 0f, 1f);       // Vũng Tàu, Sydney, Đà Nẵng → 1; inland → 0
+        float city = Math.Clamp((t.Traffic - 0.4f) / 0.5f, 0f, 1f);      // New York, TP.HCM, Hà Nội → 1; countryside → 0
+        float warm = season switch { SeasonId.Summer => 1f, SeasonId.Spring => 0.7f, SeasonId.Autumn => 0.5f, _ => 0.1f };
+        float v(string id) => Base[id];
+        var d = new Dictionary<string, float>
+        {
+            [SoundEffects.Rain] = v(SoundEffects.Rain) + (storm ? 20 : rainy ? 10 : 0),
+            [SoundEffects.Thunder] = v(SoundEffects.Thunder) + (storm ? 20 : 0),
+            [SoundEffects.Wind] = v(SoundEffects.Wind) + (storm ? 15 : 0) + (season == SeasonId.Winter ? 10 : season == SeasonId.Autumn ? 5 : 0),
+            [SoundEffects.Traffic] = v(SoundEffects.Traffic) + 20 * city - 10 * night - (rainy ? 5 : 0),
+            [SoundEffects.Horns] = v(SoundEffects.Horns) + 15 * city - 10 * night - (rainy ? 5 : 0),
+            [SoundEffects.Train] = v(SoundEffects.Train) + 5 * city,
+            [SoundEffects.Airplane] = v(SoundEffects.Airplane) - (storm ? 10 : 0),
+            [SoundEffects.Birds] = v(SoundEffects.Birds) + 15 * day * (1f - city * 0.5f) - 20 * night - (rainy ? 15 : 0),
+            [SoundEffects.Insects] = v(SoundEffects.Insects) + 25 * night * warm + 10 * day * warm - (rainy ? 10 : 0) - (season == SeasonId.Winter ? 15 : 0),
+            [SoundEffects.Animals] = v(SoundEffects.Animals) + 15 * night * (1f - city * 0.6f) - (rainy ? 5 : 0),
+            [SoundEffects.Waves] = v(SoundEffects.Waves) + 30 * coast + (storm ? 10 * coast : 0)
+        };
+        return d.ToDictionary(k => k.Key, k => (int)Math.Clamp(MathF.Round(k.Value), 0f, 100f));
+    }
+
+    /// <summary>
+    /// Volume of each effect right now: the user's own value when the automatic mix is off or the effect was set by hand,
+    /// otherwise the standard volume for the scene. The master volume is not part of this (see <see cref="SoundScape.Gain"/>).
+    /// </summary>
+    public static Dictionary<string, int> Effective(AppConfig cfg, IReadOnlyDictionary<string, int>? preset)
+    {
+        var d = new Dictionary<string, int>();
+        foreach (var id in SoundEffects.Ids)
+        {
+            bool manual = !cfg.SoundAutoMix || preset is null || cfg.SoundManual.Contains(id);
+            int own = cfg.SoundVolumes.TryGetValue(id, out var x) ? x : 0;
+            d[id] = manual ? own : (preset!.TryGetValue(id, out var p) ? p : own);
+        }
+        return d;
+    }
+
+    /// <summary>The user moved one effect slider: it keeps that value from now on (the automatic mix leaves it alone).</summary>
+    public static void SetManual(AppConfig cfg, string id, int value)
+    {
+        cfg.SoundVolumes[id] = Math.Clamp(value, 0, 100);
+        if (cfg.SoundAutoMix && !cfg.SoundManual.Contains(id)) cfg.SoundManual.Add(id);
+    }
+
+    /// <summary>
+    /// Switch the automatic mix. Off: the volumes heard right now become the user's own values (nothing jumps).
+    /// On: effects set by hand stay as they are.
+    /// </summary>
+    public static void SetAutoMix(AppConfig cfg, bool on, IReadOnlyDictionary<string, int>? preset)
+    {
+        if (cfg.SoundAutoMix == on) return;
+        if (!on)
+        {
+            foreach (var (id, v) in Effective(cfg, preset)) cfg.SoundVolumes[id] = v;
+            cfg.SoundManual.Clear();
+        }
+        cfg.SoundAutoMix = on;
+    }
+
+    /// <summary>"Phối lại theo cảnh": forget every hand-set effect so all follow the scene again. The master volume stays.</summary>
+    public static void ResetToScene(AppConfig cfg)
+    {
+        cfg.SoundAutoMix = true;
+        cfg.SoundManual.Clear();
+    }
 }

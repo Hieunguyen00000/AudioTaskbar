@@ -3,11 +3,12 @@ using System.Security.Cryptography;
 
 namespace AudioTaskbar.Tests;
 
-/// <summary>v5.4: five new scenic destinations, seasons in the render, and the icon-padding switch (headless renders only).</summary>
+/// <summary>v5.4 world destinations (v5.4.2: Sydney and New York remain; Rome, Giza and Santorini were removed), seasons in the render, and the icon-padding switch (headless renders only).</summary>
 [Collection("Statics")]
 public class SceneryV54Tests
 {
-    private static readonly string[] NewIds = { "sydney", "newyork", "rome", "giza", "santorini" };
+    private static readonly string[] NewIds = { "sydney", "newyork" };
+    private static readonly string[] RemovedIds = { "rome", "giza", "santorini" };
 
     private static T Sta<T>(Func<T> f)
     {
@@ -57,9 +58,10 @@ public class SceneryV54Tests
         });
 
     [Fact]
-    public void Catalog_has_the_five_new_destinations_with_their_own_landmarks()
+    public void Catalog_has_the_world_destinations_with_their_own_landmarks()
     {
-        Assert.Equal(12, RegionCatalog.All.Length);
+        Assert.Equal(9, RegionCatalog.All.Length);
+        foreach (var id in RemovedIds) Assert.DoesNotContain(RegionCatalog.All, r => r.Id == id);
         var all = RegionCatalog.All;
         foreach (var id in NewIds)
         {
@@ -81,9 +83,6 @@ public class SceneryV54Tests
     [Theory]
     [InlineData("sydney", "Sydney")]
     [InlineData("newyork", "New York")]
-    [InlineData("rome", "Rome")]
-    [InlineData("giza", "Giza")]
-    [InlineData("santorini", "Santorini")]
     public void New_regions_are_found_by_name_and_mode(string id, string city)
     {
         Assert.Equal(id, RegionCatalog.NormalizeMode(id));
@@ -95,9 +94,13 @@ public class SceneryV54Tests
     {
         Assert.Equal("sydney", RegionCatalog.MatchCoords(-33.87, 151.21)?.Id);
         Assert.Equal("newyork", RegionCatalog.MatchCoords(40.71, -74.0)?.Id);
-        Assert.Equal("rome", RegionCatalog.MatchCoords(41.9, 12.5)?.Id);
-        Assert.Equal("giza", RegionCatalog.MatchCoords(29.98, 31.13)?.Id);
-        Assert.Equal("santorini", RegionCatalog.MatchCoords(36.4, 25.43)?.Id);
+        // v5.4.2: the removed destinations are no longer detected (auto falls back to the default scene)
+        Assert.Null(RegionCatalog.MatchCoords(41.9, 12.5));
+        Assert.Null(RegionCatalog.MatchCoords(29.98, 31.13));
+        Assert.Null(RegionCatalog.MatchCoords(36.4, 25.43));
+        Assert.Null(RegionCatalog.MatchName("Rome"));
+        Assert.Null(RegionCatalog.MatchName("Cairo"));
+        Assert.Null(RegionCatalog.MatchName("Santorini"));
         Assert.Equal("hcmc", RegionCatalog.MatchCoords(10.77, 106.7)?.Id);   // old regions unchanged
     }
 

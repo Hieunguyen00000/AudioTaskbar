@@ -8,6 +8,19 @@ namespace AudioTaskbar.Tests;
 [CollectionDefinition("Statics", DisableParallelization = true)]
 public sealed class StaticsCollection { }
 
+internal static class TestPaths
+{
+    /// <summary>The repository root (the folder with src/ and docs/), found from the test binaries.</summary>
+    public static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (int i = 0; i < 10 && dir is not null; i++, dir = dir.Parent!)
+            if (Directory.Exists(Path.Combine(dir.FullName, "src")) && Directory.Exists(Path.Combine(dir.FullName, "docs")))
+                return dir.FullName;
+        throw new DirectoryNotFoundException("Could not locate the AudioTaskbar repository root from " + AppContext.BaseDirectory);
+    }
+}
+
 internal sealed class TempDir : IDisposable
 {
     public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "at-tests-" + Guid.NewGuid().ToString("N"));

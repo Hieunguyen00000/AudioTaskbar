@@ -101,12 +101,12 @@ public class PortalFormV54Tests
         {
             void In(string card, params Control[] cs) { foreach (var c in cs) { Assert.Equal(card, f.CardTitleOf(c)); Assert.False(f.IsInCollapsedSection(c)); } }
             In(PortalForm.InfoTitle, f.RegionBox);
-            In(PortalForm.WeatherTitle, f.WeatherBox, f.WeatherCycleBox, f.EffectsBox);
-            In(PortalForm.SeasonTitle, f.SeasonBox, f.SeasonCycleBox);
+            In(PortalForm.WeatherTitle, f.WeatherBox, f.WeatherCycleMinBox, f.EffectsBox);
+            In(PortalForm.SeasonTitle, f.SeasonBox, f.SeasonMinutesBox);
             In(PortalForm.SceneryTitle, f.TimeBox, f.TrainBox, f.PlaneBox, f.TrainMinBox, f.PlaneMinBox, f.VehiclesBox, f.AmbientBox, f.PaddingBox);
             // location + current weather rows live in the info card, as label/value rows
             var texts = f.AllTexts().ToList();
-            foreach (var label in new[] { "Vị trí", "Thời tiết thực", "Khu vực", "Thời tiết", "Tự đổi thời tiết", "Hiệu ứng thời tiết", "Mùa", "Tự đổi mùa",
+            foreach (var label in new[] { "Vị trí", "Thời tiết thực", "Khu vực", "Thời tiết", "Đổi sau mỗi", "Hiệu ứng thời tiết", "Mùa", "Mỗi mùa kéo dài",
                                           "Ngày & đêm", "Độ dài chu kỳ", "Tàu hỏa", "Máy bay", "Phương tiện", "Chi tiết nền", "Vùng đệm xám" })
                 Assert.Contains(label, texts);
             Assert.DoesNotContain(texts, t => t.StartsWith("Vị trí:") || t.StartsWith("Cảnh vật:"));   // no wrapped sentence lines any more
@@ -141,7 +141,7 @@ public class PortalFormV54Tests
                 flow.PerformLayout();
                 Assert.True(check.Right <= flow.Controls[1].Left && flow.Controls[1].Right <= unit.Left);   // left to right, no overlap
                 Assert.InRange(Math.Abs((check.Top + check.Height / 2) - (flow.Controls[1].Top + flow.Controls[1].Height / 2)), 0, 6);
-                Assert.True(flow.PreferredSize.Width <= PortalForm.CardWidth - 24 - PortalForm.LabelColumnWidth - 6, "the row would wrap or clip");
+                Assert.True(f.LabelColumnPx + flow.PreferredSize.Width <= grid.Width - grid.Padding.Horizontal, "the row would wrap or clip");
                 Assert.Equal(1, flow.Controls.OfType<CheckBox>().Count());
             }
             // both rows line up: same check width, same number-box left edge
@@ -163,9 +163,12 @@ public class PortalFormV54Tests
         {
             var cards = f.AllControls().Where(c => c.GetType().Name == "Card").ToList();
             Assert.True(cards.Count >= 4);
-            Assert.All(cards, c => Assert.Equal(PortalForm.CardWidth, c.Width));
+            // v5.4.2: one width for all cards, at least the classic 440 px, wider when the content needs it
+            Assert.True(f.CardWidthPx >= PortalForm.CardWidth);
+            Assert.All(cards, c => Assert.Equal(f.CardWidthPx, c.Width));
             var grids = cards.Select(c => c.Controls.OfType<TableLayoutPanel>().First()).ToList();
-            Assert.All(grids, g => Assert.Equal(PortalForm.LabelColumnWidth, (int)g.ColumnStyles[0].Width));
+            Assert.True(f.LabelColumnPx >= PortalForm.LabelColumnWidth);
+            Assert.All(grids, g => Assert.Equal(f.LabelColumnPx, (int)g.ColumnStyles[0].Width));
             var heads = cards.Select(c => c.Controls.OfType<TableLayoutPanel>().First().Controls.OfType<Label>().First()).Where(l => l.Text is "Hệ thống" or "Cập nhật" || PortalForm.CardTitles.Contains(l.Text)).ToList();
             Assert.True(heads.Count >= 6);
             Assert.Single(heads.Select(h => (h.Font.Name, h.Font.Size, h.ForeColor)).Distinct());
@@ -232,31 +235,93 @@ public class PortalFormV54Tests
     }
 
     [Fact]
-    public void Sound_sliders_start_at_zero_and_write_to_the_config()
+    public void Master_starts_at_zero_effects_follow_the_scene_and_a_moved_slider_is_kept()
     {
         WithForm((f, h) =>
         {
-            Assert.Equal(0, f.MasterSlider.Value);
+            Assert.Equal(0, f.MasterSlider.Value);                       // silent until the user raises the master
             Assert.Equal(SoundEffects.Ids.OrderBy(x => x), f.EffectSliders.Keys.OrderBy(x => x));
-            Assert.All(f.EffectSliders.Values, s => Assert.Equal(0, s.Value));
+            Assert.True(f.AutoMixBox.Checked);
+            var preset = ((IPortalHost)h).SceneSoundMix;
+            foreach (var (id, slider) in f.EffectSliders)
+            {
+                Assert.Equal(preset[id], slider.Value);
+                Assert.EndsWith("· tự", f.EffectValueLabel(id).Text);
+            }
+            Assert.False(f.RemixButton.Enabled);
             f.MasterSlider.Value = 40;
             f.EffectSliders["rain"].Value = 70;
             Assert.Equal(40, h.Config.SoundMasterVolume);
             Assert.Equal(70, h.Config.SoundVolumes["rain"]);
-            Assert.Equal(0, h.Config.SoundVolumes["birds"]);
+            Assert.Contains("rain", h.Config.SoundManual);
+            Assert.DoesNotContain("birds", h.Config.SoundManual);
+            Assert.Equal("70%", f.EffectValueLabel("rain").Text);
+            Assert.True(f.RemixButton.Enabled);
+            // "Phối lại theo cảnh": every effect follows the scene again; the master stays where the user put it
+            Click(f.RemixButton);
+            Assert.Empty(h.Config.SoundManual);
+            Assert.Equal(preset["rain"], f.EffectSliders["rain"].Value);
+            Assert.Equal(40, h.Config.SoundMasterVolume);
+            // switching the automatic mix off keeps what is heard and hands every slider to the user
+            f.AutoMixBox.Checked = false;
+            Assert.False(h.Config.SoundAutoMix);
+            Assert.Equal(preset["birds"], h.Config.SoundVolumes["birds"]);
+            Assert.Equal(preset["birds"], f.EffectSliders["birds"].Value);
+            Assert.Equal(40, h.Config.SoundMasterVolume);
         });
     }
 
     [Fact]
     public void Sliders_show_the_configs_saved_values()
     {
-        var c = new AppConfig { SoundMasterVolume = 55 }; c.SoundVolumes["waves"] = 80;
+        var c = new AppConfig { SoundMasterVolume = 55, SoundAutoMix = false }; c.SoundVolumes["waves"] = 80;
         WithForm((f, _) =>
         {
             Assert.Equal(55, f.MasterSlider.Value);
             Assert.Equal(80, f.EffectSliders["waves"].Value);
             Assert.Equal(0, f.EffectSliders["rain"].Value);
         }, c);
+    }
+
+    [Fact]
+    public void Season_and_weather_lists_carry_the_automatic_modes_and_show_their_interval_only_when_picked()
+    {
+        WithForm((f, h) =>
+        {
+            var seasons = f.SeasonBox.Items.Cast<object>().Select(o => o.ToString()).ToList();
+            Assert.Contains("Tự đổi mùa", seasons); Assert.Contains("Thực tế", seasons);
+            var weathers = f.WeatherBox.Items.Cast<object>().Select(o => o.ToString()).ToList();
+            Assert.Contains("Ngẫu nhiên", weathers);
+            // the old separate settings are gone
+            Assert.DoesNotContain(f.AllTexts(), t => t is "Tự đổi thời tiết" or "Xuân → hè → thu → đông" or "Chu kỳ đổi");
+            Assert.DoesNotContain(f.AllControls().OfType<CheckBox>(), c => c.Text.Contains("Xuân"));
+            Assert.False(f.SeasonMinutesShown); Assert.False(f.WeatherIntervalShown);
+            f.SeasonBox.SelectedIndex = Array.FindIndex(PortalForm.Seasons, x => x.Id == "cycle");
+            Assert.Equal("cycle", h.Config.Season);
+            Assert.True(f.SeasonMinutesShown);
+            f.SeasonBox.SelectedIndex = Array.FindIndex(PortalForm.Seasons, x => x.Id == "real");
+            Assert.Equal("real", h.Config.Season);
+            Assert.False(f.SeasonMinutesShown);
+            f.WeatherBox.SelectedIndex = Array.FindIndex(PortalForm.Weathers, x => x.Id == "random");
+            Assert.Equal("random", h.Config.WeatherPreview);
+            Assert.True(f.WeatherIntervalShown);
+            f.WeatherCycleMinBox.Value = 3m; f.WeatherCycleMaxBox.Value = 12m;
+            Assert.Equal(3f, h.Config.WeatherCycleRandomMinMinutes); Assert.Equal(12f, h.Config.WeatherCycleRandomMaxMinutes);
+            f.WeatherBox.SelectedIndex = Array.FindIndex(PortalForm.Weathers, x => x.Id == "sunny");
+            Assert.False(f.WeatherIntervalShown);
+        });
+    }
+
+    [Fact]
+    public void Header_status_line_no_longer_says_hoa_nen_sau_icon()
+    {
+        WithForm((f, _) =>
+        {
+            Assert.DoesNotContain(f.AllTexts(), t => t.Contains("Hòa nền"));
+            Assert.Contains(f.AllTexts(), t => t.StartsWith("● ") && t.Contains("F8 bật/tắt"));
+        });
+        var src = File.ReadAllText(Path.Combine(TestPaths.RepoRoot(), "src", "TrayApp.cs"));
+        Assert.DoesNotContain("· Hòa nền", src);
     }
 
     [Fact]

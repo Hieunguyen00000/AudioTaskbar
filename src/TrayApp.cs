@@ -104,7 +104,7 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
         Log("Start v" + AutoUpdater.AppVersion() + (startMinimized ? " (tray)" : " (portal)") + ". Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
             + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) airplane=" + _cfg.ShowAirplane + "(" + _cfg.AirplaneCycleMinutes + " min) traffic=" + _cfg.ShowCyclist
-            + " region=" + _cfg.RegionMode + " season=" + _cfg.Season + " iconPadding=" + _cfg.ShowIconPadding + " weatherCycle=" + _cfg.WeatherCycleMode + " sound=" + _cfg.SoundMasterVolume
+            + " region=" + _cfg.RegionMode + " season=" + _cfg.Season + " iconPadding=" + _cfg.ShowIconPadding + " soundAutoMix=" + _cfg.SoundAutoMix + " sound=" + _cfg.SoundMasterVolume
             + " time=" + _cfg.TimeMode + (_cfg.TimeMode == "cycle" ? "(" + _cfg.DayCycleMinutes + " min/day, now " + SceneClock.VirtualHour(_cfg, DateTime.Now).ToString("0.00") + "h)" : "")
             + " dpiCtx=PerMonitorV2 sac=" + (TaskbarTapHost.DetectTapBlocker() ?? "off"));
         _tap.ReadyTimeoutSeconds = _cfg.TapTimeoutSeconds;
@@ -224,7 +224,8 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
     public double UpdateProgress => _updateProgress;
     public string UpdateStage => _updateStage;
 
-    public string StatusText => _paused ? "Đang tắt" : (Fused ? "Đang bật · Hòa nền sau icon" : "Đang bật · Chế độ an toàn");
+    /// <summary>v5.4.2: just on / off (the "Hòa nền sau icon" detail was dropped from the panel header); safe mode is still named.</summary>
+    public string StatusText => _paused ? "Đang tắt" : (Fused ? "Đang bật" : "Đang bật · Chế độ an toàn");
 
     public PortalInfo WeatherInfo
     {
@@ -235,6 +236,8 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
             return PortalInfo.Build(w, cfg, RegionCatalog.Resolve(cfg, w));
         }
     }
+
+    public IReadOnlyDictionary<string, int> SceneSoundMix => IPortalHost.SceneMix(Config, _weather.Latest);
 
     public void SetEffect(bool on) => SetEffectEnabled(on);
 
@@ -496,6 +499,7 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
                 Log("Season: " + _cfg.Season);
             };
             it.Paint += (_, _) => { try { it.Checked = _cfg.Season == id; } catch { } };
+            if (id == Seasons.Cycle) season.DropDownItems.Add(new ToolStripSeparator());
             season.DropDownItems.Add(it);
         }
         return season;
@@ -990,7 +994,8 @@ internal sealed class TrayApp : ApplicationContext, IPortalHost
             _lastPreview = cfg.WeatherPreview;
             _weatherSched.Reset(); // a manual weather pick restarts the automatic cycle from that weather
         }
-        var season = _seasonCycler.Current(now, cfg);
+        var region = RegionCatalog.Resolve(cfg, _weather.Latest);
+        var season = _seasonCycler.Current(now, cfg, Seasons.SceneLatitude(region, _weather.Latest));
         cfg.RuntimeSeason = Seasons.Id(season);
         cfg.RuntimeWeather = _weatherSched.Current(now, cfg, season);
     }

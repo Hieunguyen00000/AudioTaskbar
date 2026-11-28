@@ -25,13 +25,12 @@ internal sealed class PortalForm : Form
     private Label? _wcLabel;
     private readonly ComboBox _region = Combo();
     private readonly ComboBox _weather = Combo();
-    private readonly ComboBox _weatherCycle = Combo();
     private readonly NumericUpDown _wcA = Num(0.5m, 1440m, 1, 1m, 66);
     private readonly NumericUpDown _wcB = Num(0.5m, 1440m, 1, 1m, 66);
     private readonly Label _wcDash = new() { Text = "–", AutoSize = true };
     private readonly Label _wcUnit = new() { AutoSize = true, Text = "phút" };
     private readonly ComboBox _season = Combo();
-    private readonly CheckBox _seasonCycle = Check("Xuân → hè → thu → đông");
+    private Label? _seasonMinLabel;
     private readonly NumericUpDown _seasonMin = Num((decimal)AppConfig.MinSeasonCycleMinutes, (decimal)AppConfig.MaxSeasonCycleMinutes, 1, 5m, 72);
     private readonly ComboBox _time = Combo();
     private readonly CheckBox _train = Check("Bật");
@@ -57,6 +56,8 @@ internal sealed class PortalForm : Form
     private readonly DarkSlider _master = new() { Width = 230 };
     private readonly Label _masterVal = new() { AutoSize = true, Width = 40 };
     private readonly Dictionary<string, (DarkSlider Slider, Label Value)> _fx = new();
+    private readonly CheckBox _autoMix = Check("Tự phối theo cảnh");
+    private readonly Button _remix = new() { Text = "Phối lại theo cảnh", AutoSize = true };
     private Expander? _soundExp, _settingsExp;
     private FlowLayoutPanel? _stack;
     private bool _scrolling;
@@ -72,10 +73,6 @@ internal sealed class PortalForm : Form
     internal static readonly (string Id, string Label)[] Weathers = TrayMenuModel.Weathers.ToArray();
     internal static readonly (string Id, string Label)[] Times = TrayMenuModel.Times.ToArray();
     internal static readonly (string Id, string Label)[] Seasons = TrayMenuModel.Seasons.ToArray();
-    internal static readonly (string Id, string Label)[] WeatherCycles =
-    {
-        ("off", "Tắt (giữ thời tiết đã chọn)"), ("interval", "Theo khoảng thời gian"), ("random", "Ngẫu nhiên")
-    };
     private static readonly string[] Hotkeys = { "F8", "F9", "Ctrl+Alt+F8", "Ctrl+Shift+F8" };
 
     /// <summary>Asked when the panel is closed or the app exited with unsaved edits. Tests replace it.</summary>
@@ -88,8 +85,10 @@ internal sealed class PortalForm : Form
         s_palette = _p;
         PromptUnsaved = DefaultPrompt;
         Text = "Audio Taskbar";
-        AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96f, 96f);
+        // v5.4.2: no WinForms auto-scaling. The panel is built in 96-DPI units once, then ApplyScale sets every font (in
+        // pixels), margin and size for the monitor's real DPI and Relayout sizes the columns from the measured text. The same
+        // path runs again when the window moves to a monitor with another scale (PerMonitorV2), and in the DPI tests.
+        AutoScaleMode = AutoScaleMode.None;
         Font = new Font("Segoe UI", 9.5f);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -123,11 +122,14 @@ internal sealed class PortalForm : Form
         stack.Controls.Add(_settingsExp);
         stack.Controls.Add(BuildFooter());
         Controls.Add(stack);
+        CaptureLogical();
+        _builtDpi = DeviceDpi;
+        ApplyScale(_builtDpi / 96f);
 
         WireEvents();
         SyncFromHost();
         _host.StateChanged += OnHostChanged;
-        _infoTimer.Tick += (_, _) => { if (Visible && !IsDisposed) UpdateInfo(); };
+        _infoTimer.Tick += (_, _) => { if (Visible && !IsDisposed) { UpdateInfo(); SyncSound(); RefitIfNeeded(); } };
         _infoTimer.Start();
         FormClosed += (_, _) => { _host.StateChanged -= OnHostChanged; _infoTimer.Stop(); _infoTimer.Dispose(); };
     }
@@ -139,14 +141,6 @@ internal sealed class PortalForm : Form
 
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] private static extern int SetWindowTheme(IntPtr hwnd, string? app, string? idList);
-
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
-        if (!_p.Dark) return;
-        // Windows 10 20H1+ / 11: dark title bar so the frame matches the dark panel.
-        try { int on = 1; if (DwmSetWindowAttribute(Handle, 20, ref on, 4) != 0) DwmSetWindowAttribute(Handle, 19, ref on, 4); } catch { }
-    }
 
     /// <summary>Test / preview hooks.</summary>
     internal bool SettingsExpanded { get => _settingsExp!.Expanded; set => _settingsExp!.Expanded = value; }
@@ -166,10 +160,14 @@ internal sealed class PortalForm : Form
     internal ComboBox SeasonBox => _season;
     internal CheckBox PaddingBox => _padding;
     internal ComboBox RegionBox => _region;
-    internal ComboBox WeatherCycleBox => _weatherCycle;
+    internal NumericUpDown WeatherCycleMinBox => _wcA;
+    internal NumericUpDown WeatherCycleMaxBox => _wcB;
     internal ComboBox TimeBox => _time;
     internal CheckBox EffectsBox => _effects;
-    internal CheckBox SeasonCycleBox => _seasonCycle;
+    internal NumericUpDown SeasonMinutesBox => _seasonMin;
+    internal CheckBox AutoMixBox => _autoMix;
+    internal Button RemixButton => _remix;
+    internal Label EffectValueLabel(string id) => _fx[id].Value;
     internal CheckBox TrainBox => _train;
     internal CheckBox PlaneBox => _plane;
     internal NumericUpDown TrainMinBox => _trainMin;
@@ -205,22 +203,284 @@ internal sealed class PortalForm : Form
         }
     }
 
+    #region DPI scaling (v5.4.2)
+
+    /// <summary>Everything about a control that depends on the screen scale, in 96-DPI units (captured once after building).</summary>
+    private sealed record Logical(Padding Margin, Padding Padding, Size? Size, Point? Location, Size Min, Size Max,
+        float FontPt, FontStyle FontStyle, string FontFamily, int? ItemHeight);
+
+    private readonly Dictionary<Control, Logical> _logical = new();
+    private readonly Dictionary<TableLayoutPanel, (SizeType Type, float Value)[]> _logicalRows = new();
+    private readonly List<(Card Card, TableLayoutPanel Grid)> _cards = new();
+    private readonly List<Label> _rowLabels = new();
+    private readonly List<Label> _wrapLabels = new();
+    private Padding _logicalPadding;
+    private float _scale = 1f;
+    private int _builtDpi = 96;
+
+    /// <summary>Scale the panel is laid out for (1 = 100 %, 1.5 = 150 % …).</summary>
+    internal float UiScale => _scale;
+    /// <summary>Label column width in px after the last layout (test hook).</summary>
+    internal int LabelColumnPx { get; private set; }
+    /// <summary>Card width in px after the last layout (test hook).</summary>
+    internal int CardWidthPx { get; private set; }
+
+    private int Px(float v) => (int)MathF.Round(v * _scale);
+
+    private void CaptureLogical()
+    {
+        _logicalPadding = Padding;
+        foreach (var c in new Control[] { this }.Concat(Descendants(this, includeCollapsed: true)))
+        {
+            // Cards are sized by Relayout (width) and by their grid (height), never from a snapshot.
+            bool sized = !c.AutoSize && c.Dock == DockStyle.None && c is not Form && c is not Card;
+            _logical[c] = new Logical(c.Margin, c.Padding, sized ? c.Size : null, c.Parent is InputFrame ? c.Location : null,
+                c.MinimumSize, c.MaximumSize, c.Font.SizeInPoints, c.Font.Style, c.Font.FontFamily.Name,
+                c is ComboBox cb ? cb.ItemHeight : null);
+            if (c is TableLayoutPanel t)
+                _logicalRows[t] = t.RowStyles.Cast<RowStyle>().Select(r => (r.SizeType, r.Height)).ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Lay the panel out for <paramref name="scale"/> (DeviceDpi / 96). Fonts are set in pixels and every margin, padding and
+    /// fixed size comes from the 96-DPI values, so calling it again (monitor change) never compounds. Then
+    /// <see cref="Relayout"/> sizes the label column, drop-downs and cards from the measured text.
+    /// </summary>
+    internal void ApplyScale(float scale)
+    {
+        if (!float.IsFinite(scale) || scale <= 0f) scale = 1f;
+        _scale = Math.Clamp(scale, 0.5f, 4f);
+        SuspendLayout();
+        try
+        {
+            Padding = ScalePad(_logicalPadding);
+            foreach (var (c, l) in _logical)
+            {
+                if (c is not Form) { c.Margin = ScalePad(l.Margin); c.Padding = ScalePad(l.Padding); }
+                // K before Font: the font change clears the control's cached preferred size, which depends on K too.
+                if (c is IScaled sc) sc.K = _scale;
+                c.Font = new Font(l.FontFamily, l.FontPt * 96f / 72f * _scale, l.FontStyle, GraphicsUnit.Pixel);
+                c.MinimumSize = ScaleSize(l.Min);
+                c.MaximumSize = ScaleSize(l.Max);
+                if (l.Size is { } sz) c.Size = ScaleSize(sz);
+                if (l.Location is { } loc) c.Location = new Point(Px(loc.X), Px(loc.Y));
+                if (c is ComboBox cb && l.ItemHeight is not null) cb.ItemHeight = Math.Max(Px(l.ItemHeight.Value), c.Font.Height + Px(6));
+            }
+            foreach (var (t, rows) in _logicalRows)
+                for (int i = 0; i < rows.Length && i < t.RowStyles.Count; i++)
+                    t.RowStyles[i] = rows[i].Type == SizeType.Absolute ? new RowStyle(SizeType.Absolute, Px(rows[i].Value)) : new RowStyle(rows[i].Type, rows[i].Value);
+        }
+        finally { ResumeLayout(false); }
+        Relayout();
+    }
+
+    private Padding ScalePad(Padding p) => new(Px(p.Left), Px(p.Top), Px(p.Right), Px(p.Bottom));
+    private Size ScaleSize(Size s) => new(s.Width == 0 ? 0 : Px(s.Width), s.Height == 0 ? 0 : Px(s.Height));
+
+    /// <summary>Width each drop-down needs for its longest entry. Measured from this, not from Width: a drop-down that
+    /// fills its grid cell (anchored left and right) has the previous layout's width.</summary>
+    private readonly Dictionary<ComboBox, int> _comboNeed = new();
+
+    private int PreferredWidth(Control c)
+    {
+        int w;
+        if (c is ComboBox cb && _comboNeed.TryGetValue(cb, out var need)) w = need;
+        // A one-line flow is the sum of its items. Measured here rather than with FlowLayoutPanel.GetPreferredSize, which
+        // can return the size cached for the previous scale while layout is suspended.
+        else if (c is FlowLayoutPanel { FlowDirection: FlowDirection.LeftToRight, WrapContents: false } flow)
+            w = flow.Controls.Cast<Control>().Where(VisibleSelf).Sum(PreferredWidth) + flow.Padding.Horizontal;
+        else w = c.AutoSize ? c.GetPreferredSize(Size.Empty).Width : c.Width;
+        return w + c.Margin.Horizontal;
+    }
+
+    private static readonly System.Reflection.MethodInfo? s_getState =
+        typeof(Control).GetMethod("GetState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+    /// <summary>The control's own Visible flag (Control.Visible is false for everything while the window is hidden).</summary>
+    private static bool VisibleSelf(Control c)
+    {
+        try
+        {
+            if (s_getState is { } m && m.GetParameters() is { Length: 1 } ps)
+                return (bool)m.Invoke(c, new[] { Enum.ToObject(ps[0].ParameterType, 0x2) })!;
+        }
+        catch { }
+        return true;
+    }
+
+    /// <summary>
+    /// Content-driven sizes: the label column fits the longest row label (no wrapping), every drop-down fits its longest
+    /// entry, and all cards share one width that fits the widest row, the header and the footer — never narrower than the
+    /// classic 440 px × scale. Number boxes get the height of their (scaled) font.
+    /// </summary>
+    internal void Relayout()
+    {
+        SuspendLayout();
+        try
+        {
+            foreach (var c in Descendants(this, includeCollapsed: true))
+            {
+                if (c is InputFrame f && f.Controls.Count > 0 && f.Controls[0] is NumericUpDown n)
+                {
+                    n.Width = f.Width - Px(8);
+                    f.Height = n.PreferredHeight + Px(8);
+                }
+                if (c is ComboBox cb && _logical.TryGetValue(cb, out var l) && l.Size is { } sz)
+                {
+                    int w = Px(sz.Width);
+                    foreach (var item in cb.Items)
+                        w = Math.Max(w, TextRenderer.MeasureText(cb.GetItemText(item), cb.Font).Width + Px(44));
+                    _comboNeed[cb] = w;
+                    cb.Width = w;
+                }
+                if (c is Pill pill) pill.Size = pill.GetPreferredSize(Size.Empty);
+                if (c is DarkCheck { AutoSize: false } chk) chk.Width = Math.Max(chk.Width, chk.GetPreferredSize(Size.Empty).Width);
+            }
+
+            // Texts that change while the panel is open get the width of their longest form, so nothing moves or clips later.
+            FixWidth(_masterVal, "100%");
+            foreach (var (_, pair) in _fx) FixWidth(pair.Value, "100% · tự");
+            FixWidth(_dirty, "● Chưa lưu", "✓ Đã lưu");
+            FixWidth(_hotkeyNote, "✓ đang dùng", "⚠ bị app khác chiếm");
+
+            var (labelCol, cardW) = Measure();
+            LabelColumnPx = labelCol;
+            CardWidthPx = cardW;
+
+            foreach (var (card, g) in _cards)
+            {
+                card.MinimumSize = new Size(cardW, 0);
+                card.MaximumSize = new Size(cardW, 0);
+                card.Width = cardW;
+                g.ColumnStyles[0] = new ColumnStyle(SizeType.Absolute, labelCol);
+                int inner = cardW - g.Padding.Horizontal - card.Padding.Horizontal;
+                foreach (Control c in g.Controls)
+                {
+                    if (_wrapLabels.Contains(c)) c.MaximumSize = new Size(inner - c.Margin.Horizontal, 0);
+                    else if (c is Label { AutoSize: false } info) info.Width = inner - labelCol - info.Margin.Horizontal;
+                }
+            }
+            _updStatus.MaximumSize = new Size(cardW - Px(40), 0);
+            if (_header is not null) _header.Width = cardW;
+            foreach (var e in Descendants(this, includeCollapsed: true).OfType<ExpanderHeader>()) e.Width = cardW;
+            LayoutFooter();
+        }
+        finally { ResumeLayout(true); }
+        // Each card is as tall as its grid at the new scale (the grid's SizeChanged does not fire when only fonts changed).
+        foreach (var (card, g) in _cards)
+        {
+            g.PerformLayout();
+            int h = g.Height + card.Padding.Vertical;
+            if (card.Height != h) card.Height = h;
+        }
+        if (_stack is not null)
+        {
+            _stack.Location = new Point(Padding.Left + AutoScrollPosition.X, Padding.Top + AutoScrollPosition.Y);
+            _stack.PerformLayout();
+        }
+        PerformLayout();
+    }
+
+    private void FixWidth(Label l, params string[] texts)
+    {
+        int w = texts.Max(t => TextRenderer.MeasureText(t, l.Font).Width) + l.Padding.Horizontal;
+        l.MinimumSize = new Size(w, 0);
+    }
+
+    /// <summary>The control that decided the card width in the last measurement (diagnostics and tests).</summary>
+    internal string WidthDriver { get; private set; } = "";
+
+    private static string DescribeForLayout(Control c)
+        => c.GetType().Name + "[" + string.Join(",", new[] { c }.Concat(Descendants(c, includeCollapsed: true)).Select(x => x.Text).Where(t => t.Length > 0).Take(3)) + "]";
+
+    /// <summary>Label column and card width the current texts and fonts need (read-only).</summary>
+    private (int LabelCol, int CardW) Measure()
+    {
+        int labelCol = Px(LabelColumn);
+        foreach (var l in _rowLabels) labelCol = Math.Max(labelCol, PreferredWidth(l));
+        int cardW = Px(CardWidth);
+        WidthDriver = "min";
+        {
+            foreach (var (card, g) in _cards)
+            {
+                int chrome = g.Padding.Horizontal + card.Padding.Horizontal;
+                foreach (Control c in g.Controls)
+                {
+                    if (_wrapLabels.Contains(c) || _rowLabels.Contains(c)) continue;
+                    if (c is Label { AutoSize: false }) continue;      // info lines: they take the width they are given
+                    int col = g.GetColumn(c), span = g.GetColumnSpan(c);
+                    int need = span >= 2 ? PreferredWidth(c) : col == 1 ? labelCol + PreferredWidth(c) : 0;
+                    if (need + chrome > cardW) WidthDriver = DescribeForLayout(c);
+                    cardW = Math.Max(cardW, need + chrome);
+                }
+            }
+            if (_header is not null)
+            {
+                int iconW = _headerIcon is null ? 0 : _headerIcon.Width + _headerIcon.Margin.Horizontal;
+                int hw = iconW + PreferredWidth(_status) + PreferredWidth(_dirty) + Px(12);
+                if (hw > cardW) WidthDriver = "header status";
+                cardW = Math.Max(cardW, hw);
+                if (_headerTitle is not null) cardW = Math.Max(cardW, iconW + PreferredWidth(_headerTitle));
+            }
+            int fw = FooterNeeded().Sum() + Px(FooterGap) * 2;
+            if (fw > cardW) WidthDriver = "footer";
+            cardW = Math.Max(cardW, fw);
+            foreach (var e in Descendants(this, includeCollapsed: true).OfType<ExpanderHeader>())
+                cardW = Math.Max(cardW, TextRenderer.MeasureText(e.Text, e.Font).Width + Px(60));
+        }
+        return (labelCol, cardW);
+    }
+
+    /// <summary>A text changed while the panel is open (status, update message …): lay out again only when the sizes change.</summary>
+    private void RefitIfNeeded()
+    {
+        if (_logical.Count == 0 || IsDisposed) return;
+        var (l, c) = Measure();
+        if (l == LabelColumnPx && c == CardWidthPx) return;
+        Relayout();
+        if (Visible) FitToScreen(reposition: false);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        // The window can open on a monitor whose scale differs from the one the panel was built for.
+        if (DeviceDpi != _builtDpi) { _builtDpi = DeviceDpi; ApplyScale(DeviceDpi / 96f); }
+        if (!_p.Dark) return;
+        // Windows 10 20H1+ / 11: dark title bar so the frame matches the dark panel.
+        try { int on = 1; if (DwmSetWindowAttribute(Handle, 20, ref on, 4) != 0) DwmSetWindowAttribute(Handle, 19, ref on, 4); } catch { }
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        _builtDpi = e.DeviceDpiNew;
+        ApplyScale(e.DeviceDpiNew / 96f);
+        FitToScreen(reposition: true);
+    }
+
+    /// <summary>Controls with hand-drawn parts (check box, drop-down chevron, slider, section header) that follow the scale.</summary>
+    private interface IScaled { float K { get; set; } }
+
+    #endregion
+
     #region layout
 
     private Control BuildHeader()
     {
-        var t = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, AutoSize = false, Size = new Size(CardWidth, 54), Margin = new Padding(0, 0, 0, 12), BackColor = _p.Back };
+        var t = _header = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, AutoSize = false, Size = new Size(CardWidth, 54), Margin = new Padding(0, 0, 0, 12), BackColor = _p.Back };
         t.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
         t.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var icon = new PictureBox { Size = new Size(40, 40), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0, 2, 10, 0) };
+        var icon = _headerIcon = new PictureBox { Size = new Size(40, 40), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0, 2, 10, 0) };
         try { icon.Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath)?.ToBitmap(); } catch { }
         t.Controls.Add(icon, 0, 0); t.SetRowSpan(icon, 2);
         var title = new Label { Text = "Audio Taskbar", AutoSize = true, Font = new Font("Segoe UI Semibold", 15f), ForeColor = _p.Text, Margin = new Padding(0, 0, 0, 0) };
         var ver = new Pill { Text = "v" + AutoUpdater.AppVersion(), Fill = _p.Accent, TextColor = Color.White, Margin = new Padding(8, 8, 0, 0) };
-        var titleRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Back, Margin = Padding.Empty };
+        var titleRow = _headerTitle = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Back, Margin = Padding.Empty };
         titleRow.Controls.Add(title); titleRow.Controls.Add(ver);
         t.Controls.Add(titleRow, 1, 0); t.SetColumnSpan(titleRow, 2);
         // Status line: running state and the hotkey on the left, a subtle saved / unsaved hint on the right.
@@ -228,12 +488,23 @@ internal sealed class PortalForm : Form
         _status.UseMnemonic = false;
         _status.Margin = new Padding(1, 2, 0, 0);
         _status.Font = new Font("Segoe UI Semibold", 9.5f);
-        t.Controls.Add(_status, 1, 1);
         _dirty.AutoSize = true; _dirty.UseMnemonic = false;
         _dirty.Anchor = AnchorStyles.Right; _dirty.Margin = new Padding(0, 2, 0, 0); _dirty.Font = new Font("Segoe UI", 9f);
-        t.Controls.Add(_dirty, 2, 1);
+        // v5.4.2: status and saved hint share their own row (the title above spans both columns of the header, which let
+        // TableLayoutPanel give the hint column extra width and squeeze the status line at some scales).
+        var statusRow = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, Dock = DockStyle.Fill, Margin = Padding.Empty, Padding = Padding.Empty, BackColor = _p.Back };
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        statusRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        statusRow.Controls.Add(_status, 0, 0);
+        statusRow.Controls.Add(_dirty, 1, 0);
+        t.Controls.Add(statusRow, 1, 1); t.SetColumnSpan(statusRow, 2);
         return t;
     }
+
+    private TableLayoutPanel? _header;
+    private PictureBox? _headerIcon;
+    private FlowLayoutPanel? _headerTitle;
 
     private Card NewCard(string title, out TableLayoutPanel grid, bool showTitle = true, int width = CardWidth)
     {
@@ -248,6 +519,7 @@ internal sealed class PortalForm : Form
             grid.Controls.Add(head, 0, 0); grid.SetColumnSpan(head, 2);
         }
         card.Controls.Add(grid);
+        _cards.Add((card, grid));
         // The card follows the grid's real height (an AutoSize Panel mis-measures a Dock=Top child).
         var g = grid;
         void Fit() { int h = g.Height + card.Padding.Vertical; if (card.Height != h) card.Height = h; }
@@ -261,6 +533,7 @@ internal sealed class PortalForm : Form
     {
         int r = g.RowCount++;
         var l = new Label { Text = label, AutoSize = true, UseMnemonic = false, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) };
+        _rowLabels.Add(l);
         c.Anchor = c is ComboBox ? AnchorStyles.Left | AnchorStyles.Right : AnchorStyles.Left;
         c.Margin = new Padding(0, 3, 0, 3);
         g.Controls.Add(l, 0, r);
@@ -304,7 +577,12 @@ internal sealed class PortalForm : Form
         return f;
     }
 
-    private Label Hint(string text, int width = CardWidth - 40) => new() { Text = text, AutoSize = true, ForeColor = _p.Sub, MaximumSize = new Size(width, 0) };
+    private Label Hint(string text)
+    {
+        var l = new Label { Text = text, AutoSize = true, UseMnemonic = false, ForeColor = _p.Sub, MaximumSize = new Size(CardWidth - 40, 0) };
+        _wrapLabels.Add(l);
+        return l;
+    }
 
     internal const string InfoTitle = "Thông tin cảnh vật & vị trí";
     internal const string WeatherTitle = "Thời tiết";
@@ -330,12 +608,11 @@ internal sealed class PortalForm : Form
         var card = NewCard(WeatherTitle, out var g);
         g.RowCount = 1;
         foreach (var w in Weathers) _weather.Items.Add(w.Label);
-        foreach (var w in WeatherCycles) _weatherCycle.Items.Add(w.Label);
         Row(g, "Thời tiết", _weather);
-        Row(g, "Tự đổi thời tiết", _weatherCycle);
+        // v5.4.2: the change interval only shows with "Ngẫu nhiên" (the separate "Tự đổi thời tiết" setting is gone).
         _wcDash.ForeColor = _p.Sub; _wcDash.UseMnemonic = false; _wcDash.Margin = new Padding(6, 6, 6, 0);
         _wcUnit.ForeColor = _p.Sub; _wcUnit.UseMnemonic = false; _wcUnit.Margin = new Padding(8, 6, 0, 0);
-        _wcLabel = Row(g, "Chu kỳ đổi", Flow(Framed(_wcA, NumWidth), _wcDash, Framed(_wcB, NumWidth), _wcUnit));
+        _wcLabel = Row(g, "Đổi sau mỗi", Flow(Framed(_wcA, NumWidth), _wcDash, Framed(_wcB, NumWidth), _wcUnit));
         CheckRow(g, "Hiệu ứng thời tiết", _effects);
         return card;
     }
@@ -346,8 +623,8 @@ internal sealed class PortalForm : Form
         g.RowCount = 1;
         foreach (var s in Seasons) _season.Items.Add(s.Label);
         Row(g, "Mùa", _season);
-        CheckRow(g, "Tự đổi mùa", _seasonCycle);
-        NumRow(g, "Mỗi mùa kéo dài", _seasonMin, "phút");
+        // v5.4.2: "Tự đổi mùa" and "Thực tế" are entries of the list; the duration only shows with "Tự đổi mùa".
+        _seasonMinLabel = NumRow(g, "Mỗi mùa kéo dài", _seasonMin, "phút");
         return card;
     }
 
@@ -370,14 +647,19 @@ internal sealed class PortalForm : Form
     {
         var card = NewCard(SoundTitle, out var g, showTitle: false);
         g.RowCount = 1;
-        Full(g, Hint("Tất cả âm lượng mặc định là 0 (im lặng). Kéo âm lượng tổng, rồi từng hiệu ứng. " +
-                     "Âm thanh do máy tự tạo, hòa theo khu vực, thời tiết, mùa và giờ trong ngày."));
+        Full(g, Hint("Âm lượng tổng mặc định là 0 (im lặng) và chỉ bạn chỉnh. Khi bật Tự phối theo cảnh, từng hiệu ứng tự đặt " +
+                     "mức chuẩn theo khu vực, thời tiết, mùa và giờ trong ngày; kéo một thanh thì hiệu ứng đó giữ mức bạn chọn."));
         Row(g, "Âm lượng tổng", Flow(_master, _masterVal));
         _masterVal.ForeColor = _p.Text; _masterVal.Margin = new Padding(6, 3, 0, 0);
+        StyleButton(_remix, primary: false);
+        _remix.Margin = new Padding(12, 0, 0, 0);
+        _remix.Padding = new Padding(8, 1, 8, 1);
+        _autoMix.Margin = new Padding(0, 3, 0, 0);
+        Row(g, "Phối âm", Flow(_autoMix, _remix));
         foreach (var (id, name) in SoundEffects.All)
         {
             var slider = new DarkSlider { Width = 230 };
-            var val = new Label { AutoSize = true, Width = 40, ForeColor = _p.Sub, Margin = new Padding(6, 3, 0, 0) };
+            var val = new Label { AutoSize = true, UseMnemonic = false, ForeColor = _p.Sub, Margin = new Padding(6, 3, 0, 0) };
             _fx[id] = (slider, val);
             Row(g, name, Flow(slider, val));
         }
@@ -490,13 +772,19 @@ internal sealed class PortalForm : Form
         return w;
     }
 
+    private int[] FooterNeeded()
+    {
+        int Need(Button b) => TextRenderer.MeasureText(b.Text, b.Font).Width + b.Padding.Horizontal + Px(14);
+        return new[] { Need(_close), Need(_exit), Need(_save) };
+    }
+
     private void LayoutFooter()
     {
         if (_footer is null) return;
-        int Need(Button b, params string[] texts) => texts.Max(x => TextRenderer.MeasureText(x, b.Font).Width) + b.Padding.Horizontal + 14;
-        var need = new[] { Need(_close, _close.Text), Need(_exit, _exit.Text), Need(_save, _save.Text) };
-        var cols = FooterColumns(CardWidth, FooterGap, need);
+        int total = CardWidthPx > 0 ? CardWidthPx : Px(CardWidth);
+        var cols = FooterColumns(total, Px(FooterGap), FooterNeeded());
         _footer.SuspendLayout();
+        _footer.Width = total;
         for (int i = 0; i < 3; i++) _footer.ColumnStyles[i] = new ColumnStyle(SizeType.Absolute, cols[i]);
         _footer.ResumeLayout(true);
     }
@@ -514,6 +802,8 @@ internal sealed class PortalForm : Form
         b.Margin = new Padding(0, 3, 8, 3);
         b.Cursor = Cursors.Hand;
         b.UseMnemonic = false;
+        // Button's AutoSize defaults to GrowOnly: after a larger scale it would never shrink back (v5.4.2).
+        b.AutoSizeMode = AutoSizeMode.GrowAndShrink;
     }
 
     /// <summary>A borderless NumericUpDown inside a 1-px themed frame, with dark up/down arrows.</summary>
@@ -568,14 +858,7 @@ internal sealed class PortalForm : Form
             _host.Mutate(c => c.ApplyWeatherOverrideSelection(id)); // "Đêm sao" → Cố định ban đêm; "Tuyết rơi" → Mùa đông
             SyncFromHost();
         };
-        _weatherCycle.SelectedIndexChanged += (_, _) =>
-        {
-            if (_syncing) return;
-            var id = WeatherCycles[Math.Max(0, _weatherCycle.SelectedIndex)].Id;
-            _host.Mutate(c => c.WeatherCycleMode = id);
-            SyncFromHost();
-        };
-        _wcA.ValueChanged += (_, _) => { if (!_syncing) _host.Mutate(c => { if (c.WeatherCycleMode == "random") c.WeatherCycleRandomMinMinutes = (float)_wcA.Value; else c.WeatherCycleMinutes = (float)_wcA.Value; }); };
+        _wcA.ValueChanged += (_, _) => Apply(c => c.WeatherCycleRandomMinMinutes = (float)_wcA.Value);
         _wcB.ValueChanged += (_, _) => { if (!_syncing) _host.Mutate(c => c.WeatherCycleRandomMaxMinutes = (float)_wcB.Value); };
         _season.SelectedIndexChanged += (_, _) =>
         {
@@ -584,7 +867,6 @@ internal sealed class PortalForm : Form
             _host.Mutate(c => c.ApplySeasonSelection(id)); // leaving winter while snow is chosen puts the weather back to "Thực tế"
             SyncFromHost();
         };
-        _seasonCycle.CheckedChanged += (_, _) => Apply(c => c.SeasonCycleEnabled = _seasonCycle.Checked);
         _seasonMin.ValueChanged += (_, _) => Apply(c => c.SeasonCycleMinutes = (float)_seasonMin.Value);
         _time.SelectedIndexChanged += (_, _) => Apply(c => c.TimeMode = Times[Math.Max(0, _time.SelectedIndex)].Id);
         _train.CheckedChanged += (_, _) => Apply(c => c.ShowTrain = _train.Checked);
@@ -606,8 +888,22 @@ internal sealed class PortalForm : Form
         {
             var (slider, val) = pair;
             string key = id;
-            slider.ValueChanged += (_, _) => { val.Text = slider.Value + "%"; Apply(c => c.SoundVolumes[key] = slider.Value); };
+            slider.ValueChanged += (_, _) =>
+            {
+                if (_syncing) return;
+                _host.Mutate(c => SoundMix.SetManual(c, key, slider.Value));   // a hand-set effect keeps its value
+                SyncSound();
+            };
         }
+        _autoMix.CheckedChanged += (_, _) =>
+        {
+            if (_syncing) return;
+            bool on = _autoMix.Checked;
+            var preset = _host.SceneSoundMix;
+            _host.Mutate(c => SoundMix.SetAutoMix(c, on, preset));
+            SyncFromHost();
+        };
+        _remix.Click += (_, _) => { _host.Mutate(SoundMix.ResetToScene); SyncFromHost(); };
         _hotkey.SelectedIndexChanged += (_, _) =>
         {
             if (_syncing || _hotkey.SelectedItem is not string hk) return;
@@ -655,6 +951,12 @@ internal sealed class PortalForm : Form
     internal void SyncFromHost()
     {
         if (IsDisposed) return;
+        SyncFromHostCore();
+        RefitIfNeeded();
+    }
+
+    private void SyncFromHostCore()
+    {
         _syncing = true;
         try
         {
@@ -665,17 +967,13 @@ internal sealed class PortalForm : Form
             UpdateInfo();
             SetIndex(_region, IndexOf(Regions, c.RegionMode));
             SetIndex(_weather, IndexOf(Weathers, c.WeatherPreview));
-            SetIndex(_weatherCycle, IndexOf(WeatherCycles, c.WeatherCycleMode));
-            bool rnd = c.WeatherCycleMode == "random", cyc = c.WeatherCycleMode != "off";
-            SetNum(_wcA, rnd ? c.WeatherCycleRandomMinMinutes : c.WeatherCycleMinutes);
+            SetNum(_wcA, c.WeatherCycleRandomMinMinutes);
             SetNum(_wcB, c.WeatherCycleRandomMaxMinutes);
-            _wcA.Enabled = cyc; _wcB.Enabled = cyc && rnd;
-            _wcB.Parent!.Visible = rnd; _wcDash.Visible = rnd;
-            if (_wcLabel is not null) _wcLabel.Text = rnd ? "Khoảng ngẫu nhiên" : "Chu kỳ đổi";
+            bool changed = ShowRow(_wcLabel, c.WeatherPreview == WeatherCycle.Random);
             SetIndex(_season, IndexOf(Seasons, c.Season));
-            _seasonCycle.Checked = c.SeasonCycleEnabled;
             SetNum(_seasonMin, c.SeasonCycleMinutes);
-            _seasonMin.Enabled = c.SeasonCycleEnabled;
+            changed |= ShowRow(_seasonMinLabel, c.Season == AudioTaskbar.Seasons.Cycle);
+            if (changed) RefitSoon();
             SetIndex(_time, IndexOf(Times, c.TimeMode));
             _train.Checked = c.ShowTrain;
             SetNum(_trainMin, c.TrainCrossingMinutes);
@@ -691,11 +989,7 @@ internal sealed class PortalForm : Form
             _padding.Checked = c.ShowIconPadding;
 
             _master.Value = c.SoundMasterVolume; _masterVal.Text = c.SoundMasterVolume + "%";
-            foreach (var (id, pair) in _fx)
-            {
-                int v = c.SoundVolumes.TryGetValue(id, out var x) ? x : 0;
-                pair.Slider.Value = v; pair.Value.Text = v + "%";
-            }
+            SyncSoundCore(c);
 
             if (!_hotkey.Items.Contains(c.Hotkey)) _hotkey.Items.Add(c.Hotkey);
             _hotkey.SelectedItem = c.Hotkey;
@@ -741,6 +1035,47 @@ internal sealed class PortalForm : Form
         }
         finally { _syncing = false; }
     }
+
+    /// <summary>Effect sliders: the volume heard right now; "· tự" marks one that follows the scene (automatic mix).</summary>
+    private void SyncSound()
+    {
+        if (IsDisposed || _syncing) return;
+        _syncing = true;
+        try { SyncSoundCore(_host.Config); }
+        finally { _syncing = false; }
+    }
+
+    private void SyncSoundCore(AppConfig c)
+    {
+        var eff = SoundMix.Effective(c, c.SoundAutoMix ? _host.SceneSoundMix : null);
+        foreach (var (id, pair) in _fx)
+        {
+            int v = eff.TryGetValue(id, out var x) ? x : 0;
+            bool auto = c.SoundAutoMix && !c.SoundManual.Contains(id);
+            pair.Slider.Value = v;
+            string text = v + "%" + (auto ? " · tự" : "");
+            if (pair.Value.Text != text) pair.Value.Text = text;
+        }
+        _autoMix.Checked = c.SoundAutoMix;
+        _remix.Enabled = c.SoundAutoMix && c.SoundManual.Count > 0;
+    }
+
+    /// <summary>Show or hide a whole grid row (its label and its control). True when it changed.</summary>
+    private bool ShowRow(Label? label, bool visible)
+    {
+        if (label?.Parent is not TableLayoutPanel g) return false;
+        bool changed = !_rowShown.TryGetValue(label, out var was) || was != visible;
+        _rowShown[label] = visible;
+        var c = g.GetControlFromPosition(1, g.GetRow(label));
+        label.Visible = visible;
+        if (c is not null) c.Visible = visible;
+        return changed;
+    }
+
+    private readonly Dictionary<Label, bool> _rowShown = new();
+    /// <summary>Test hooks: whether the conditional rows are shown (Control.Visible is false for any control of a hidden form).</summary>
+    internal bool WeatherIntervalShown => _wcLabel is not null && _rowShown.GetValueOrDefault(_wcLabel);
+    internal bool SeasonMinutesShown => _seasonMinLabel is not null && _rowShown.GetValueOrDefault(_seasonMinLabel);
 
     private static void SetNum(NumericUpDown n, float value)
     {
@@ -804,31 +1139,47 @@ internal sealed class PortalForm : Form
     /// <summary>High DPI / small screens: never taller than the work area — scroll instead. Re-evaluated when a section opens or closes.</summary>
     internal void FitToScreen(bool reposition = true)
     {
-        try
-        {
-            var wa = Screen.FromControl(this).WorkingArea;
-            if (_scrolling)
-            {
-                // back to natural size first, so closing a section shrinks the window again
-                AutoScroll = false;
-                AutoSize = true;
-                PerformLayout();
-                _scrolling = false;
-            }
-            if (Height > wa.Height - 16)
-            {
-                AutoSize = false;
-                AutoScroll = true;
-                Size = new Size(Width + SystemInformation.VerticalScrollBarWidth, wa.Height - 16);
-                _scrolling = true;
-            }
-            if (!reposition) return;
-            if (Bottom > wa.Bottom || Top < wa.Top) Top = Math.Max(wa.Top, wa.Bottom - Height);
-            if (Right > wa.Right) Left = Math.Max(wa.Left, wa.Right - Width);
-            if (Left < wa.Left) Left = wa.Left;
-        }
+        try { FitTo(Screen.FromControl(this).WorkingArea, reposition); }
         catch { }
     }
+
+    /// <summary>
+    /// Fit into <paramref name="wa"/>. Too tall: fixed height with a vertical scroll bar only. The width is the content width
+    /// plus the real scroll-bar width for this DPI, then checked against the actual client area and grown if needed, so the
+    /// scroll bar never covers the right column (v5.4.2).
+    /// </summary>
+    internal void FitTo(Rectangle wa, bool reposition = true)
+    {
+        if (_scrolling)
+        {
+            // back to natural size first, so closing a section shrinks the window again
+            AutoScroll = false;
+            AutoSize = true;
+            PerformLayout();
+            _scrolling = false;
+        }
+        int margin = Px(16);
+        if (Height > wa.Height - margin)
+        {
+            int contentW = (_stack?.Width ?? 0) + Padding.Horizontal;
+            int bar = Math.Max(Px(17), SystemInformation.GetVerticalScrollBarWidthForDpi(Math.Max(96, DeviceDpi)));
+            AutoSize = false;
+            AutoScroll = true;
+            HorizontalScroll.Enabled = false;
+            Size = new Size(SizeFromClientSize(new Size(contentW, 100)).Width + bar, Math.Max(Px(200), wa.Height - margin));
+            PerformLayout();
+            if (ClientSize.Width < contentW) Width += contentW - ClientSize.Width;
+            _scrolling = true;
+        }
+        if (!reposition) return;
+        if (Bottom > wa.Bottom || Top < wa.Top) Top = Math.Max(wa.Top, wa.Bottom - Height);
+        if (Right > wa.Right) Left = Math.Max(wa.Left, wa.Right - Width);
+        if (Left < wa.Left) Left = wa.Left;
+    }
+
+    /// <summary>Width the content needs inside the window (cards + padding), for tests.</summary>
+    internal int ContentWidthNeeded => (_stack?.Width ?? 0) + Padding.Horizontal;
+    internal bool Scrolling => _scrolling;
 
     public void ForceClose()
     {
@@ -946,9 +1297,10 @@ internal sealed class PortalForm : Form
     /// Owner-drawn drop-down list: dark slate field, light text, chevron, accent border on hover/focus,
     /// and a matching dark item list (no bright-white system combo on the dark card).
     /// </summary>
-    private sealed class DarkCombo : ComboBox
+    private sealed class DarkCombo : ComboBox, IScaled
     {
         private bool _hover;
+        public float K { get; set; } = 1f;
         private Palette P => s_palette ?? Palette.Current();
 
         public DarkCombo()
@@ -983,7 +1335,7 @@ internal sealed class PortalForm : Form
             using var bg = new SolidBrush(sel ? Color.FromArgb(p.Dark ? 70 : 40, p.Accent) : p.Input);
             if (sel) { using var baseBg = new SolidBrush(p.Input); e.Graphics.FillRectangle(baseBg, e.Bounds); }
             e.Graphics.FillRectangle(bg, e.Bounds);
-            var r = Rectangle.Inflate(e.Bounds, -8, 0);
+            var r = Rectangle.Inflate(e.Bounds, -(int)(8 * K), 0);
             TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, r, Enabled ? p.Text : p.Sub,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
@@ -1007,18 +1359,20 @@ internal sealed class PortalForm : Form
             using (var fill = new SolidBrush(Enabled ? (_hover && !DroppedDown ? p.Hover : p.Input) : p.Card)) g.FillPath(fill, path);
             using (var pen = new Pen(Focused || DroppedDown ? p.Accent : p.Border)) g.DrawPath(pen, path);
             var text = SelectedIndex >= 0 ? GetItemText(Items[SelectedIndex]) : "";
-            TextRenderer.DrawText(g, text, Font, new Rectangle(8, 0, rc.Width - 34, rc.Height), Enabled ? p.Text : p.Sub,
+            float k = K;
+            TextRenderer.DrawText(g, text, Font, new Rectangle((int)(8 * k), 0, rc.Width - (int)(34 * k), rc.Height), Enabled ? p.Text : p.Sub,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            float cx = rc.Width - 15, cy = rc.Height / 2f;
-            using var chev = new Pen(Enabled ? p.Sub : p.Border, 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-            g.DrawLines(chev, new[] { new PointF(cx - 4, cy - 2), new PointF(cx, cy + 2), new PointF(cx + 4, cy - 2) });
+            float cx = rc.Width - 15 * k, cy = rc.Height / 2f;
+            using var chev = new Pen(Enabled ? p.Sub : p.Border, 1.6f * k) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLines(chev, new[] { new PointF(cx - 4 * k, cy - 2 * k), new PointF(cx, cy + 2 * k), new PointF(cx + 4 * k, cy - 2 * k) });
         }
     }
 
     /// <summary>Flat themed check box: rounded 16-px box, accent fill + white tick when checked.</summary>
-    private sealed class DarkCheck : CheckBox
+    private sealed class DarkCheck : CheckBox, IScaled
     {
         private bool _hover;
+        public float K { get; set; } = 1f;
         private Palette P => s_palette ?? Palette.Current();
 
         public DarkCheck()
@@ -1031,7 +1385,7 @@ internal sealed class PortalForm : Form
         public override Size GetPreferredSize(Size proposedSize)
         {
             var t = TextRenderer.MeasureText(Text.Replace("&&", "&"), Font, Size.Empty, TextFormatFlags.NoPrefix);
-            return new Size(16 + 8 + t.Width + 2, Math.Max(22, t.Height + 4));
+            return new Size((int)MathF.Ceiling(24 * K) + t.Width + 2, Math.Max((int)(22 * K), t.Height + 4));
         }
 
         protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hover = true; Invalidate(); }
@@ -1043,14 +1397,14 @@ internal sealed class PortalForm : Form
             var g = e.Graphics;
             using (var bg = new SolidBrush(Parent?.BackColor ?? p.Card)) g.FillRectangle(bg, ClientRectangle);
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            float y = (Height - 16) / 2f;
-            using var box = Round(new RectangleF(0.5f, y + 0.5f, 15f, 15f), 3.5f);
+            float k = K, y = (Height - 16 * k) / 2f;
+            using var box = Round(new RectangleF(0.5f, y + 0.5f, 15f * k, 15f * k), 3.5f * k);
             if (Checked)
             {
                 using var fill = new SolidBrush(Enabled ? p.Accent : p.Border);
                 g.FillPath(fill, box);
-                using var tick = new Pen(Color.White, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-                g.DrawLines(tick, new[] { new PointF(4f, y + 8.2f), new PointF(7f, y + 11f), new PointF(12f, y + 5f) });
+                using var tick = new Pen(Color.White, 2f * k) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+                g.DrawLines(tick, new[] { new PointF(4f * k, y + 8.2f * k), new PointF(7f * k, y + 11f * k), new PointF(12f * k, y + 5f * k) });
             }
             else
             {
@@ -1062,9 +1416,10 @@ internal sealed class PortalForm : Form
             if (Focused && ShowFocusCues)
             {
                 using var fpen = new Pen(Color.FromArgb(140, p.Accent)) { DashStyle = DashStyle.Dot };
-                g.DrawRectangle(fpen, 23, 1, Width - 25, Height - 3);
+                g.DrawRectangle(fpen, 23 * k, 1, Width - 25 * k, Height - 3);
             }
-            TextRenderer.DrawText(g, Text, Font, new Rectangle(24, 0, Width - 24, Height), Enabled ? p.Text : p.Sub,
+            int tx = (int)MathF.Ceiling(24 * k);
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(tx, 0, Width - tx, Height), Enabled ? p.Text : p.Sub,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
         }
     }
@@ -1083,7 +1438,7 @@ internal sealed class PortalForm : Form
         public override Size GetPreferredSize(Size proposedSize)
         {
             var s = TextRenderer.MeasureText(Text, Font);
-            return new Size(s.Width + 14, s.Height + 4);
+            return new Size(s.Width + Font.Height, s.Height + Font.Height / 4);
         }
 
         protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Size = GetPreferredSize(Size.Empty); Invalidate(); }
@@ -1129,20 +1484,21 @@ internal sealed class PortalForm : Form
             set
             {
                 bool changed = _expanded != value;
-                _expanded = value; _content.Visible = value; _header.Open = value; _header.Margin = new Padding(0, 0, 0, value ? 6 : 0);
+                _expanded = value; _content.Visible = value; _header.Open = value; _header.Margin = new Padding(0, 0, 0, value ? (int)MathF.Round(6 * _header.K) : 0);
                 if (changed) Toggled?.Invoke();
             }
         }
     }
 
-    private sealed class ExpanderHeader : Control
+    private sealed class ExpanderHeader : Control, IScaled
     {
         private readonly Palette _p;
+        public float K { get; set; } = 1f;
         private bool _hover;
         public bool Open { get; set; }
         public ExpanderHeader(Palette p, string title)
         {
-            _p = p; Text = title; Cursor = Cursors.Hand; DoubleBuffered = true;
+            _p = p; Text = title; Cursor = Cursors.Hand; DoubleBuffered = true; Font = new Font("Segoe UI Semibold", 10.5f);
             SetStyle(ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
             TabStop = true;
         }
@@ -1154,22 +1510,25 @@ internal sealed class PortalForm : Form
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using (var bg = new SolidBrush(_p.Back)) g.FillRectangle(bg, ClientRectangle);
-            using var path = Round(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 8);
+            float k = K;
+            using var path = Round(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 8 * k);
             using (var fill = new SolidBrush(_hover ? _p.Hover : _p.Card)) g.FillPath(fill, path);
             using (var pen = new Pen(Focused ? _p.Accent : _p.Border)) g.DrawPath(pen, path);
             // chevron: ▸ closed, ▾ open
-            float cx = 18, cy = Height / 2f;
-            using var chev = new Pen(_p.Accent, 1.8f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-            if (Open) g.DrawLines(chev, new[] { new PointF(cx - 4, cy - 2), new PointF(cx, cy + 2), new PointF(cx + 4, cy - 2) });
-            else g.DrawLines(chev, new[] { new PointF(cx - 2, cy - 4), new PointF(cx + 2, cy), new PointF(cx - 2, cy + 4) });
-            TextRenderer.DrawText(g, Text, new Font("Segoe UI Semibold", 10.5f), new Rectangle(34, 0, Width - 40, Height), _p.Accent,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
+            float cx = 18 * k, cy = Height / 2f;
+            using var chev = new Pen(_p.Accent, 1.8f * k) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            if (Open) g.DrawLines(chev, new[] { new PointF(cx - 4 * k, cy - 2 * k), new PointF(cx, cy + 2 * k), new PointF(cx + 4 * k, cy - 2 * k) });
+            else g.DrawLines(chev, new[] { new PointF(cx - 2 * k, cy - 4 * k), new PointF(cx + 2 * k, cy), new PointF(cx - 2 * k, cy + 4 * k) });
+            int tx = (int)(34 * k);
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(tx, 0, Width - tx - (int)(6 * k), Height), _p.Accent,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
         }
     }
 
     /// <summary>Flat themed slider (0..100): grey track, accent fill, round thumb. Mouse and arrow keys.</summary>
-    internal sealed class DarkSlider : Control
+    internal sealed class DarkSlider : Control, IScaled
     {
+        public float K { get; set; } = 1f;
         private int _value;
         private bool _drag;
         public int Minimum => 0;
@@ -1195,7 +1554,7 @@ internal sealed class PortalForm : Form
             }
         }
 
-        private int FromX(int x) => (int)Math.Round(Math.Clamp((x - 9f) / Math.Max(1f, Width - 18f), 0f, 1f) * 100f);
+        private int FromX(int x) => (int)Math.Round(Math.Clamp((x - 9f * K) / Math.Max(1f, Width - 18f * K), 0f, 1f) * 100f);
         protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); _drag = true; Focus(); Value = FromX(e.X); }
         protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (_drag) Value = FromX(e.X); }
         protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); _drag = false; }
@@ -1217,18 +1576,18 @@ internal sealed class PortalForm : Form
             var p = P; var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using (var bg = new SolidBrush(Parent?.BackColor ?? p.Card)) g.FillRectangle(bg, ClientRectangle);
-            float cy = Height / 2f, x0 = 9, x1 = Width - 9, xv = x0 + (x1 - x0) * _value / 100f;
-            using var track = new Pen(p.Border, 4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            float k = K, cy = Height / 2f, x0 = 9 * k, x1 = Width - 9 * k, xv = x0 + (x1 - x0) * _value / 100f;
+            using var track = new Pen(p.Border, 4f * k) { StartCap = LineCap.Round, EndCap = LineCap.Round };
             g.DrawLine(track, x0, cy, x1, cy);
             if (_value > 0)
             {
-                using var fill = new Pen(Enabled ? p.Accent : p.Border, 4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                using var fill = new Pen(Enabled ? p.Accent : p.Border, 4f * k) { StartCap = LineCap.Round, EndCap = LineCap.Round };
                 g.DrawLine(fill, x0, cy, xv, cy);
             }
             using var thumb = new SolidBrush(Enabled ? (Focused ? ControlPaint.Light(p.Accent, 0.2f) : Color.White) : p.Border);
-            using var rim = new Pen(p.Accent, 1.4f);
-            g.FillEllipse(thumb, xv - 7, cy - 7, 14, 14);
-            g.DrawEllipse(rim, xv - 7, cy - 7, 14, 14);
+            using var rim = new Pen(p.Accent, 1.4f * k);
+            g.FillEllipse(thumb, xv - 7 * k, cy - 7 * k, 14 * k, 14 * k);
+            g.DrawEllipse(rim, xv - 7 * k, cy - 7 * k, 14 * k, 14 * k);
         }
     }
     #endregion

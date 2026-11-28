@@ -202,7 +202,7 @@ internal sealed class AmbientEngine : IDisposable
         float trainSpeed = 1f, float planeX01 = -1f, float planeThrust = 0f)
     {
         if (_disposed) return;
-        _mixer.SetVolumes(cfg.SoundMasterVolume, cfg.SoundVolumes);
+        _mixer.SetVolumes(cfg.SoundMasterVolume, SoundMix.Effective(cfg, SoundMix.Preset(region, mood, season)));
         _mixer.SetScene(SoundScape.Targets(region, mood, season));
         _mixer.Paused = !effectsOn;
         if (trainProgress >= 0f && cfg.ShowTrain)

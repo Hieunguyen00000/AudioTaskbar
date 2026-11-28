@@ -255,11 +255,9 @@ public class AmbientSoundTests
         var m = Mood("sunny", 12);
         Assert.True(SoundScape.Targets(R("baria-vungtau"), m, SeasonId.Summer)["waves"].Level > 0.4f);
         Assert.True(SoundScape.Targets(R("sydney"), m, SeasonId.Summer)["waves"].Level > 0.4f);
-        Assert.True(SoundScape.Targets(R("santorini"), m, SeasonId.Summer)["waves"].Level > 0.4f);
         Assert.True(SoundScape.Targets(R("hanoi"), m, SeasonId.Summer)["waves"].Level < 0.2f);
-        Assert.Equal(0f, SoundScape.Targets(R("giza"), m, SeasonId.Summer)["waves"].Level);
         Assert.True(SoundScape.Targets(R("newyork"), m, SeasonId.Summer)["traffic"].Level >
-                    SoundScape.Targets(R("santorini"), m, SeasonId.Summer)["traffic"].Level + 0.3f);
+                    SoundScape.Targets(R("default"), m, SeasonId.Summer)["traffic"].Level + 0.3f);
         // honking: Ho Chi Minh City and New York honk, Tokyo hardly ever does
         Assert.True(SoundScape.Targets(R("hcmc"), Mood("sunny", 8), SeasonId.Summer)["horns"].Level > 0.5f);
         Assert.True(SoundScape.Targets(R("tokyo"), Mood("sunny", 8), SeasonId.Summer)["horns"].Level < 0.15f);
@@ -300,7 +298,8 @@ public class AmbientSoundTests
     public void Trains_follow_the_region_trait()
     {
         var m = Mood("sunny", 12);
-        Assert.Equal(0f, SoundScape.Targets(R("giza"), m, SeasonId.Summer)["train"].Level);
+        Assert.True(SoundScape.Targets(R("tokyo"), m, SeasonId.Summer)["train"].Level >
+                    SoundScape.Targets(R("baria-vungtau"), m, SeasonId.Summer)["train"].Level);
         Assert.True(SoundScape.Targets(R("tokyo"), m, SeasonId.Summer)["train"].Level > 0.5f);
     }
 

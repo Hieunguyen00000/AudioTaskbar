@@ -16,6 +16,12 @@ internal interface IPortalHost
     string UpdateStage { get; }
     PortalInfo WeatherInfo { get; }
     bool HasUnsavedChanges { get; }
+    /// <summary>v5.4.2: standard volumes of the automatic sound mix ("Tự phối theo cảnh") for the scene shown right now.</summary>
+    IReadOnlyDictionary<string, int> SceneSoundMix => SceneMix(Config, null);
+
+    /// <summary>The automatic mix for a config and a weather reading (shared by the app and the preview host).</summary>
+    static IReadOnlyDictionary<string, int> SceneMix(AppConfig cfg, WeatherSnapshot? w)
+        => SoundMix.Preset(RegionCatalog.Resolve(cfg, w), SceneClock.Compose(w, cfg, DateTime.Now), Seasons.Parse(cfg.EffectiveSeason));
     event Action? StateChanged;
 
     void Mutate(Action<AppConfig> change, bool refreshWeather = false, bool hotkey = false, bool fusion = false);
@@ -38,8 +44,11 @@ internal sealed record PortalInfo(string Location, string Temperature, string Co
         string location = ok ? SceneClock.ShortPlace(w!.LocationName) : "Chưa xác định vị trí";
         string temp = ok ? w!.TemperatureText(cfg.WeatherUnits == "fahrenheit") : "—";
         string cond = ok ? w!.ConditionVi : "chưa có dữ liệu";
-        string season = Seasons.NameVi(Seasons.Parse(cfg.EffectiveSeason)) + (cfg.SeasonCycleEnabled ? " (tự đổi)" : "");
-        string showing = NameOfWeather(cfg.EffectiveWeather, cond) + (cfg.WeatherCycleMode != WeatherCycle.Off ? " (tự đổi)" : "");
+        string season = Seasons.NameVi(Seasons.Parse(cfg.EffectiveSeason)) + Seasons.NormalizeMode(cfg.Season) switch
+        {
+            Seasons.Cycle => " (tự đổi)", Seasons.Real => " (thực tế)", _ => ""
+        };
+        string showing = NameOfWeather(cfg.EffectiveWeather, cond) + (cfg.WeatherPreview == WeatherCycle.Random ? " (ngẫu nhiên)" : "");
         return new PortalInfo(location, temp, cond, region.NameVi, season, showing);
     }
 

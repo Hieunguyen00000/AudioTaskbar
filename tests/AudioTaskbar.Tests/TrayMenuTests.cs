@@ -56,19 +56,22 @@ public class TrayMenuTests
     }
 
     [Fact]
-    public void Season_submenu_has_the_four_seasons_and_weather_has_snow()
+    public void Season_submenu_has_the_automatic_modes_and_four_seasons_and_weather_has_snow_and_random()
     {
-        Assert.Equal(new[] { "spring", "summer", "autumn", "winter" }, TrayMenuModel.Seasons.Select(s => s.Id));
+        Assert.Equal(new[] { "real", "cycle", "spring", "summer", "autumn", "winter" }, TrayMenuModel.Seasons.Select(s => s.Id));
+        Assert.Equal(new[] { "Thực tế", "Tự đổi mùa" }, TrayMenuModel.Seasons.Take(2).Select(s => s.Label));
         Assert.Contains(TrayMenuModel.Weathers, w => w.Id == "snow");
+        Assert.Contains(TrayMenuModel.Weathers, w => w.Id == "random" && w.Label == "Ngẫu nhiên");
         Assert.Equal(TrayMenuModel.Weathers, PortalForm.Weathers);
         Assert.Equal(TrayMenuModel.Seasons, PortalForm.Seasons);
     }
 
     [Fact]
-    public void Region_pick_list_has_the_five_new_destinations()
+    public void Region_pick_list_has_the_world_destinations_but_not_the_removed_ones()
     {
         var ids = RegionCatalog.PickList().Select(r => r.Id).ToArray();
-        foreach (var id in new[] { "sydney", "newyork", "rome", "giza", "santorini" }) Assert.Contains(id, ids);
+        foreach (var id in new[] { "sydney", "newyork" }) Assert.Contains(id, ids);
+        foreach (var id in new[] { "rome", "giza", "santorini" }) Assert.DoesNotContain(id, ids);
         Assert.Equal(ids.Length, ids.Distinct().Count());
     }
 

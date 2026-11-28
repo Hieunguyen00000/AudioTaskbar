@@ -11,7 +11,7 @@ public enum VehicleKind
     Mamachari, ClassicTaxi, KeiTruck,
     VintageCar, TourBus, Car,
     // v5.4
-    Scooter, YellowCab, Camel, Donkey, Ferry
+    YellowCab, Ferry
 }
 
 public enum WaterKind { None, Sea, River, Lake }
@@ -117,33 +117,6 @@ public static class RegionCatalog
         Water2 = WaterKind.River
     };
 
-    public static readonly RegionProfile Rome = new()
-    {
-        Id = "rome", NameVi = "Roma / Ý", WeatherCity = "Rome", Lat = 41.9028, Lon = 12.4964,
-        Landmarks = new[] { "colosseum", "st-peters", "forum-pine" },
-        Filler = "roman",
-        Road = new[] { (VehicleKind.Scooter, 4f), (VehicleKind.Car, 1.4f), (VehicleKind.Bicycle, 1f), (VehicleKind.TourBus, 0.5f) }
-    };
-
-    public static readonly RegionProfile Giza = new()
-    {
-        Id = "giza", NameVi = "Cairo – Giza / Ai Cập", WeatherCity = "Cairo", Lat = 29.9792, Lon = 31.1342,
-        Landmarks = new[] { "pyramids", "sphinx", "minaret" },
-        Filler = "desert",
-        Road = new[] { (VehicleKind.Camel, 2.2f), (VehicleKind.Car, 1.5f), (VehicleKind.Motorbike, 1.2f), (VehicleKind.Taxi, 0.8f) },
-        Palms = true
-    };
-
-    public static readonly RegionProfile Santorini = new()
-    {
-        Id = "santorini", NameVi = "Santorini / Hy Lạp", WeatherCity = "Santorini", Lat = 36.3932, Lon = 25.4615,
-        Landmarks = new[] { "blue-dome", "windmill", "caldera-houses" },
-        Filler = "cycladic",
-        Road = new[] { (VehicleKind.Donkey, 1.8f), (VehicleKind.Scooter, 1.6f), (VehicleKind.Car, 1f) },
-        Water = new[] { (VehicleKind.Sailboat, 2f), (VehicleKind.FishingBoat, 1f) },
-        Water2 = WaterKind.Sea
-    };
-
     public static readonly RegionProfile Default = new()
     {
         Id = "default", NameVi = "Mặc định – Quê hương & Đô thị", WeatherCity = "",
@@ -152,7 +125,7 @@ public static class RegionCatalog
         Road = new[] { (VehicleKind.Bicycle, 2f), (VehicleKind.Car, 2f), (VehicleKind.Motorbike, 1.5f) }
     };
 
-    public static readonly RegionProfile[] All = { Hcmc, BariaVungTau, Hanoi, DanangHoiAn, Tokyo, Paris, Sydney, NewYork, Rome, Giza, Santorini, Default };
+    public static readonly RegionProfile[] All = { Hcmc, BariaVungTau, Hanoi, DanangHoiAn, Tokyo, Paris, Sydney, NewYork, Default };
 
     /// <summary>Menu / portal order: Vietnam, then world destinations, then the default scene.</summary>
     public static IEnumerable<(string Id, string Label)> PickList()
@@ -178,11 +151,9 @@ public static class RegionCatalog
             "france" or "phap" => "paris",
             "australia" or "uc" or "opera-house" => "sydney",
             "new-york" or "nyc" or "usa" or "my" => "newyork",
-            "roma" or "italy" or "y" => "rome",
-            "cairo" or "egypt" or "ai-cap" or "pyramids" => "giza",
-            "greece" or "hy-lap" => "santorini",
             _ => m
         };
+        // v5.4.2: Rome, Cairo – Giza and Santorini were removed; a file that still names them falls back to "auto".
         return All.Any(r => r.Id == m) ? m : "auto";
     }
 
@@ -219,9 +190,6 @@ public static class RegionCatalog
         if (n.Contains("paris") || n.Contains("france")) return Paris;
         if (n.Contains("sydney") || n.Contains("australia")) return Sydney;
         if (n.Contains("new york") || n.Contains("manhattan") || n.Contains("brooklyn")) return NewYork;
-        if (n.Contains("rome") || n.Contains("roma") || n.Contains("italy")) return Rome;
-        if (n.Contains("cairo") || n.Contains("giza") || n.Contains("egypt")) return Giza;
-        if (n.Contains("santorini") || n.Contains("thira") || n.Contains("oia")) return Santorini;
         return null;
     }
 
@@ -236,9 +204,6 @@ public static class RegionCatalog
         if (lat is >= 48.6 and <= 49.1 && lon is >= 2.0 and <= 2.7) return Paris;
         if (lat is >= -34.2 and <= -33.6 && lon is >= 150.7 and <= 151.4) return Sydney;
         if (lat is >= 40.5 and <= 40.95 && lon is >= -74.3 and <= -73.7) return NewYork;
-        if (lat is >= 41.7 and <= 42.1 && lon is >= 12.3 and <= 12.7) return Rome;
-        if (lat is >= 29.8 and <= 30.2 && lon is >= 31.0 and <= 31.4) return Giza;
-        if (lat is >= 36.3 and <= 36.5 && lon is >= 25.3 and <= 25.5) return Santorini;
         return null;
     }
 

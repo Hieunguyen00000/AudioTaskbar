@@ -115,41 +115,66 @@ public sealed class AppConfig
     /// guard gap around it). Off = the scenery runs right up to the icons.
     /// </summary>
     public bool ShowIconPadding { get; set; } = true;
-    /// <summary>spring | summer | autumn | winter. Summer is the look of earlier versions.</summary>
+    /// <summary>
+    /// spring | summer | autumn | winter (fixed), cycle ("Tự đổi mùa": a new season every <see cref="SeasonCycleMinutes"/>)
+    /// or real ("Thực tế": the real season for today's date at the scene's location, see <see cref="Seasons.RealAt"/>).
+    /// Summer is the look of earlier versions.
+    /// </summary>
     public string Season { get; set; } = "summer";
-    /// <summary>Advance the season automatically, every <see cref="SeasonCycleMinutes"/> real minutes.</summary>
+    /// <summary>Removed in v5.4.2 (now <c>season: "cycle"</c>). Only read so old files migrate; never written.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SeasonCycleEnabled { get; set; } = false;
     public float SeasonCycleMinutes { get; set; } = 30f;
     public const float MinSeasonCycleMinutes = 0.5f;
     public const float MaxSeasonCycleMinutes = 10080f;
-    /// <summary>off | interval (a new weather every <see cref="WeatherCycleMinutes"/>) | random (random weather after a random wait).</summary>
-    public string WeatherCycleMode { get; set; } = "off";
-    public float WeatherCycleMinutes { get; set; } = 10f;
+    /// <summary>
+    /// Removed in v5.4.2 together with the "Tự đổi thời tiết" setting: off | interval | random. Only read so old files migrate
+    /// (interval / random → <c>weatherPreview: "random"</c>, "Ngẫu nhiên"); never written.
+    /// </summary>
+    public string? WeatherCycleMode { get; set; }
+    /// <summary>Legacy v5.4 interval length; only used to migrate the interval mode to an equal random range.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public float WeatherCycleMinutes { get; set; }
     public float WeatherCycleRandomMinMinutes { get; set; } = 5f;
     public float WeatherCycleRandomMaxMinutes { get; set; } = 20f;
     public const float MinWeatherCycleMinutes = 0.5f;
     public const float MaxWeatherCycleMinutes = 1440f;
     /// <summary>Ambient sound master volume 0..100. 0 on first run and after migrating an older config.</summary>
     public int SoundMasterVolume { get; set; } = 0;
-    /// <summary>Per-effect volume 0..100 by effect id (rain, thunder, wind, traffic, horns, train, birds, insects, animals, waves). All 0 by default.</summary>
+    /// <summary>
+    /// Per-effect volume 0..100 by effect id (rain, thunder, wind, traffic, horns, train, airplane, birds, insects, animals, waves).
+    /// With <see cref="SoundAutoMix"/> on, only the ids in <see cref="SoundManual"/> use these values; the others follow the scene.
+    /// </summary>
     public Dictionary<string, int> SoundVolumes { get; set; } = new();
-    /// <summary>v5.4 airplane: take-off from the left, climb, cruise high across the middle, then descend and leave low at the right (it does not land). Cycle minutes is how often a take-off happens.</summary>
+    /// <summary>
+    /// v5.4.2 "Tự phối theo cảnh": every effect the user has not set by hand gets a standard volume that follows the region,
+    /// weather, season and time of day (<see cref="SoundMix.Preset"/>). Never touches <see cref="SoundMasterVolume"/>.
+    /// </summary>
+    public bool SoundAutoMix { get; set; } = true;
+    /// <summary>Effect ids the user set by hand while the automatic mix is on; their <see cref="SoundVolumes"/> value is kept as is.</summary>
+    public List<string> SoundManual { get; set; } = new();
+    /// <summary>v5.4.2 airplane: it appears low in the air at the left, climbs, cruises across the middle, then descends and leaves at the right. No runway; it never touches the ground. Cycle minutes is how often a flight passes.</summary>
     public bool ShowAirplane { get; set; } = true;
-    /// <summary>Minutes between take-offs (one roll / lift-off / climb / cruise / descent / exit cycle).</summary>
+    /// <summary>Minutes between flights (one climb / cruise / descent cycle plus a gap).</summary>
     public float AirplaneCycleMinutes { get; set; } = 3f;
     public const float MinAirplaneCycleMinutes = 0.5f;
     public const float MaxAirplaneCycleMinutes = 240f;
     public const float DefaultAirplaneCycleMinutes = 3f;
-    /// <summary>Config schema: 51 = v5.1, 54 = v5.4 sounds / seasons / cycles, 55 = v5.4 airplane + train lifecycle.</summary>
-    public const int CurrentConfigVersion = 55;
+    /// <summary>
+    /// Config schema: 51 = v5.1, 54 = v5.4 sounds / seasons / cycles, 55 = v5.4 airplane + train lifecycle,
+    /// 56 = v5.4.2 season and weather modes in their dropdowns, automatic sound mix, Rome / Giza / Santorini removed.
+    /// </summary>
+    public const int CurrentConfigVersion = 56;
 
-    /// <summary>Runtime only (never saved): weather chosen by the automatic weather cycle, or null.</summary>
+    /// <summary>Runtime only (never saved): weather chosen by "Ngẫu nhiên", or null.</summary>
     [JsonIgnore] public string? RuntimeWeather { get; set; }
-    /// <summary>Runtime only (never saved): season chosen by the automatic season cycle, or null.</summary>
+    /// <summary>Runtime only (never saved): season resolved for "Tự đổi mùa" / "Thực tế", or null.</summary>
     [JsonIgnore] public string? RuntimeSeason { get; set; }
-    /// <summary>Weather shown right now: the automatic cycle if it is on, otherwise the user's pick.</summary>
-    [JsonIgnore] public string EffectiveWeather => RuntimeWeather ?? WeatherPreview;
-    [JsonIgnore] public string EffectiveSeason => RuntimeSeason ?? Season;
+    /// <summary>Weather shown right now: the random pick when "Ngẫu nhiên" is on (live until the first pick), otherwise the user's pick.</summary>
+    [JsonIgnore] public string EffectiveWeather => RuntimeWeather ?? (WeatherPreview == WeatherCycle.Random ? "live" : WeatherPreview);
+    /// <summary>Season shown right now (always one of the four seasons).</summary>
+    [JsonIgnore] public string EffectiveSeason => RuntimeSeason ?? (Seasons.IsFixed(Season) ? Season
+        : Seasons.Id(Seasons.RealAt(DateTime.Now, Seasons.FallbackLatitude)));
 
     [JsonIgnore] public Color RgbaLow { get; private set; }
     [JsonIgnore] public Color RgbaMid { get; private set; }
@@ -199,12 +224,16 @@ public sealed class AppConfig
         UpdateRepo = (UpdateRepo ?? "").Trim().Trim('/');
         if (UpdateRepo.Length == 0 || UpdateRepo.Count(c => c == '/') != 1) UpdateRepo = "Hieunguyen00000/AudioTaskbar";
         UpdateFeedUrl = (UpdateFeedUrl ?? "").Trim();
-        Season = Seasons.Normalize(Season);
+        Season = Seasons.NormalizeMode(Season);
+        // Legacy v5.4 switches fold into the dropdowns (idempotent, so it also fixes hand-edited files).
+        if (SeasonCycleEnabled) { Season = Seasons.Cycle; SeasonCycleEnabled = false; }
         SeasonCycleMinutes = float.IsFinite(SeasonCycleMinutes) && SeasonCycleMinutes > 0f
             ? Math.Clamp(SeasonCycleMinutes, MinSeasonCycleMinutes, MaxSeasonCycleMinutes) : 30f;
-        WeatherCycleMode = WeatherCycle.NormalizeMode(WeatherCycleMode);
-        WeatherCycleMinutes = float.IsFinite(WeatherCycleMinutes) && WeatherCycleMinutes > 0f
-            ? Math.Clamp(WeatherCycleMinutes, MinWeatherCycleMinutes, MaxWeatherCycleMinutes) : 10f;
+        string legacyCycle = WeatherCycle.NormalizeMode(WeatherCycleMode);
+        if (legacyCycle == WeatherCycle.Interval && float.IsFinite(WeatherCycleMinutes) && WeatherCycleMinutes > 0f)
+            WeatherCycleRandomMinMinutes = WeatherCycleRandomMaxMinutes = WeatherCycleMinutes;   // same cadence as before
+        WeatherCycleMode = null;
+        WeatherCycleMinutes = 0f;
         WeatherCycleRandomMinMinutes = float.IsFinite(WeatherCycleRandomMinMinutes) && WeatherCycleRandomMinMinutes > 0f
             ? Math.Clamp(WeatherCycleRandomMinMinutes, MinWeatherCycleMinutes, MaxWeatherCycleMinutes) : 5f;
         WeatherCycleRandomMaxMinutes = float.IsFinite(WeatherCycleRandomMaxMinutes) && WeatherCycleRandomMaxMinutes > 0f
@@ -215,6 +244,7 @@ public sealed class AppConfig
         foreach (var id in SoundEffects.Ids)
             vols[id] = SoundVolumes is not null && SoundVolumes.TryGetValue(id, out var v) ? Math.Clamp(v, 0, 100) : 0;
         SoundVolumes = vols;
+        SoundManual = (SoundManual ?? new()).Where(SoundEffects.IsKnown).Distinct().ToList();
         if (UpdateFeedUrl.Length > 0 && !(Uri.TryCreate(UpdateFeedUrl, UriKind.Absolute, out var feed) && (feed.Scheme == Uri.UriSchemeHttps || feed.Scheme == Uri.UriSchemeHttp)))
             UpdateFeedUrl = "";
 
@@ -236,6 +266,7 @@ public sealed class AppConfig
         WeatherPreview = (WeatherPreview ?? "live").Trim().ToLowerInvariant();
         WeatherPreview = WeatherPreview switch
         {
+            "random" or "ngau nhien" or "ngẫu nhiên" => WeatherCycle.Random,
             "sunny" or "nang" or "nắng" or "nắng đẹp" or "nang dep" => "sunny",
             "cloudy" or "may" or "mây" or "mây trôi" or "may troi" => "cloudy",
             "rain" or "mua" or "mưa" or "mưa rào" or "mua rao" => "rain",
@@ -244,6 +275,7 @@ public sealed class AppConfig
             "snow" or "tuyet" or "tuyết" or "tuyết rơi" or "tuyet roi" => "snow",
             _ => "live"
         };
+        if (legacyCycle != WeatherCycle.Off) WeatherPreview = WeatherCycle.Random;
 
         WeatherPosition = (WeatherPosition ?? "left").Trim().ToLowerInvariant();
         if (WeatherPosition is not ("left" or "right")) WeatherPosition = "left";
@@ -284,12 +316,12 @@ public sealed class AppConfig
     }
 
     /// <summary>
-    /// v5.4: the single place a season pick is applied. Snowfall is a winter-only weather, so leaving winter while snow
+    /// v5.4: the single place a season pick is applied. Snowfall is a winter-only weather, so leaving fixed winter while snow
     /// is the chosen weather puts the weather back to "Thực tế" (live).
     /// </summary>
     public void ApplySeasonSelection(string? season)
     {
-        Season = Seasons.Normalize(season);
+        Season = Seasons.NormalizeMode(season);
         if (Season != "winter" && WeatherPreview == "snow") WeatherPreview = "live";
     }
 
@@ -417,6 +449,7 @@ public static class ConfigStore
                 if (cfg.ConfigVersion < 51 && MathF.Abs(cfg.TrainCrossingMinutes - 25f) < 0.01f) cfg.TrainCrossingMinutes = AppConfig.DefaultTrainCycleMinutes;
                 if (cfg.ConfigVersion < 54) MigrateToV54(cfg);
                 if (cfg.ConfigVersion < 55) MigrateToV55(cfg);
+                if (cfg.ConfigVersion < 56) MigrateToV56(cfg);
                 cfg.ConfigVersion = AppConfig.CurrentConfigVersion;
                 cfg.Normalize();
                 try { Save(path, cfg); } catch { }
@@ -454,6 +487,20 @@ public static class ConfigStore
         cfg.AirplaneCycleMinutes = AppConfig.DefaultAirplaneCycleMinutes;
         cfg.SoundVolumes ??= new Dictionary<string, int>();
         if (!cfg.SoundVolumes.ContainsKey(SoundEffects.Airplane)) cfg.SoundVolumes[SoundEffects.Airplane] = 0;
+    }
+
+    /// <summary>
+    /// Schema 56 (v5.4.2). The season / weather switches and the removed regions are folded in by <see cref="AppConfig.Normalize"/>
+    /// (Tự đổi mùa on → season "cycle"; Tự đổi thời tiết on → weather "Ngẫu nhiên"; Rome / Giza / Santorini → "auto").
+    /// Here: the automatic sound mix starts on, and every volume the user already chose is kept as a manual value — all of them
+    /// when the master volume is above 0 (the mix they hear stays exactly the same), otherwise each effect above 0.
+    /// The master volume itself is never changed.
+    /// </summary>
+    public static void MigrateToV56(AppConfig cfg)
+    {
+        cfg.SoundAutoMix = true;
+        var vols = cfg.SoundVolumes ?? new Dictionary<string, int>();
+        cfg.SoundManual = SoundEffects.Ids.Where(id => cfg.SoundMasterVolume > 0 || (vols.TryGetValue(id, out var v) && v > 0)).ToList();
     }
 
     public static void Save(string path, AppConfig cfg)

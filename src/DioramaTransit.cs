@@ -3,7 +3,7 @@ using System.Drawing.Drawing2D;
 
 namespace AudioTaskbar;
 
-// v5.4: the station platform with its passengers, and the short take-off strip with its airplane.
+// v5.4: the station platform with its passengers, and the airplane (v5.4.2: airborne only, no take-off strip).
 // All motion comes from the pure state machines in Transit.cs; this file only paints a given state.
 internal sealed partial class DioramaRenderer
 {
@@ -94,58 +94,33 @@ internal sealed partial class DioramaRenderer
         }
     }
 
-    // ───────────────────────────── take-off strip + airplane ─────────────────────────────
+    // ───────────────────────────── airplane ─────────────────────────────
 
-    private void DrawTakeoffAndPlane(Graphics g, SceneMood mood, float time, AppConfig cfg)
+    /// <summary>v5.4.2: the plane is only ever in the air (no runway): climb in from the left, cruise, descend out at the right.</summary>
+    private void DrawFlight(Graphics g, SceneMood mood, float time, AppConfig cfg)
     {
-        var spans = EffectiveSpans();
-        var strip = TakeoffStrip.Plan(spans, _w);
         double period = Math.Max(1.0, cfg.AirplaneCycleMinutes * 60.0);
         if (!_planeSeeded)
         {
-            // Start just into the take-off roll so something is happening right after launch.
-            double seed = PlaneCycle.StartOf(PlanePhase.Roll) + 0.12 * 0.16;
+            // Start a little into the climb so a plane is in view right after launch.
+            double seed = PlaneCycle.StartOf(PlanePhase.Climb) + 0.15 * 0.28;
             _planePhase0 = seed - time / period;
             _planeSeeded = true;
         }
         double p = DebugPlaneCycle ?? SceneMath.TrainProgress(_planePhase0, time, period);
-        var ps = PlaneCycle.Evaluate(p, _w, strip);
-
-        if (strip.HasStrip) DrawRunway(g, mood, strip);
+        var ps = PlaneCycle.Evaluate(p, _w);
         if (!ps.Visible) { PlaneX01 = -1f; PlaneThrust = 0f; return; }
         PlaneX01 = Math.Clamp(ps.X / Math.Max(1f, _w), 0f, 1f);
         PlaneThrust = ps.Thrust;
 
-        float contact = _h - 2.7f;
-        float cy = contact - ps.Alt - 5.2f;
+        float cy = PlaneCentreY(ps);
         DrawPlane(g, mood, time, ps, cy);
     }
 
-    /// <summary>The short take-off strip exists only between <see cref="TakeoffStrip.L"/> and <see cref="TakeoffStrip.R"/>.</summary>
-    private void DrawRunway(Graphics g, SceneMood mood, TakeoffStrip strip)
-    {
-        float y0 = _h - 5.6f, x0 = strip.L, x1 = strip.R;
-        var asphalt = SceneClock.Mix(Color.FromArgb(240, 30, 34, 44), Color.FromArgb(240, 74, 78, 88), mood.DayK);
-        using (var br = new SolidBrush(asphalt)) g.FillRectangle(br, x0, y0, x1 - x0, _h - y0);
-        using (var edge = new Pen(Color.FromArgb(70, 255, 255, 255), 0.6f)) g.DrawLine(edge, x0, y0 + 0.4f, x1, y0 + 0.4f);
-        using (var dash = new Pen(Color.FromArgb(170, 236, 232, 210), 0.9f) { DashPattern = new[] { 5f, 6f } })
-            g.DrawLine(dash, x0 + 3f, _h - 3.4f, x1 - 3f, _h - 3.4f);
-        // threshold bars at both ends of the short strip
-        using (var thr = new SolidBrush(Color.FromArgb(150, 236, 232, 210)))
-            for (int k = 0; k < 3; k++)
-            {
-                g.FillRectangle(thr, x0 + 0.6f + k * 1.4f, y0 + 1.2f, 0.7f, _h - y0 - 2.4f);
-                g.FillRectangle(thr, x1 - 1.3f - k * 1.4f, y0 + 1.2f, 0.7f, _h - y0 - 2.4f);
-            }
-        float lk = mood.LightsK;
-        if (lk > 0.05f)
-        {
-            using var lamp = new SolidBrush(Color.FromArgb((int)(210 * lk), 255, 232, 170));
-            for (float x = x0 + 4; x < x1 - 2; x += 16) g.FillRectangle(lamp, x, y0 - 0.1f, 1.4f, 1.0f);
-        }
-    }
+    /// <summary>Fuselage centre line for a state: <see cref="PlaneState.Alt"/> px above the bottom edge of the bar.</summary>
+    internal float PlaneCentreY(PlaneState ps) => _h - 2.7f - ps.Alt - 5.2f;
 
-        /// <summary>Side-on airliner, nose to the right, about 34 px long. (<paramref name="cy"/> = fuselage centre line.)</summary>
+    /// <summary>Side-on airliner, nose to the right, about 34 px long. (<paramref name="cy"/> = fuselage centre line.)</summary>
     private void DrawPlane(Graphics g, SceneMood mood, float time, PlaneState ps, float cy)
     {
         float day = mood.DayK, lk = mood.LightsK;
@@ -158,8 +133,8 @@ internal sealed partial class DioramaRenderer
         g.TranslateTransform(ps.X, cy);
         if (MathF.Abs(ps.PitchDeg) > 0.05f) g.RotateTransform(-ps.PitchDeg);
 
-        // landing light (dusk / night, while low or rolling)
-        if (lk > 0.05f && (ps.OnGround || ps.Alt < 12f) && ps.Speed > 0.25f)
+        // landing light (dusk / night, while low)
+        if (lk > 0.05f && ps.Alt < 12f && ps.Speed > 0.25f)
         {
             using var cone = new GraphicsPath();
             cone.AddPolygon(new[] { new PointF(16f, 0.4f), new PointF(46f, -3f), new PointF(46f, 6f) });
@@ -172,17 +147,6 @@ internal sealed partial class DioramaRenderer
         {
             g.FillPolygon(wb, new[] { new PointF(1f, -0.8f), new PointF(5f, -0.8f), new PointF(-6f, -4.6f), new PointF(-9.5f, -4.6f) });
             g.FillPolygon(wb, new[] { new PointF(-14f, -1.2f), new PointF(-11f, -1.2f), new PointF(-14.5f, -4f), new PointF(-17.5f, -4f) });
-        }
-        // landing gear (down on the ground and in the first moments of flight)
-        if (ps.OnGround || ps.Alt < 2.2f)
-        {
-            using var strut = new Pen(Color.FromArgb(255, 50, 54, 66), 0.8f);
-            using var wheel = new SolidBrush(Color.FromArgb(255, 24, 26, 32));
-            foreach (float gx in new[] { 8.5f, -3.5f })
-            {
-                g.DrawLine(strut, gx, 2.8f, gx, 4.2f);
-                g.FillEllipse(wheel, gx - 1.3f, 3.6f, 2.6f, 2.6f);
-            }
         }
         // fuselage: rounded body + tapered tail cone
         using (var fb = new SolidBrush(fus))

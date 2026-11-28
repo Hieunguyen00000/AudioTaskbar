@@ -3,8 +3,10 @@ using System.Drawing.Imaging;
 namespace AudioTaskbar;
 
 /// <summary>
-/// AudioTaskbar.exe --render-portal out.png [--expand none|settings|sound|both] [--season autumn] [--weather rain] [--region sydney]
-/// [--dirty 1] [--volumes 1]. Draws the control panel off-screen with a fake host: no tray, no taskbar, no real config.
+/// AudioTaskbar.exe --render-portal out.png [--expand none|settings|sound|both] [--season autumn|cycle|real] [--weather rain|random]
+/// [--region sydney] [--dirty 1] [--volumes 1] [--scale 1.5] [--screen-height 1032]. Draws the control panel off-screen with a fake host:
+/// no tray, no taskbar, no real config. --scale lays the panel out for that display scale (1.25 = 125 %), exactly as on a monitor
+/// with that DPI; --screen-height also fits the window into a work area that tall and draws the whole window (scroll bar included).
 /// </summary>
 internal static class PortalPreview
 {
@@ -50,7 +52,6 @@ internal static class PortalPreview
         var outPath = Get("--render-portal", "portal.png");
         var cfg = new AppConfig { Season = Get("--season", "summer"), WeatherPreview = Get("--weather", "live"), RegionMode = Get("--region", "hcmc") };
         if (Get("--volumes", "0") == "1") { cfg.SoundMasterVolume = 60; cfg.SoundVolumes["rain"] = 40; cfg.SoundVolumes["birds"] = 70; cfg.SoundVolumes["waves"] = 30; }
-        if (Get("--cycle", "0") == "1") { cfg.WeatherCycleMode = "random"; cfg.SeasonCycleEnabled = true; }
         cfg.Normalize();
         var host = new PreviewHost(cfg);
         using var f = new PortalForm(host)
@@ -65,7 +66,22 @@ internal static class PortalPreview
         host.Dirty = Get("--dirty", "0") == "1";
         f.Show();
         f.SyncFromHost();
+        float scale = float.Parse(Get("--scale", "0"), System.Globalization.CultureInfo.InvariantCulture);
+        if (scale > 0) f.ApplyScale(scale);
         for (int i = 0; i < 6; i++) { Application.DoEvents(); Thread.Sleep(30); }
+        int screenH = int.Parse(Get("--screen-height", "0"));
+        if (screenH > 0)
+        {
+            f.FitTo(new Rectangle(-32000, -32000, 4000, screenH), reposition: false);
+            for (int i = 0; i < 6; i++) { Application.DoEvents(); Thread.Sleep(30); }
+            using var win = new Bitmap(f.Width, f.Height);
+            f.DrawToBitmap(win, new Rectangle(0, 0, f.Width, f.Height));
+            win.Save(outPath, ImageFormat.Png);
+            File.WriteAllText(outPath + ".txt", $"scale={f.UiScale} window={f.Width}x{f.Height} client={f.ClientSize.Width}x{f.ClientSize.Height} " +
+                $"content={f.ContentWidthNeeded} scrolling={f.Scrolling} card={f.CardWidthPx} labelCol={f.LabelColumnPx}\n");
+            f.ForceClose();
+            return;
+        }
         // Draw the content root (not the window) so a tall panel is captured at full height, whatever the screen size.
         var root = f.Content;
         root.PerformLayout();
@@ -78,7 +94,7 @@ internal static class PortalPreview
             g2.DrawImage(inner, 14, 12);
         }
         bmp.Save(outPath, ImageFormat.Png);
-        File.WriteAllText(outPath + ".txt", $"content={root.Width}x{root.Height} window={f.Width}x{f.Height} expand={expand}\n");
+        File.WriteAllText(outPath + ".txt", $"scale={f.UiScale} content={root.Width}x{root.Height} window={f.Width}x{f.Height} card={f.CardWidthPx} labelCol={f.LabelColumnPx} expand={expand}\n");
         f.ForceClose();
     }
 }

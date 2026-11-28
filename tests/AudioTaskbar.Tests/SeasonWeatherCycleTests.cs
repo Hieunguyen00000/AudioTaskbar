@@ -1,6 +1,6 @@
 namespace AudioTaskbar.Tests;
 
-/// <summary>v5.4: automatic season cycle and automatic weather cycle (interval or random), season-aware.</summary>
+/// <summary>Season modes (fixed, "Tự đổi mùa", "Thực tế") and the "Ngẫu nhiên" weather (v5.4.2), season-aware.</summary>
 [Collection("Statics")]
 public class SeasonWeatherCycleTests
 {
@@ -35,41 +35,73 @@ public class SeasonWeatherCycleTests
         Assert.Equal(SeasonId.Spring, Seasons.Next(SeasonId.Winter));
     }
 
+    private static readonly DateTime Jan = new(2027, 1, 15, 12, 0, 0, DateTimeKind.Utc);
+    private const double Paris = 48.86, Sydney = -33.87, Hcmc = 10.78, Hanoi = 21.03;
+
     [Fact]
-    public void Cycler_off_returns_the_configured_season()
+    public void Fixed_season_is_returned_as_is()
     {
-        var c = new AppConfig { Season = "autumn", SeasonCycleEnabled = false }; c.Normalize();
+        var c = new AppConfig { Season = "autumn" }; c.Normalize();
         var cy = new SeasonCycler();
-        Assert.Equal(SeasonId.Autumn, cy.Current(T0, c));
-        Assert.Equal(SeasonId.Autumn, cy.Current(T0.AddDays(30), c));
+        Assert.Equal(SeasonId.Autumn, cy.Current(T0, c, Paris));
+        Assert.Equal(SeasonId.Autumn, cy.Current(T0.AddDays(90), c, Sydney));
     }
 
     [Fact]
-    public void Cycler_walks_through_the_seasons_from_the_configured_one()
+    public void Auto_cycle_starts_at_the_real_season_and_walks_through_the_year()
     {
-        var c = new AppConfig { Season = "winter", SeasonCycleEnabled = true, SeasonCycleMinutes = 5 }; c.Normalize();
+        var c = new AppConfig { Season = "cycle", SeasonCycleMinutes = 5 }; c.Normalize();
+        Assert.Equal(Seasons.Cycle, c.Season);
         var cy = new SeasonCycler();
-        Assert.Equal(SeasonId.Winter, cy.Current(T0, c));
-        Assert.Equal(SeasonId.Winter, cy.Current(T0.AddMinutes(4.9), c));
-        Assert.Equal(SeasonId.Spring, cy.Current(T0.AddMinutes(5.1), c));
-        Assert.Equal(SeasonId.Summer, cy.Current(T0.AddMinutes(10.5), c));
-        Assert.Equal(SeasonId.Winter, cy.Current(T0.AddMinutes(20.5), c));
+        Assert.Equal(SeasonId.Winter, cy.Current(Jan, c, Paris));        // January in Paris
+        Assert.Equal(SeasonId.Winter, cy.Current(Jan.AddMinutes(4.9), c, Paris));
+        Assert.Equal(SeasonId.Spring, cy.Current(Jan.AddMinutes(5.1), c, Paris));
+        Assert.Equal(SeasonId.Summer, cy.Current(Jan.AddMinutes(10.5), c, Paris));
+        Assert.Equal(SeasonId.Winter, cy.Current(Jan.AddMinutes(20.5), c, Paris));
+        c.SeasonCycleMinutes = 60;                                       // new period: restart from the real season
+        Assert.Equal(SeasonId.Winter, cy.Current(Jan.AddMinutes(21), c, Paris));
+        Assert.Equal(SeasonId.Winter, cy.Current(Jan.AddMinutes(80), c, Paris));
+        Assert.Equal(SeasonId.Spring, cy.Current(Jan.AddMinutes(81.5), c, Paris));
     }
 
+    [Theory]
+    // northern temperate (Hà Nội, Tokyo, Paris, New York): meteorological seasons
+    [InlineData(Hanoi, 1, "Winter")] [InlineData(Hanoi, 3, "Spring")] [InlineData(Hanoi, 5, "Spring")] [InlineData(Hanoi, 6, "Summer")]
+    [InlineData(Hanoi, 8, "Summer")] [InlineData(Hanoi, 9, "Autumn")] [InlineData(Hanoi, 11, "Autumn")] [InlineData(Hanoi, 12, "Winter")]
+    [InlineData(Paris, 7, "Summer")] [InlineData(Paris, 2, "Winter")]
+    // southern hemisphere: six months later
+    [InlineData(Sydney, 1, "Summer")] [InlineData(Sydney, 4, "Autumn")] [InlineData(Sydney, 7, "Winter")] [InlineData(Sydney, 10, "Spring")]
+    // tropics (TP.HCM, Vũng Tàu, Đà Nẵng): Tết spring, hot season, rainy/cool season — never winter
+    [InlineData(Hcmc, 1, "Spring")] [InlineData(Hcmc, 2, "Spring")] [InlineData(Hcmc, 3, "Summer")] [InlineData(Hcmc, 7, "Summer")]
+    [InlineData(Hcmc, 8, "Autumn")] [InlineData(Hcmc, 12, "Autumn")]
+    [InlineData(-6.2, 7, "Spring")] [InlineData(-6.2, 1, "Summer")]   // Jakarta: southern tropics, shifted
+    public void Real_season_follows_date_and_hemisphere(double lat, int month, string expected)
+        => Assert.Equal(Seasons.Parse(expected), Seasons.RealAt(new DateTime(2027, month, 15), lat));
+
     [Fact]
-    public void Cycler_restarts_when_the_user_picks_a_season_or_changes_the_period()
+    public void Tropics_never_get_winter_and_real_mode_uses_the_scene_latitude()
     {
-        var c = new AppConfig { Season = "spring", SeasonCycleEnabled = true, SeasonCycleMinutes = 5 }; c.Normalize();
+        for (int m = 1; m <= 12; m++)
+        {
+            Assert.NotEqual(SeasonId.Winter, Seasons.RealAt(new DateTime(2027, m, 15), Hcmc));
+            Assert.NotEqual(SeasonId.Winter, Seasons.RealAt(new DateTime(2027, m, 15), -Hcmc));
+        }
+        Assert.Equal(SeasonId.Spring, Seasons.RealAt(new DateTime(2027, 1, 15), double.NaN));   // unknown → TP.HCM
+        var c = new AppConfig { Season = "real" }; c.Normalize();
+        Assert.Equal(Seasons.Real, c.Season);
         var cy = new SeasonCycler();
-        cy.Current(T0, c);
-        Assert.Equal(SeasonId.Summer, cy.Current(T0.AddMinutes(6), c));
-        c.Season = "winter";                                    // the user picks winter (e.g. by choosing snow)
-        Assert.Equal(SeasonId.Winter, cy.Current(T0.AddMinutes(6.1), c));
-        Assert.Equal(SeasonId.Winter, cy.Current(T0.AddMinutes(10), c));
-        Assert.Equal(SeasonId.Spring, cy.Current(T0.AddMinutes(11.2), c));
-        c.SeasonCycleMinutes = 60;                              // new period: restart from the configured season
-        Assert.Equal(SeasonId.Winter, cy.Current(T0.AddMinutes(12), c));
+        Assert.Equal(SeasonId.Summer, cy.Current(new DateTime(2027, 7, 15, 12, 0, 0, DateTimeKind.Utc), c, Paris));
+        Assert.Equal(SeasonId.Winter, cy.Current(new DateTime(2027, 7, 15, 12, 0, 0, DateTimeKind.Utc), c, Sydney));
+        // the scene latitude: a picked region's city, else the detected location, else TP.HCM
+        Assert.Equal(-33.8688, Seasons.SceneLatitude(RegionCatalog.Sydney, null), 3);
+        Assert.Equal(52.5, Seasons.SceneLatitude(RegionCatalog.Default, new WeatherSnapshot { Ok = true, Latitude = 52.5 }), 3);
+        Assert.Equal(Seasons.FallbackLatitude, Seasons.SceneLatitude(RegionCatalog.Default, null), 3);
     }
+
+    [Theory]
+    [InlineData("cycle", "cycle")] [InlineData("Tự đổi mùa", "cycle")] [InlineData("real", "real")] [InlineData("Thực tế", "real")]
+    [InlineData("winter", "winter")] [InlineData("Mùa thu", "autumn")] [InlineData("rome?", "summer")] [InlineData(null, "summer")]
+    public void Season_modes_normalize(string? input, string expected) => Assert.Equal(expected, Seasons.NormalizeMode(input));
 
     [Fact]
     public void Pool_has_snow_only_in_winter()
@@ -81,55 +113,32 @@ public class SeasonWeatherCycleTests
     }
 
     [Fact]
-    public void Weather_cycle_off_never_overrides()
+    public void A_fixed_weather_is_never_overridden()
     {
-        var c = new AppConfig { WeatherCycleMode = "off", WeatherPreview = "rain" }; c.Normalize();
+        var c = new AppConfig { WeatherPreview = "rain" }; c.Normalize();
         var s = new WeatherScheduler(new Random(1));
         Assert.Null(s.Current(T0, c, SeasonId.Summer));
         Assert.Null(s.Current(T0.AddHours(5), c, SeasonId.Summer));
+        Assert.Equal("rain", c.EffectiveWeather);
     }
 
     [Fact]
-    public void Interval_mode_starts_from_the_users_weather_and_steps_every_interval()
+    public void Random_weather_catches_up_after_a_long_gap_without_looping_forever()
     {
-        var c = new AppConfig { WeatherCycleMode = "interval", WeatherCycleMinutes = 10, WeatherPreview = "cloudy" }; c.Normalize();
-        var s = new WeatherScheduler(new Random(7));
-        Assert.Equal("cloudy", s.Current(T0, c, SeasonId.Summer));
-        Assert.Equal("cloudy", s.Current(T0.AddMinutes(9.9), c, SeasonId.Summer));
-        var second = s.Current(T0.AddMinutes(10.1), c, SeasonId.Summer);
-        Assert.Equal(WeatherCycle.NextInOrder(SeasonId.Summer, "cloudy"), second);
-        Assert.Equal(second, s.Current(T0.AddMinutes(19.9), c, SeasonId.Summer));
-        var third = s.Current(T0.AddMinutes(20.2), c, SeasonId.Summer);
-        Assert.Equal(WeatherCycle.NextInOrder(SeasonId.Summer, second!), third);
-    }
-
-    [Fact]
-    public void Interval_mode_visits_every_pool_weather_in_order()
-    {
-        var c = new AppConfig { WeatherCycleMode = "interval", WeatherCycleMinutes = 1, WeatherPreview = "sunny" }; c.Normalize();
-        var s = new WeatherScheduler(new Random(3));
-        var seen = new List<string>();
-        for (int i = 0; i < 12; i++) seen.Add(s.Current(T0.AddMinutes(i + 0.5), c, SeasonId.Winter)!);
-        var pool = WeatherCycle.Pool(SeasonId.Winter).Select(p => p.id).ToArray();
-        Assert.Equal(pool.OrderBy(x => x), seen.Distinct().OrderBy(x => x));
-        for (int i = 1; i < seen.Count; i++) Assert.NotEqual(seen[i - 1], seen[i]);
-    }
-
-    [Fact]
-    public void Interval_mode_catches_up_after_a_long_gap_without_looping_forever()
-    {
-        var c = new AppConfig { WeatherCycleMode = "interval", WeatherCycleMinutes = 1 }; c.Normalize();
+        var c = new AppConfig { WeatherPreview = "random", WeatherCycleRandomMinMinutes = 1, WeatherCycleRandomMaxMinutes = 1 }; c.Normalize();
         var s = new WeatherScheduler(new Random(3));
         s.Current(T0, c, SeasonId.Summer);
         var r = s.Current(T0.AddDays(2), c, SeasonId.Summer);
         Assert.NotNull(r);
         Assert.True(s.NextChangeUtc > T0.AddDays(2));
+        // until the first pick the scene shows the live weather, never the literal "random"
+        Assert.Equal("live", new AppConfig { WeatherPreview = "random" }.EffectiveWeather);
     }
 
     [Fact]
     public void Random_mode_never_repeats_the_same_weather_twice_in_a_row()
     {
-        var c = new AppConfig { WeatherCycleMode = "random", WeatherCycleRandomMinMinutes = 1, WeatherCycleRandomMaxMinutes = 1 }; c.Normalize();
+        var c = new AppConfig { WeatherPreview = "random", WeatherCycleRandomMinMinutes = 1, WeatherCycleRandomMaxMinutes = 1 }; c.Normalize();
         var s = new WeatherScheduler(new Random(99));
         string? prev = null;
         for (int i = 0; i < 500; i++)
@@ -144,7 +153,7 @@ public class SeasonWeatherCycleTests
     [Fact]
     public void Random_mode_waits_a_random_time_inside_the_configured_range()
     {
-        var c = new AppConfig { WeatherCycleMode = "random", WeatherCycleRandomMinMinutes = 3, WeatherCycleRandomMaxMinutes = 8 }; c.Normalize();
+        var c = new AppConfig { WeatherPreview = "random", WeatherCycleRandomMinMinutes = 3, WeatherCycleRandomMaxMinutes = 8 }; c.Normalize();
         var rng = new Random(5);
         var s = new WeatherScheduler(rng);
         var waits = new List<double>();
@@ -164,7 +173,7 @@ public class SeasonWeatherCycleTests
     [Fact]
     public void Random_mode_only_picks_snow_in_winter()
     {
-        var c = new AppConfig { WeatherCycleMode = "random", WeatherCycleRandomMinMinutes = 0.5f, WeatherCycleRandomMaxMinutes = 0.5f }; c.Normalize();
+        var c = new AppConfig { WeatherPreview = "random", WeatherCycleRandomMinMinutes = 0.5f, WeatherCycleRandomMaxMinutes = 0.5f }; c.Normalize();
         foreach (var season in Seasons.All)
         {
             var s = new WeatherScheduler(new Random(11));
@@ -177,26 +186,63 @@ public class SeasonWeatherCycleTests
     [Fact]
     public void Weather_that_no_longer_fits_the_season_is_replaced_at_once()
     {
-        var c = new AppConfig { WeatherCycleMode = "interval", WeatherCycleMinutes = 60, WeatherPreview = "snow" }; c.Normalize();
+        var c = new AppConfig { WeatherPreview = "random", WeatherCycleRandomMinMinutes = 60, WeatherCycleRandomMaxMinutes = 60 }; c.Normalize();
         var s = new WeatherScheduler(new Random(2));
-        Assert.Equal("snow", s.Current(T0, c, SeasonId.Winter));
+        string? w = null;
+        for (int i = 0; i < 50 && w != "snow"; i++) { s.Reset(); w = s.Current(T0, c, SeasonId.Winter); }
+        Assert.Equal("snow", w);
         var r = s.Current(T0.AddSeconds(5), c, SeasonId.Spring);   // winter ended
         Assert.NotEqual("snow", r);
         Assert.True(WeatherCycle.InPool(SeasonId.Spring, r!));
     }
 
     [Fact]
-    public void Switching_the_mode_or_resetting_restarts_from_the_users_weather()
+    public void Picking_a_fixed_weather_stops_the_random_weather()
     {
-        var c = new AppConfig { WeatherCycleMode = "interval", WeatherCycleMinutes = 5, WeatherPreview = "sunny" }; c.Normalize();
+        var c = new AppConfig { WeatherPreview = "random" }; c.Normalize();
         var s = new WeatherScheduler(new Random(4));
-        Assert.Equal("sunny", s.Current(T0, c, SeasonId.Summer));
-        s.Current(T0.AddMinutes(6), c, SeasonId.Summer);
-        c.WeatherPreview = "storm";                     // the user picks a weather by hand
-        s.Reset();
-        Assert.Equal("storm", s.Current(T0.AddMinutes(6.5), c, SeasonId.Summer));
-        c.WeatherCycleMode = "off";
-        Assert.Null(s.Current(T0.AddMinutes(7), c, SeasonId.Summer));
+        Assert.NotNull(s.Current(T0, c, SeasonId.Summer));
+        c.ApplyWeatherOverrideSelection("storm");
+        Assert.Null(s.Current(T0.AddMinutes(1), c, SeasonId.Summer));
+        Assert.Equal("storm", c.EffectiveWeather);
+        c.ApplyWeatherOverrideSelection("Ngẫu nhiên");
+        Assert.Equal("random", c.WeatherPreview);
+        Assert.NotNull(s.Current(T0.AddMinutes(2), c, SeasonId.Summer));
+    }
+
+    [Theory]
+    [InlineData("interval", 7f, 7f, 7f)]       // v5.4 "Theo khoảng thời gian" 7 min → Ngẫu nhiên changing every 7 min
+    [InlineData("random", 0f, 4f, 9f)]          // v5.4 "Ngẫu nhiên" keeps its range
+    public void Legacy_weather_cycle_migrates_to_the_random_entry(string mode, float interval, float lo, float hi)
+    {
+        using var d = new TempDir();
+        var p = d.File("config.json");
+        File.WriteAllText(p, "{ \"configVersion\": 55, \"weatherPreview\": \"rain\", \"weatherCycleMode\": \"" + mode + "\", \"weatherCycleMinutes\": " +
+            interval.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", \"weatherCycleRandomMinMinutes\": 4, \"weatherCycleRandomMaxMinutes\": 9 }");
+        var c = ConfigStore.Load(p);
+        Assert.Equal("random", c.WeatherPreview);
+        Assert.Equal(lo, c.WeatherCycleRandomMinMinutes);
+        Assert.Equal(hi, c.WeatherCycleRandomMaxMinutes);
+        var json = File.ReadAllText(p);
+        Assert.DoesNotContain("weatherCycleMode", json);
+        Assert.DoesNotContain("seasonCycleEnabled", json);
+        var off = d.File("off.json");
+        File.WriteAllText(off, "{ \"configVersion\": 55, \"weatherPreview\": \"rain\", \"weatherCycleMode\": \"off\" }");
+        Assert.Equal("rain", ConfigStore.Load(off).WeatherPreview);
+    }
+
+    [Theory]
+    [InlineData(true, "winter", "cycle")]
+    [InlineData(false, "winter", "winter")]
+    public void Legacy_season_checkbox_migrates_to_the_cycle_entry(bool enabled, string season, string expected)
+    {
+        using var d = new TempDir();
+        var p = d.File("config.json");
+        File.WriteAllText(p, "{ \"configVersion\": 55, \"season\": \"" + season + "\", \"seasonCycleEnabled\": " + (enabled ? "true" : "false") + ", \"seasonCycleMinutes\": 12 }");
+        var c = ConfigStore.Load(p);
+        Assert.Equal(expected, c.Season);
+        Assert.False(c.SeasonCycleEnabled);
+        Assert.Equal(12f, c.SeasonCycleMinutes);
     }
 
     [Theory]

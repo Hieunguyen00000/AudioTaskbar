@@ -38,12 +38,15 @@ internal static class TrayMenuModel
 
     public static IReadOnlyList<(string Id, string Label)> Seasons => new[]
     {
+        // v5.4.2: the two automatic modes live in the same list (the separate "Tự đổi mùa" check box is gone).
+        (AudioTaskbar.Seasons.Real, "Thực tế"), (AudioTaskbar.Seasons.Cycle, "Tự đổi mùa"),
         ("spring", "Mùa xuân"), ("summer", "Mùa hè"), ("autumn", "Mùa thu"), ("winter", "Mùa đông")
     };
 
     public static IReadOnlyList<(string Id, string Label)> Weathers => new[]
     {
-        ("live", "Thực tế"), ("sunny", "Nắng đẹp"), ("cloudy", "Mây trôi"), ("rain", "Mưa rào"),
+        // v5.4.2: "Ngẫu nhiên" replaces the separate "Tự đổi thời tiết" setting.
+        ("live", "Thực tế"), (WeatherCycle.Random, "Ngẫu nhiên"), ("sunny", "Nắng đẹp"), ("cloudy", "Mây trôi"), ("rain", "Mưa rào"),
         ("storm", "Giông bão"), ("snow", "Tuyết rơi"), ("night", "Đêm sao")
     };
 

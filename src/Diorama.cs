@@ -625,13 +625,12 @@ internal sealed partial class DioramaRenderer
             DrawTrain(g, mood, time, ctx.Cfg);
 
         // v5.4: the runway exists only inside the airport span, so road traffic keeps out of it.
-        _scenery.NoRoadZone = ctx.Cfg.ShowAirplane && TakeoffStrip.Plan(EffectiveSpans(), _w) is { HasStrip: true } zone ? (zone.L, zone.R) : null;
         if (ctx.Cfg.ShowCyclist)
             _scenery.DrawRoadTraffic(g, mood, time);
 
         // v5.4 take-off strip + airplane: drawn after the road traffic so the plane is never hidden behind a passing car.
         if (ctx.Cfg.ShowAirplane)
-            DrawTakeoffAndPlane(g, mood, time, ctx.Cfg);
+            DrawFlight(g, mood, time, ctx.Cfg);
 
         if (mood.IsRainy && ctx.Cfg.ShowWeatherEffects)
         {
@@ -1198,8 +1197,7 @@ internal sealed partial class DioramaRenderer
         float trainW = TrainW;
         double period = Math.Max(1.0, cfg.TrainCrossingMinutes) * 60.0;
         var spans = EffectiveSpans();
-        var strip = cfg.ShowAirplane ? TakeoffStrip.Plan(spans, _w) : new TakeoffStrip(false, 0, 0);
-        var st0 = TakeoffStrip.StationSpan(spans, _w, strip);
+        var st0 = TrainCycle.StationSpan(spans, _w);
         _platL = st0.L + 2; _platR = st0.R - 2;
         if (_platR - _platL > 168) { float mid = (_platL + _platR) / 2; _platL = mid - 84; _platR = mid + 84; }
         if (_platR - _platL < 40) { float mid = (_platL + _platR) / 2; _platL = mid - 20; _platR = mid + 20; }
@@ -1208,7 +1206,7 @@ internal sealed partial class DioramaRenderer
         if (!_trainSeeded || (!_trainSeededWithSpans && _spans.Count > 0 && time - _trainSeedTime < 6f))
         {
             // Start with the train standing at the platform (doors just open) so something is happening right after launch.
-            double seed = TrainCycle.StopStart + 0.25 * 0.10;
+            double seed = TrainCycle.StopStart + 0.25 * TrainCycle.Plan[(int)TrainPhase.Alight].Frac;
             _trainPhase0 = seed - time / period;
             _trainSeeded = true;
             _trainSeededWithSpans = _spans.Count > 0;

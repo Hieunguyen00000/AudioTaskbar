@@ -48,7 +48,9 @@ public class V54ConfigTests
         Assert.All(EffectIds, id => Assert.Equal(0, cfg.SoundVolumes[id]));
         Assert.Equal("summer", cfg.Season);
         Assert.False(cfg.SeasonCycleEnabled);
-        Assert.Equal("off", cfg.WeatherCycleMode);
+        Assert.Null(cfg.WeatherCycleMode);   // v5.4.2: legacy key, folded into the weather list and never written again
+        Assert.True(cfg.SoundAutoMix);
+        Assert.Empty(cfg.SoundManual);
         Assert.True(cfg.ShowIconPadding);
         Assert.False(cfg.ShowWeatherHud);
 
@@ -89,7 +91,7 @@ public class V54ConfigTests
     {
         using var d = new TempDir();
         var path = d.File("config.json");
-        var c = new AppConfig { ConfigVersion = AppConfig.CurrentConfigVersion, SoundMasterVolume = 60, Season = "autumn", SeasonCycleEnabled = true, SeasonCycleMinutes = 12, WeatherCycleMode = "random", ShowIconPadding = false };
+        var c = new AppConfig { ConfigVersion = AppConfig.CurrentConfigVersion, SoundMasterVolume = 60, Season = "autumn", SeasonCycleMinutes = 12, WeatherPreview = "random", ShowIconPadding = false, SoundAutoMix = false };
         c.SoundVolumes["rain"] = 35;
         c.SoundVolumes["birds"] = 70;
         ConfigStore.Save(path, c);
@@ -101,9 +103,9 @@ public class V54ConfigTests
         Assert.Equal(70, back.SoundVolumes["birds"]);
         Assert.Equal(0, back.SoundVolumes["thunder"]);
         Assert.Equal("autumn", back.Season);
-        Assert.True(back.SeasonCycleEnabled);
         Assert.Equal(12f, back.SeasonCycleMinutes);
-        Assert.Equal("random", back.WeatherCycleMode);
+        Assert.Equal("random", back.WeatherPreview);
+        Assert.False(back.SoundAutoMix);
         Assert.False(back.ShowIconPadding);
     }
 
@@ -214,12 +216,13 @@ public class V54ConfigTests
         var c = new AppConfig { SeasonCycleMinutes = -5, WeatherCycleMinutes = float.NaN, WeatherCycleRandomMinMinutes = 30, WeatherCycleRandomMaxMinutes = 2, WeatherCycleMode = "RANDOM" };
         c.Normalize();
         Assert.Equal(30f, c.SeasonCycleMinutes);
-        Assert.Equal(10f, c.WeatherCycleMinutes);
         Assert.True(c.WeatherCycleRandomMaxMinutes >= c.WeatherCycleRandomMinMinutes);
-        Assert.Equal("random", c.WeatherCycleMode);
-        var d = new AppConfig { SeasonCycleMinutes = 99999, WeatherCycleMode = "weird" }; d.Normalize();
+        Assert.Equal("random", c.WeatherPreview);   // legacy "Tự đổi thời tiết: Ngẫu nhiên" → weather "Ngẫu nhiên"
+        Assert.Null(c.WeatherCycleMode);
+        var d = new AppConfig { SeasonCycleMinutes = 99999, WeatherCycleMode = "weird", WeatherPreview = "rain" }; d.Normalize();
         Assert.Equal(AppConfig.MaxSeasonCycleMinutes, d.SeasonCycleMinutes);
-        Assert.Equal("off", d.WeatherCycleMode);
+        Assert.Equal("rain", d.WeatherPreview);
+        Assert.Null(d.WeatherCycleMode);
     }
 
     [Fact]
