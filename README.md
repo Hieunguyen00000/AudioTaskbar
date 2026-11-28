@@ -7,10 +7,6 @@ Hiệu ứng nằm **phía sau** icon — Start, Search, ứng dụng và khay h
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/Windows-11%20x64-111827)
 
-![Audio Taskbar — demo sống: chu kỳ ngày–đêm, tuyết rơi Tokyo, mưa rào Đà Nẵng, bình minh Paris và bảng điều khiển v5.3.2](docs/images/demo.gif)
-
-> Bản MP4 chất lượng cao hơn: [`docs/images/demo.mp4`](docs/images/demo.mp4) (1920×810, 30 fps, ~30 giây).
-
 ## Hình ảnh
 
 **Thanh taskbar Windows 11** — icon hòa nền trên diorama, ví dụ Tokyo tuyết rơi.
@@ -44,11 +40,12 @@ Windows 11 64-bit. Không cần quyền Administrator, không cần cài .NET.
 
 ## Có gì mới trong v5.4.1
 
-- **Máy bay chỉ cất cánh.** Máy bay lăn bánh từ mép trái taskbar, cất cánh, leo lên, bay ngang ở độ cao giữa thanh, rồi hạ dần và rời khỏi tầm nhìn ở thấp gần mép phải (không hạ cánh, không có nhà ga, tháp kiểm soát, cầu thang hay hành khách). Một đường băng ngắn ở bên trái; xe cộ không chạy vào đó. Số phút/vòng là khoảng cách giữa các lần cất cánh. Tàu hỏa giữ nguyên.
+- **Máy bay chỉ cất cánh.** Máy bay lăn bánh từ mép trái taskbar, cất cánh, leo lên, bay ngang ở độ cao giữa thanh (*cruise*), rồi hạ dần và rời khỏi tầm nhìn ở thấp gần mép phải (không hạ cánh, không có nhà ga, tháp kiểm soát, cầu thang hay hành khách). Một đường băng ngắn ở bên trái; xe cộ không chạy vào đó. Số phút/vòng là khoảng cách giữa các lần cất cánh. Tàu hỏa giữ nguyên.
+- **Âm thanh nền là bản thu thật (CC0, mặc định im lặng).** Mưa rừng nặng hạt ngoài trời, sấm sét, xe cộ, còi xe, tiếng còi tàu, chim, côn trùng, ếch/chó/gà và sóng nước là các bản thu CC0 (Freesound), nhúng sẵn trong exe (khoảng 4 MB), chỉ giải mã khi bạn kéo thanh âm lượng lên. **Sấm khớp với tia chớp** trên diorama: mỗi tia chớp kéo theo một tiếng sấm, trễ hơn và nhỏ/trầm hơn khi sấm ở xa. Gió, máy bay và tiếng ray tàu vẫn được tổng hợp trong app. Nguồn và giấy phép từng bản thu: [`NOTICE.md`](NOTICE.md). Âm lượng tổng và từng hiệu ứng **đặt 0** kể cả khi nâng cấp từ cấu hình cũ; các vòng lặp nối liền mạch, vào/ra mềm; tạm dừng khi tắt hiệu ứng và dừng hẳn khi thoát.
 
 ## Có gì mới trong v5.4.0
 
-- **Âm thanh nền (mặc định im lặng).** Mưa, sấm, gió, xe cộ, còi xe, tàu hỏa vào ga (xa/gần, chuyển kênh trái–phải), máy bay cất cánh, chim, côn trùng ban đêm, ếch/chó/gà, sóng nước — trộn theo khu vực, thời tiết, mùa và giờ trong ngày. Có âm lượng tổng và từng hiệu ứng, **tất cả đặt 0** kể cả khi nâng cấp từ cấu hình cũ. Mưa, sấm, xe cộ, còi, tiếng tàu, chim, côn trùng, ếch/chó/gà, sóng là **bản thu thật** (CC0, nguồn Freesound, ghi công trong `NOTICE.md`, khoảng 3.8 MB nhúng sẵn trong exe, chỉ giải mã khi bạn kéo thanh âm lượng lên; mỗi tia chớp trên thanh tác vụ kéo theo một tiếng sấm khớp, trễ theo khoảng cách); gió, máy bay và tiếng ray tàu vẫn được tổng hợp trong app. Các vòng lặp nối liền mạch, vào/ra mềm; tạm dừng khi tắt hiệu ứng và dừng hẳn khi thoát.
+- **Âm thanh nền (mặc định im lặng).** Mưa, sấm, gió, xe cộ, còi xe, tàu hỏa vào ga (xa/gần, chuyển kênh trái–phải), máy bay cất/hạ cánh, chim, côn trùng ban đêm, ếch/chó/gà, sóng nước — trộn theo khu vực, thời tiết, mùa và giờ trong ngày. Có âm lượng tổng và từng hiệu ứng, **tất cả đặt 0** kể cả khi nâng cấp từ cấu hình cũ. Âm thanh được tổng hợp ngay trong app (không file âm thanh, không bản quyền bên thứ ba), nối vòng liền mạch, vào/ra mềm; tạm dừng khi tắt hiệu ứng và dừng hẳn khi thoát.
 - **Bốn mùa.** Xuân, hè, thu, đông với bảng màu trời/đất riêng (cánh hoa, lá rơi, tuyết phủ). Chọn thời tiết *Tuyết rơi* sẽ tự sang mùa đông. Có thể **tự đổi mùa** theo chu kỳ phút tùy chỉnh.
 - **Thời tiết tự đổi.** Theo chu kỳ cố định hoặc ngẫu nhiên trong khoảng bạn đặt, luôn hợp mùa (tuyết chỉ vào mùa đông).
 - **5 địa danh nổi tiếng mới:** Sydney (Nhà hát Opera, cầu Cảng), New York (Tượng Nữ thần Tự do, Empire State, cầu Brooklyn), Rome (Đấu trường La Mã, St. Peter), Giza (Kim tự tháp, Sphinx), Santorini (nhà vòm xanh, cối xay gió). Mỗi nơi có phương tiện và nhịp phố riêng.
@@ -81,7 +78,7 @@ Thay đổi trong bảng điều khiển được xem trước ngay; bấm **Lư
 | Mùa | *Mùa xuân/hè/thu/đông*, hoặc *Tự đổi mùa* với số phút mỗi mùa |
 | Thời tiết tự đổi | *Tự đổi thời tiết*: theo chu kỳ (phút) hoặc ngẫu nhiên trong khoảng |
 | Phương tiện, chi tiết nền, hiệu ứng thời tiết, vùng đệm icon | Các ô kiểm trên bảng điều khiển |
-| Âm thanh nền | Mục *Âm thanh nền* (thu gọn): âm lượng tổng + từng hiệu ứng, mặc định 0 |
+| Âm thanh nền | Mục *Âm thanh nền* (thu gọn): âm lượng tổng + từng hiệu ứng, mặc định 0. Bản thu CC0 (mưa rừng, sấm khớp tia chớp, …); nguồn trong [`NOTICE.md`](NOTICE.md) |
 | Lưu thay đổi | Nút **Lưu cấu hình** |
 | Khởi động cùng Windows | Ô *Hệ thống* (mặc định tắt) |
 | Cập nhật | Tự kiểm tra và cài khi mở app (bật mặc định); nút *Kiểm tra & cập nhật* trong *Cài đặt* hoặc menu khay |
