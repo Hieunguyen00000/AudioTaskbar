@@ -177,7 +177,7 @@ public class AmbientSoundTests
         float maxJump = 0;
         for (int i = 48000 * 3; i < x.Length / 2 - 1; i++)
             maxJump = Math.Max(maxJump, Math.Abs(x[(i + 1) * 2] - x[i * 2]));
-        Assert.True(maxJump < (id == "rain" ? 1.2f : 0.6f), $"{id}: sample jump {maxJump}");   // rain has drop transients by design
+        Assert.True(maxJump < (id == "rain" ? 1.6f : 0.6f), $"{id}: sample jump {maxJump}");   // the recorded rain has hail/drop transients (the loop seam itself is checked on the decoded file)
         // Slow loudness changes only: compare 1 s windows
         var w = new List<double>();
         for (int s = 3; s < 39; s++) w.Add(Rms(x[(s * 96000)..((s + 1) * 96000)]));
@@ -346,19 +346,84 @@ public class AmbientSoundTests
         Assert.False(e.Mixer.Paused);
     }
 
-    [Fact]
-    public void No_third_party_audio_assets_are_shipped()
+    // ---- the shipped recordings (v5.4.1: real CC0 audio, embedded) ----
+
+    private static readonly string[] ExpectedAssets =
     {
+        "birds", "cicadas", "crickets", "dog", "frogs1", "frogs2", "horn", "rain", "rooster",
+        "thunder1", "thunder2", "thunder3", "thunder4", "thunder5", "traffic", "trainhorn", "waves"
+    };
+    private static readonly string[] BedAssets = { "birds", "cicadas", "crickets", "rain", "traffic", "waves" };
+
+    [Fact]
+    public void Only_the_credited_CC0_recordings_are_embedded_and_the_size_stays_small()
+    {
+        Assert.Equal(ExpectedAssets, SampleBank.EmbeddedNames());
+        long total = 0;
+        foreach (var n in ExpectedAssets)
+        {
+            using var s = typeof(SampleBank).Assembly.GetManifestResourceStream(SampleBank.ResourcePrefix + n + ".ogg")!;
+            Assert.NotNull(s);
+            Assert.InRange(s.Length, 5_000, 700_000);
+            total += s.Length;
+        }
+        Assert.InRange(total, 1_000_000, 4_500_000);
+
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
         var src = Path.Combine(root, "src");
         if (!Directory.Exists(src)) return;
+        // no audio file other than the .ogg files in src/Sounds, and the project only embeds those
+        var sep = Path.DirectorySeparatorChar;
+        var stray = Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{sep}obj{sep}") && !f.Contains($"{sep}bin{sep}"))
+            .Where(f => new[] { ".wav", ".mp3", ".ogg", ".opus", ".flac", ".m4a", ".aac" }.Contains(Path.GetExtension(f).ToLowerInvariant()))
+            .Where(f => !(Path.GetExtension(f).Equals(".ogg", StringComparison.OrdinalIgnoreCase) && Path.GetFileName(Path.GetDirectoryName(f)) == "Sounds"));
+        Assert.Empty(stray);
         var proj = File.ReadAllText(Path.Combine(src, "AudioTaskbar.csproj"));
         Assert.DoesNotContain(".wav", proj, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(".mp3", proj, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(".ogg", proj, StringComparison.OrdinalIgnoreCase);
-        var audio = Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
-            .Where(f => new[] { ".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aac" }.Contains(Path.GetExtension(f).ToLowerInvariant()));
-        Assert.Empty(audio);
+
+        // every recording is credited in NOTICE.md (Freesound id + CC0)
+        var notice = File.ReadAllText(Path.Combine(root, "NOTICE.md"));
+        foreach (var id in new[] { "689960", "578523", "578524", "679517", "488065", "583074", "640718", "582624", "502204", "792440", "591873" })
+            Assert.Contains(id, notice);
+        Assert.Contains("CC0", notice);
+        Assert.DoesNotContain("ships no recorded audio", notice, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Every_recording_decodes_finite_and_the_beds_loop_without_a_click()
+    {
+        foreach (var n in ExpectedAssets)
+        {
+            var c = SampleBank.Get(n);
+            Assert.NotNull(c);
+            Assert.True(c!.Frames > 2000, n);
+            float peak = 0;
+            foreach (var v in c.L) { Assert.True(float.IsFinite(v), n); peak = Math.Max(peak, Math.Abs(v)); }
+            foreach (var v in c.R) Assert.True(float.IsFinite(v), n);
+            Assert.InRange(peak, 0.05f, 1.01f);
+        }
+        foreach (var n in BedAssets)
+        {
+            var c = SampleBank.Get(n)!;
+            Assert.True(c.Frames > Dsp.Rate * 5, n);
+            // the loop point (last -> first sample) is no bigger than the typical step in the file
+            double avg = 0;
+            for (int i = 1; i < c.L.Length; i++) avg += Math.Abs(c.L[i] - c.L[i - 1]);
+            avg /= c.L.Length - 1;
+            Assert.True(Math.Abs(c.L[0] - c.L[^1]) < Math.Max(0.02, avg * 8), $"{n}: loop seam");
+        }
+    }
+
+    [Fact]
+    public void Thunder_comes_more_often_in_heavier_rain_and_the_rain_swap_is_one_constant()
+    {
+        Assert.True(ThunderSampleSource.MeanInterval(1f) < ThunderSampleSource.MeanInterval(0f) / 3f);
+        Assert.Contains(SampleBank.RainLoop, SampleBank.EmbeddedNames());
+        var hcmc = R("hcmc");
+        var storm = SoundScape.Targets(hcmc, Mood("storm", 12), SeasonId.Summer)["thunder"];
+        Assert.True(storm.Level > 0.5f);
+        Assert.True(storm.Aux > 0.3f, "thunder aux carries the rain intensity");
     }
 }

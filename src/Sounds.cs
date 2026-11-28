@@ -88,7 +88,7 @@ internal static class SoundScape
         var d = new Dictionary<string, SoundTarget>
         {
             [SoundEffects.Rain] = new(rain),
-            [SoundEffects.Thunder] = new(storm),
+            [SoundEffects.Thunder] = new(storm, rain),   // aux = rain intensity: more rain, more frequent thunder
             [SoundEffects.Wind] = new(wind),
             [SoundEffects.Traffic] = new(Math.Clamp(traffic, 0f, 1f), wet),
             [SoundEffects.Horns] = new(Math.Clamp(horns, 0f, 1f)),

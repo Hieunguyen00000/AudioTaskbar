@@ -35,17 +35,17 @@ internal sealed class AmbientMixer
     public AmbientMixer()
     {
         void Add(string id, ISoundSource s) => _slots[id] = new Slot { Src = s };
-        Add(SoundEffects.Rain, new RainSource());
-        Add(SoundEffects.Thunder, new ThunderSource());
+        Add(SoundEffects.Rain, new SampleLoopSource(SampleBank.RainLoop));
+        Add(SoundEffects.Thunder, new ThunderSampleSource());
         Add(SoundEffects.Wind, new WindSource());
-        Add(SoundEffects.Traffic, new TrafficSource());
-        Add(SoundEffects.Horns, new HornSource());
+        Add(SoundEffects.Traffic, new SampleLoopSource(SampleBank.Traffic, 0.9f));
+        Add(SoundEffects.Horns, new HornSampleSource());
         Add(SoundEffects.Train, Train);
         Add(SoundEffects.Airplane, Airplane);
-        Add(SoundEffects.Birds, new BirdSource());
-        Add(SoundEffects.Insects, new InsectSource());
-        Add(SoundEffects.Animals, new AnimalSource());
-        Add(SoundEffects.Waves, new WavesSource());
+        Add(SoundEffects.Birds, new SampleLoopSource(SampleBank.Birds));
+        Add(SoundEffects.Insects, new InsectSampleSource());
+        Add(SoundEffects.Animals, new AnimalSampleSource());
+        Add(SoundEffects.Waves, new SampleLoopSource(SampleBank.Waves, 0.9f));
     }
 
     public void SetVolumes(int master, IReadOnlyDictionary<string, int>? perEffect)
@@ -57,6 +57,7 @@ internal sealed class AmbientMixer
             {
                 int v = perEffect is not null && perEffect.TryGetValue(id, out var x) ? x : 0;
                 slot.TargetGain = SoundScape.Gain(_master, v);
+                if (slot.TargetGain > 0f && slot.Src is IWarmable w) w.Warm();   // decode its recordings in the background
             }
         }
     }

@@ -36,6 +36,12 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- Ogg Vorbis decoding (NAudio.Vorbis + NVorbis, both MIT) for the embedded CC0 recordings -->
+    <PackageReference Include="NAudio.Vorbis" Version="1.5.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- v5.4.1: CC0 recordings (credits in NOTICE.md), logical names AudioTaskbar.Sounds.<name>.ogg -->
+    <EmbeddedResource Include="Sounds\*.ogg" LogicalName="AudioTaskbar.Sounds.%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <!-- Portable / NSIS: embed TaskbarTap.dll and extract at runtime. The Store build ships it as a loose, package-signed file instead. -->

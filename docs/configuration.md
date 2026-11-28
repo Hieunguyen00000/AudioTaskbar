@@ -180,7 +180,7 @@ Bảo vệ khi file config hỏng (v5.3): JSON lỗi / sai kiểu không làm ap
 | `soundMasterVolume` | `0` | Âm lượng tổng 0–100. |
 | `soundVolumes` | tất cả `0` | Âm lượng từng hiệu ứng 0–100: `rain`, `thunder`, `wind`, `traffic`, `horns`, `train`, `airplane`, `birds`, `insects`, `animals`, `waves`. Âm thực tế = tổng × từng hiệu ứng × mức cảnh (khu vực, thời tiết, mùa, giờ). |
 
-Nâng cấp từ bản cũ: `configVersion` lên `54`, mọi âm lượng **luôn đặt 0** (kể cả file cũ có sẵn giá trị lạ), mùa = `summer`, các chu kỳ tắt, `showIconPadding = true`, `showWeatherHud = false`. Các lựa chọn khác giữ nguyên. Âm thanh được tổng hợp trực tiếp trong app (không có file âm thanh đi kèm), tạm dừng khi hiệu ứng bị tắt (F8) và dừng hẳn khi thoát.
+Nâng cấp từ bản cũ: `configVersion` lên `54`, mọi âm lượng **luôn đặt 0** (kể cả file cũ có sẵn giá trị lạ), mùa = `summer`, các chu kỳ tắt, `showIconPadding = true`, `showWeatherHud = false`. Các lựa chọn khác giữ nguyên. Âm thanh là các bản thu CC0 nhúng sẵn trong exe (cộng gió/máy bay/tiếng ray tàu tổng hợp), không cần file ngoài; tạm dừng khi hiệu ứng bị tắt (F8) và dừng hẳn khi thoát.
 
 Cấu hình chỉnh trong bảng điều khiển hoặc menu khay áp dụng ngay để xem trước; nhấn **Lưu cấu hình** để ghi vào `config.json`. Đóng bảng điều khiển hoặc thoát khi còn thay đổi chưa lưu sẽ hỏi Lưu / Không lưu / Hủy.
 
