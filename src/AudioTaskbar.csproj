@@ -11,9 +11,9 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
     <AssemblyName>AudioTaskbar</AssemblyName>
     <RootNamespace>AudioTaskbar</RootNamespace>
-    <Version>5.3.3</Version>
-    <FileVersion>5.3.3.0</FileVersion>
-    <InformationalVersion>5.3.3</InformationalVersion>
+    <Version>5.4.0</Version>
+    <FileVersion>5.4.0.0</FileVersion>
+    <InformationalVersion>5.4.0</InformationalVersion>
     <Product>Audio Taskbar</Product>
     <AssemblyTitle>Audio Taskbar</AssemblyTitle>
     <Company>Hieunguyen00000</Company>

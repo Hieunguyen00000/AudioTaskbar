@@ -116,9 +116,9 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 | `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy; `day` = cố định ban ngày (~10:30–12:00, dao động nhẹ); `night` = cố định ban đêm (~23:30–00:00). Giá trị lạ → `cycle`. Đổi trong portal hoặc menu khay *Ngày & đêm*. |
 | `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ, **tùy chỉnh 0,5–10080** (30 giây – 7 ngày; v5.3.1 bỏ giới hạn cũ 2–1440). 30 → mỗi giờ ảo = 75 giây; 1440 → nhịp như giờ thật nhưng lệch pha. Giá trị ≤ 0 / NaN / vô hạn → `30`; ngoài khoảng bị kẹp về 0,5 hoặc 10080. Đổi trong portal (*Độ dài chu kỳ*) áp dụng ngay, không nhảy cảnh (app tự chỉnh `dayCycleOffsetHours`). |
 | `dayCycleOffsetHours` | float | `0` | Dịch đồng hồ ảo (giờ, 0–24), ví dụ `6` để chu kỳ bắt đầu gần bình minh. |
-| `configVersion` | int | `51` | Phiên bản schema để migrate một lần (app tự ghi, không cần sửa). |
-| `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `default`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |
-| `showWeatherHud` | bool | `true` | Hiện thẻ nhiệt độ / trạng thái / địa điểm trên nền taskbar. Tắt thì cảnh vật vẫn đổi theo thời tiết. |
+| `configVersion` | int | `54` | Phiên bản schema để migrate một lần (app tự ghi, không cần sửa). |
+| `regionMode` | string | `"auto"` | `auto`, `hcmc`, `baria-vungtau`, `hanoi`, `danang-hoian`, `tokyo`, `paris`, `sydney`, `newyork`, `rome`, `giza`, `santorini` (v5.4), `default`. `auto` suy ra từ `weatherCity` → tên địa điểm thời tiết → tọa độ. |
+| `showWeatherHud` | bool | `false` | (Bỏ từ v5.4) Thẻ nhiệt độ trên taskbar không còn được vẽ; khóa này bị bỏ qua và tự về `false`. Vị trí, nhiệt độ, điều kiện thời tiết xem trong bảng điều khiển. |
 | `weatherFollowsRegion` | bool | `false` | Khi chọn khu vực bằng tay: lấy thời tiết theo tọa độ khu vực đó thay vì vị trí máy. |
 | `tapMode` | string | `"auto"` | Khóa ẩn để khắc phục sự cố (không có trên giao diện): `auto` thử gắn TAP (bỏ qua nếu có SAC); `off` luôn dùng chế độ an toàn. |
 | `tapTimeoutSeconds` | float | `3.5` | Thời gian tối đa chờ TAP báo Ready (1.5–8). |
@@ -147,8 +147,8 @@ Ghi chú:
 | Khóa | Mặc định | Ý nghĩa |
 |---|---|---|
 | `startMinimized` | `false` | Mở app không hiện bảng điều khiển (chỉ icon khay). Khởi động cùng Windows luôn dùng `--minimized`. |
-| `autoUpdateEnabled` | `true` | Kiểm tra bản mới 10 s sau khi mở và mỗi 6 giờ. |
-| `autoUpdateSilentInstall` | `true` | Có bản mới (đã khớp SHA-256) thì tự tải + cài im lặng rồi mở lại dưới khay. `false` = chỉ báo, bấm *Cập nhật ngay* trong bảng điều khiển. |
+| `autoUpdateEnabled` | `true` | Kiểm tra bản mới vài giây sau khi mở app và mỗi 6 giờ (v5.4: ~4 s). |
+| `autoUpdateSilentInstall` | `true` | Có bản mới (đã khớp SHA-256) thì tự tải + cài im lặng rồi mở lại dưới khay. `false` = chỉ báo; bấm nút gộp *Kiểm tra & cập nhật* (bảng điều khiển hoặc menu khay) để cài. |
 | `updateRepo` | `"Hieunguyen00000/AudioTaskbar"` | `owner/repo` GitHub để đọc `releases/latest`. Repo phải **Public** (người dùng không đăng nhập GitHub). Sai dạng → về mặc định. |
 | `updateFeedUrl` | `""` | Thay cho GitHub API: URL `http(s)` tới `latest.json` tĩnh (GitHub Pages, R2/S3, máy chủ riêng). Không phải http(s) → bỏ qua. |
 
@@ -162,6 +162,24 @@ Ghi chú:
 `downloadUrl` có thể là đường dẫn tương đối so với `latest.json`. Thiếu / sai `sha256` thì **không** tự cài.
 
 Bảo vệ khi file config hỏng (v5.3): JSON lỗi / sai kiểu không làm app dừng — file cũ được giữ thành `config.json.corrupt-yyyyMMdd-HHmmss`, app chạy với cấu hình mặc định và ghi lại file sạch. Giá trị ngoài khoảng (âm, NaN, quá lớn) được kẹp về khoảng hợp lệ.
+
+## Mùa, thời tiết tự đổi, vùng đệm icon, âm thanh nền (v5.4)
+
+| Khóa | Mặc định | Ý nghĩa |
+|---|---|---|
+| `season` | `"summer"` | `spring`, `summer`, `autumn`, `winter` (chấp nhận `xuân`, `hạ`/`hè`, `thu`, `đông`). Hè là giao diện cũ. Chọn thời tiết *Tuyết rơi* tự đặt `winter`; rời mùa đông khi đang chọn tuyết thì thời tiết về *Thực tế*. |
+| `seasonCycleEnabled` | `false` | Tự đổi mùa theo vòng xuân → hè → thu → đông, bắt đầu từ `season`. |
+| `seasonCycleMinutes` | `30` | Số phút thật cho mỗi mùa (0,5–10080). Đổi mùa/độ dài/bật-tắt thì vòng chạy lại từ `season`. |
+| `weatherCycleMode` | `"off"` | `off`; `interval` = đổi mỗi `weatherCycleMinutes` phút theo thứ tự nắng → mây → mưa → (giông/tuyết); `random` = chờ ngẫu nhiên trong `[weatherCycleRandomMinMinutes, weatherCycleRandomMaxMinutes]` rồi chọn thời tiết hợp mùa (không lặp lại liền kề, tuyết chỉ vào mùa đông). Điểm bắt đầu là thời tiết bạn chọn. Chỉ ảnh hưởng cảnh đang chạy, không ghi đè `weatherPreview`. |
+| `weatherCycleMinutes` | `10` | Chu kỳ của chế độ `interval` (0,5–1440). |
+| `weatherCycleRandomMinMinutes` / `weatherCycleRandomMaxMinutes` | `5` / `20` | Khoảng chờ của chế độ `random`. |
+| `showIconPadding` | `true` | Vùng đệm (nền xám mờ + viền khoét) quanh icon ứng dụng trên taskbar. `false` = cảnh vật sát icon, không có dải xám. |
+| `soundMasterVolume` | `0` | Âm lượng tổng 0–100. |
+| `soundVolumes` | tất cả `0` | Âm lượng từng hiệu ứng 0–100: `rain`, `thunder`, `wind`, `traffic`, `horns`, `train`, `birds`, `insects`, `animals`, `waves`. Âm thực tế = tổng × từng hiệu ứng × mức cảnh (khu vực, thời tiết, mùa, giờ). |
+
+Nâng cấp từ bản cũ: `configVersion` lên `54`, mọi âm lượng **luôn đặt 0** (kể cả file cũ có sẵn giá trị lạ), mùa = `summer`, các chu kỳ tắt, `showIconPadding = true`, `showWeatherHud = false`. Các lựa chọn khác giữ nguyên. Âm thanh được tổng hợp trực tiếp trong app (không có file âm thanh đi kèm), tạm dừng khi hiệu ứng bị tắt (F8) và dừng hẳn khi thoát.
+
+Cấu hình chỉnh trong bảng điều khiển hoặc menu khay áp dụng ngay để xem trước; nhấn **Lưu cấu hình** để ghi vào `config.json`. Đóng bảng điều khiển hoặc thoát khi còn thay đổi chưa lưu sẽ hỏi Lưu / Không lưu / Hủy.
 
 ## Âm thanh / spectrum (tắt mặc định ở v4)
 

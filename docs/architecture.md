@@ -35,6 +35,9 @@ Không dùng `CreateRemoteThread`, không hook Win32 của Explorer, và không 
 | `TaskbarTapHost.cs` | Trích DLL, gọi `InitializeXamlDiagnosticsEx`, đọc `tap-status.txt`, detach/restore. |
 | `TaskbarTransparency.cs` | Thử API composition cũ (không còn tác dụng trên taskbar XAML 26300) — lớp dự phòng lịch sử. |
 | `WeatherService.cs` | Geocode / IP locate + forecast Open-Meteo, cache offline. |
+| `Cycles.cs` | v5.4: mùa (`Seasons`, `SeasonCycler`) và thời tiết tự đổi (`WeatherCycle`, `WeatherScheduler`), thuần logic, có test. |
+| `Sounds.cs` / `AmbientSynth.cs` / `AmbientMixer.cs` | v5.4: âm thanh nền tổng hợp trong app (mưa, sấm, gió, xe cộ, còi, tàu, chim, côn trùng, động vật, sóng). `SoundScape` tính mức từng âm theo khu vực/thời tiết/mùa/giờ; `AmbientMixer` trộn theo khối 256 mẫu (kết quả không phụ thuộc kích thước buffer), `AmbientEngine` mở thiết bị âm thanh khi cần và đóng khi im lặng. Không có file âm thanh. |
+| `TrayMenuModel.cs` / `PortalHost.cs` / `UpdatePolicy.cs` | v5.4: cấu trúc menu khay, giao diện `IPortalHost` giữa `TrayApp` và `PortalForm` (có thể giả lập khi test / `--render-portal`), chính sách kiểm tra/cài cập nhật. |
 | `Hotkey.cs` | Parse `"Ctrl+Alt+F8"` và `RegisterHotKey`. |
 | `Config.cs` | Đọc/ghi `%LOCALAPPDATA%\AudioTaskbar\config.json` (camelCase). |
 | `AudioCapture.cs` / `Analyzer.cs` / `Presets.cs` | WASAPI loopback + FFT. Tắt mặc định ở v4 (`enableAudio: false`). |

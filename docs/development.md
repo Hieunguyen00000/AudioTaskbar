@@ -158,7 +158,7 @@ Kết quả (không commit file exe):
 - `installer-output\AudioTaskbar-Setup-<version>.exe`
 - bản sao tại `installer\AudioTaskbar-Setup-<version>.exe`
 
-Setup đóng gói `release\AudioTaskbar.exe` (self-contained, đã embed `TaskbarTap.dll` + .NET 8), `README.md`, `NOTICE.md`, `config.example.json` và icon đa độ phân giải. **Không** đóng gói `config.json` cá nhân. Người dùng mới nhận mặc định sạch: `regionMode=auto`, `showWeatherHud=true`, `trainCrossingMinutes=1`, `timeMode=cycle`, `dayCycleMinutes=30`, `tapMode=auto`.
+Setup đóng gói `release\AudioTaskbar.exe` (self-contained, đã embed `TaskbarTap.dll` + .NET 8), `README.md`, `NOTICE.md`, `config.example.json` và icon đa độ phân giải. **Không** đóng gói `config.json` cá nhân. Người dùng mới nhận mặc định sạch: `regionMode=auto`, `showWeatherHud=false`, `trainCrossingMinutes=1`, `timeMode=cycle`, `dayCycleMinutes=30`, `tapMode=auto`.
 
 Cài mặc định vào `%LOCALAPPDATA%\Programs\AudioTaskbar`, tạo shortcut Desktop/Start Menu (tùy chọn), đăng ký gỡ cài chuẩn tại `HKCU\...\Uninstall\AudioTaskbar`. Trước khi ghi đè hoặc gỡ, Setup/Uninstall chỉ tắt `AudioTaskbar.exe` đang chạy **từ thư mục cài** (sự kiện `Local\AudioTaskbar.Cmd.Exit`) — không kill Explorer, không đụng bản đang chạy từ thư mục khác (ví dụ bản dev trên ổ D:).
 

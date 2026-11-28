@@ -32,7 +32,8 @@
   "weatherOnPrimaryOnly": true,
   "trainCrossingMinutes": 1,
   "regionMode": "auto",
-  "showWeatherHud": true,
+  // v5.4: thẻ thời tiết trên taskbar đã bỏ; thông tin vị trí/thời tiết nằm trong bảng điều khiển (khóa này bị bỏ qua)
+  "showWeatherHud": false,
   "weatherFollowsRegion": false,
   "tapMode": "auto",
   "tapTimeoutSeconds": 3.5,
@@ -41,6 +42,19 @@
   // v5.3.1: độ dài 1 ngày ảo ở chế độ cycle, tùy chỉnh 0.5 – 10080 phút (mặc định 30)
   "dayCycleMinutes": 30,
   "dayCycleOffsetHours": 0,
+  // v5.4: mùa (spring | summer | autumn | winter), tự đổi mùa, vùng đệm xám quanh icon
+  "season": "summer",
+  "seasonCycleEnabled": false,
+  "seasonCycleMinutes": 30,
+  "showIconPadding": true,
+  // v5.4: thời tiết tự đổi — "off" | "interval" (mỗi N phút) | "random" (ngẫu nhiên trong khoảng)
+  "weatherCycleMode": "off",
+  "weatherCycleMinutes": 10,
+  "weatherCycleRandomMinMinutes": 5,
+  "weatherCycleRandomMaxMinutes": 20,
+  // v5.4: âm thanh nền, MẶC ĐỊNH TẤT CẢ = 0 (im lặng). 0–100
+  "soundMasterVolume": 0,
+  "soundVolumes": { "rain": 0, "thunder": 0, "wind": 0, "traffic": 0, "horns": 0, "train": 0, "birds": 0, "insects": 0, "animals": 0, "waves": 0 },
   // v5.3: bảng điều khiển + tự động cập nhật
   "startMinimized": false,
   "autoUpdateEnabled": true,

@@ -45,7 +45,7 @@ public class StorePackagingTests
         var id = doc.Root!.Element(Ns + "Identity")!;
         Assert.Equal("HubertNguyen.AudioTaskbar", (string?)id.Attribute("Name"));
         Assert.Equal("CN=826CBF8C-383C-4259-B039-4075F5205C32", (string?)id.Attribute("Publisher"));
-        Assert.Equal("5.3.3.0", (string?)id.Attribute("Version"));
+        Assert.Equal("5.4.0.0", (string?)id.Attribute("Version"));
         Assert.Equal("x64", (string?)id.Attribute("ProcessorArchitecture"));
 
         var props = doc.Root.Element(Ns + "Properties")!;

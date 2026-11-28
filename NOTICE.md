@@ -23,3 +23,13 @@ from Microsoft headers (`xamlom.h`) and published API behavior:
 Do not combine this binary with GPL-licensed Explorer TAP code in a
 way that would create a derivative work unless you are prepared to
 apply GPL-3 terms to the combination.
+
+# Ambient sound (v5.4)
+
+All ambient sound (rain, thunder, wind, traffic, horns, trains, birds,
+insects, animals, waves) is generated at run time by original DSP code in
+`src/AmbientSynth.cs` (filtered noise and synthesized tones). The app ships
+**no recorded audio** and no third-party samples, so there are no sound
+licences or attributions to carry. rainymood.com was used only as a
+reference for the *feel* (layered, seamless, soft fades); none of its audio
+was copied or used. Playback uses NAudio (MIT), already a dependency.
