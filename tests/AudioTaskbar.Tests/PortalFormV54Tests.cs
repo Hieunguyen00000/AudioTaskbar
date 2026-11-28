@@ -78,17 +78,61 @@ public class PortalFormV54Tests
     }
 
     [Fact]
-    public void Panel_has_scene_weather_and_season_controls_and_info_lines()
+    public void Panel_has_the_four_cards_with_their_headers()
     {
         WithForm((f, _) =>
         {
             var texts = f.AllTexts().ToList();
-            Assert.Contains(texts, t => t.StartsWith("Vị trí:"));
-            Assert.Contains(texts, t => t.StartsWith("Cảnh vật:"));
-            Assert.Contains(f.SeasonBox.Items.Cast<object>().Select(o => o.ToString()), t => t == "Mùa đông");
+            Assert.Equal(new[] { "Thông tin cảnh vật & vị trí", "Thời tiết", "Mùa", "Khung cảnh" }, PortalForm.CardTitles);
+            foreach (var t in PortalForm.CardTitles)
+                Assert.Single(f.AllControls().OfType<Label>(), l => l.Text == t && l.Font.Name == "Segoe UI Semibold");   // header exactly once
+            // the old merged card is gone
+            Assert.DoesNotContain(texts, t => t.StartsWith("Cảnh vật &") && t.Contains("Mùa"));
             Assert.Equal(PortalForm.Seasons.Length, f.SeasonBox.Items.Count);
             Assert.Equal(PortalForm.Weathers.Length, f.WeatherBox.Items.Count);
-            Assert.Contains(texts, t => t.Contains("Tự đổi mùa"));
+            Assert.Contains(f.SeasonBox.Items.Cast<object>().Select(o => o.ToString()), t => t == "Mùa đông");
+        });
+    }
+
+    [Fact]
+    public void Each_setting_sits_in_the_right_card_and_is_visible_by_default()
+    {
+        WithForm((f, _) =>
+        {
+            void In(string card, params Control[] cs) { foreach (var c in cs) { Assert.Equal(card, f.CardTitleOf(c)); Assert.False(f.IsInCollapsedSection(c)); } }
+            In(PortalForm.InfoTitle, f.RegionBox);
+            In(PortalForm.WeatherTitle, f.WeatherBox, f.WeatherCycleBox, f.EffectsBox);
+            In(PortalForm.SeasonTitle, f.SeasonBox, f.SeasonCycleBox);
+            In(PortalForm.SceneryTitle, f.TimeBox, f.TrainBox, f.VehiclesBox, f.AmbientBox, f.PaddingBox);
+            // location + current weather rows live in the info card, as label/value rows
+            var texts = f.AllTexts().ToList();
+            foreach (var label in new[] { "Vị trí", "Thời tiết thực", "Khu vực", "Thời tiết", "Tự đổi thời tiết", "Hiệu ứng thời tiết", "Mùa", "Tự đổi mùa",
+                                          "Ngày & đêm", "Độ dài chu kỳ", "Tàu hỏa", "Phương tiện", "Chi tiết nền", "Vùng đệm xám" })
+                Assert.Contains(label, texts);
+            Assert.DoesNotContain(texts, t => t.StartsWith("Vị trí:") || t.StartsWith("Cảnh vật:"));   // no wrapped sentence lines any more
+            // Sound and Cài đặt are collapsed expanders
+            Assert.True(f.IsInCollapsedSection(f.MasterSlider));
+            Assert.False(f.SoundExpanded); Assert.False(f.SettingsExpanded);
+            Assert.Equal(PortalForm.SoundTitle, f.CardTitleOf(f.MasterSlider));
+        });
+    }
+
+    [Fact]
+    public void Cards_share_one_style_width_label_column_and_number_box_width()
+    {
+        WithForm((f, _) =>
+        {
+            var cards = f.AllControls().Where(c => c.GetType().Name == "Card").ToList();
+            Assert.True(cards.Count >= 4);
+            Assert.All(cards, c => Assert.Equal(PortalForm.CardWidth, c.Width));
+            var grids = cards.Select(c => c.Controls.OfType<TableLayoutPanel>().First()).ToList();
+            Assert.All(grids, g => Assert.Equal(PortalForm.LabelColumnWidth, (int)g.ColumnStyles[0].Width));
+            var heads = cards.Select(c => c.Controls.OfType<TableLayoutPanel>().First().Controls.OfType<Label>().First()).Where(l => l.Text is "Hệ thống" or "Cập nhật" || PortalForm.CardTitles.Contains(l.Text)).ToList();
+            Assert.True(heads.Count >= 6);
+            Assert.Single(heads.Select(h => (h.Font.Name, h.Font.Size, h.ForeColor)).Distinct());
+            var frames = f.AllControls().OfType<NumericUpDown>().Select(n => n.Parent!).ToList();
+            Assert.True(frames.Count >= 5);
+            Assert.Single(frames.Select(x => x.Width).Distinct());
         });
     }
 
@@ -230,10 +274,41 @@ public class PortalFormV54Tests
     }
 
     [Fact]
-    public void Footer_still_offers_the_effects_toggle_as_the_hotkey_is_kept()
+    public void Footer_has_close_exit_and_save_but_no_effects_toggle()
     {
-        Assert.Equal("Tắt hiệu ứng (F8)", PortalForm.ToggleText(true, "F8"));
-        Assert.Equal("Bật hiệu ứng (F8)", PortalForm.ToggleText(false, "F8"));
+        WithForm((f, h) =>
+        {
+            var buttons = f.AllControls().OfType<Button>().ToList();
+            Assert.DoesNotContain(buttons, b => b.Text.Contains("hiệu ứng", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(buttons, b => b.Text.Contains("F8"));
+            Assert.Single(buttons, b => b.Text == "Lưu cấu hình");   // one save button, no separate save row
+            var footer = (TableLayoutPanel)f.SaveButton.Parent!;
+            Assert.Same(footer, f.CloseButton.Parent);
+            Assert.Same(footer, f.ExitButton.Parent);
+            Assert.Equal(0, footer.GetColumn(f.CloseButton));
+            Assert.Equal(1, footer.GetColumn(f.ExitButton));
+            Assert.Equal(2, footer.GetColumn(f.SaveButton));          // bottom-right primary slot
+            Assert.Equal("Đóng (Ẩn xuống khay)", f.CloseButton.Text);
+            Assert.Equal("Kết thúc (Thoát)", f.ExitButton.Text);
+            // save is the last row of the stack
+            Assert.Same(footer, f.Content.Controls[f.Content.Controls.Count - 1]);
+            // the hotkey is still announced in the status line
+            Assert.Contains(f.AllTexts(), t => t.Contains("F8") && t.Contains("bật/tắt"));
+        });
+    }
+
+    [Fact]
+    public void Saved_hint_follows_the_unsaved_state_and_the_save_button_enables()
+    {
+        WithForm((f, h) =>
+        {
+            Assert.Contains("✓ Đã lưu", f.AllTexts());
+            Assert.False(f.SaveButton.Enabled);
+            f.PaddingBox.Checked = false;
+            Assert.Contains("● Chưa lưu", f.AllTexts());
+            Assert.DoesNotContain("✓ Đã lưu", f.AllTexts());
+            Assert.True(f.SaveButton.Enabled);
+        });
     }
 
     [Fact]

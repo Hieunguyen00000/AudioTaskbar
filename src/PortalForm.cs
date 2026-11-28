@@ -20,27 +20,27 @@ internal sealed class PortalForm : Form
     private bool _forceClose;
 
     private readonly Label _status = new();
-    private readonly Button _toggle = new();
-    private readonly Label _info1 = new() { AutoSize = true, MaximumSize = new Size(CardWidth - 30, 0) };
-    private readonly Label _info2 = new() { AutoSize = true, MaximumSize = new Size(CardWidth - 30, 0) };
+    private readonly Label _infoPlace = new() { AutoSize = false, AutoEllipsis = true, UseMnemonic = false, Height = 20 };
+    private readonly Label _infoNow = new() { AutoSize = false, AutoEllipsis = true, UseMnemonic = false, Height = 20 };
+    private Label? _wcLabel;
     private readonly ComboBox _region = Combo();
     private readonly ComboBox _weather = Combo();
     private readonly ComboBox _weatherCycle = Combo();
     private readonly NumericUpDown _wcA = Num(0.5m, 1440m, 1, 1m, 66);
     private readonly NumericUpDown _wcB = Num(0.5m, 1440m, 1, 1m, 66);
     private readonly Label _wcDash = new() { Text = "–", AutoSize = true };
-    private readonly Label _wcUnit = new() { AutoSize = true };
+    private readonly Label _wcUnit = new() { AutoSize = true, Text = "phút" };
     private readonly ComboBox _season = Combo();
-    private readonly CheckBox _seasonCycle = Check("Tự đổi mùa");
+    private readonly CheckBox _seasonCycle = Check("Xuân → hè → thu → đông");
     private readonly NumericUpDown _seasonMin = Num((decimal)AppConfig.MinSeasonCycleMinutes, (decimal)AppConfig.MaxSeasonCycleMinutes, 1, 5m, 72);
     private readonly ComboBox _time = Combo();
-    private readonly CheckBox _train = Check("Tàu hỏa");
+    private readonly CheckBox _train = Check("Tàu chạy ngang taskbar");
     private readonly NumericUpDown _cycleMin = Num((decimal)AppConfig.MinDayCycleMinutes, (decimal)AppConfig.MaxDayCycleMinutes, 1, 5m, 72);
     private readonly NumericUpDown _trainMin = Num(0.25m, 240m, 2, 0.25m, 64);
-    private readonly CheckBox _traffic = Check("Phương tiện khu vực");
-    private readonly CheckBox _ambient = Check("Chi tiết nền (chim, đèn phố)");
-    private readonly CheckBox _effects = Check("Hiệu ứng thời tiết");
-    private readonly CheckBox _padding = Check("Vùng đệm xám quanh icon ứng dụng");
+    private readonly CheckBox _traffic = Check("Xe, thuyền theo khu vực");
+    private readonly CheckBox _ambient = Check("Chim, đèn phố, đom đóm");
+    private readonly CheckBox _effects = Check("Mưa, tuyết, sấm chớp");
+    private readonly CheckBox _padding = Check("Hiện quanh icon ứng dụng");
     private readonly ComboBox _hotkey = Combo();
     private readonly Label _hotkeyNote = new() { AutoSize = true };
     private readonly CheckBox _autostart = Check("Khởi động cùng Windows");
@@ -109,14 +109,16 @@ internal sealed class PortalForm : Form
         // Not Dock=Fill: a docked child of an AutoSize form makes the form size itself before the
         // cards finish their own layout.
         stack.Controls.Add(BuildHeader());
-        stack.Controls.Add(BuildSceneCard());
+        stack.Controls.Add(BuildInfoCard());
+        stack.Controls.Add(BuildWeatherCard());
+        stack.Controls.Add(BuildSeasonCard());
+        stack.Controls.Add(BuildSceneryCard());
         _soundExp = new Expander(_p, SoundTitle, BuildSoundCard(), expanded: false) { Margin = new Padding(0, 0, 0, 10) };
         _soundExp.Toggled += RefitSoon;
         stack.Controls.Add(_soundExp);
         _settingsExp = new Expander(_p, SettingsTitle, BuildSettingsBody(), expanded: false) { Margin = new Padding(0, 0, 0, 10) };
         _settingsExp.Toggled += RefitSoon;
         stack.Controls.Add(_settingsExp);
-        stack.Controls.Add(BuildSaveRow());
         stack.Controls.Add(BuildFooter());
         Controls.Add(stack);
 
@@ -129,7 +131,8 @@ internal sealed class PortalForm : Form
     }
 
     internal const int CardWidth = 440;
-    private const int LabelColumn = 118;
+    private const int LabelColumn = 128;
+    internal const int LabelColumnWidth = LabelColumn;
     [ThreadStatic] private static Palette? s_palette;
 
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
@@ -160,6 +163,30 @@ internal sealed class PortalForm : Form
     internal ComboBox WeatherBox => _weather;
     internal ComboBox SeasonBox => _season;
     internal CheckBox PaddingBox => _padding;
+    internal ComboBox RegionBox => _region;
+    internal ComboBox WeatherCycleBox => _weatherCycle;
+    internal ComboBox TimeBox => _time;
+    internal CheckBox EffectsBox => _effects;
+    internal CheckBox SeasonCycleBox => _seasonCycle;
+    internal CheckBox TrainBox => _train;
+    internal CheckBox VehiclesBox => _traffic;
+    internal CheckBox AmbientBox => _ambient;
+    internal Button CloseButton => _close;
+    internal Button ExitButton => _exit;
+    /// <summary>Title of the card (or section) a control sits in; null when it is not inside one.</summary>
+    internal string? CardTitleOf(Control c)
+    {
+        for (var p = c.Parent; p is not null; p = p.Parent)
+        {
+            if (p.GetType().Name == "Card")
+            {
+                var t = p.Controls.OfType<TableLayoutPanel>().First().Controls.OfType<Label>().FirstOrDefault(l => CardTitles.Contains(l.Text) || l.Text is "Hệ thống" or "Cập nhật")?.Text;
+                if (t is not null) return t;
+            }
+            if (p is Expander e) return e.Controls.OfType<Control>().First().Text;
+        }
+        return null;
+    }
     internal DarkSlider MasterSlider => _master;
     internal IReadOnlyDictionary<string, DarkSlider> EffectSliders => _fx.ToDictionary(k => k.Key, k => k.Value.Slider);
 
@@ -177,7 +204,9 @@ internal sealed class PortalForm : Form
 
     private Control BuildHeader()
     {
-        var t = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, AutoSize = true, Width = CardWidth, Margin = new Padding(0, 0, 0, 8), BackColor = _p.Back };
+        var t = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, AutoSize = false, Size = new Size(CardWidth, 54), Margin = new Padding(0, 0, 0, 12), BackColor = _p.Back };
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -185,14 +214,19 @@ internal sealed class PortalForm : Form
         try { icon.Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath)?.ToBitmap(); } catch { }
         t.Controls.Add(icon, 0, 0); t.SetRowSpan(icon, 2);
         var title = new Label { Text = "Audio Taskbar", AutoSize = true, Font = new Font("Segoe UI Semibold", 15f), ForeColor = _p.Text, Margin = new Padding(0, 0, 0, 0) };
-        t.Controls.Add(title, 1, 0);
-        var ver = new Pill { Text = "v" + AutoUpdater.AppVersion(), Fill = _p.Accent, TextColor = Color.White, Margin = new Padding(6, 6, 0, 0) };
-        t.Controls.Add(ver, 2, 0);
+        var ver = new Pill { Text = "v" + AutoUpdater.AppVersion(), Fill = _p.Accent, TextColor = Color.White, Margin = new Padding(8, 8, 0, 0) };
+        var titleRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Back, Margin = Padding.Empty };
+        titleRow.Controls.Add(title); titleRow.Controls.Add(ver);
+        t.Controls.Add(titleRow, 1, 0); t.SetColumnSpan(titleRow, 2);
+        // Status line: running state and the hotkey on the left, a subtle saved / unsaved hint on the right.
         _status.AutoSize = true;
+        _status.UseMnemonic = false;
         _status.Margin = new Padding(1, 2, 0, 0);
         _status.Font = new Font("Segoe UI Semibold", 9.5f);
-        t.Controls.Add(_status, 1, 1); t.SetColumnSpan(_status, 2);
-        t.Margin = new Padding(0, 0, 0, 12);
+        t.Controls.Add(_status, 1, 1);
+        _dirty.AutoSize = true; _dirty.UseMnemonic = false;
+        _dirty.Anchor = AnchorStyles.Right; _dirty.Margin = new Padding(0, 2, 0, 0); _dirty.Font = new Font("Segoe UI", 9f);
+        t.Controls.Add(_dirty, 2, 1);
         return t;
     }
 
@@ -205,7 +239,7 @@ internal sealed class PortalForm : Form
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         if (showTitle)
         {
-            var head = new Label { Text = title, AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = _p.Accent, Margin = new Padding(0, 0, 0, 8) };
+            var head = new Label { Text = title, AutoSize = true, UseMnemonic = false, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = _p.Accent, Margin = new Padding(0, 0, 0, 8) };
             grid.Controls.Add(head, 0, 0); grid.SetColumnSpan(head, 2);
         }
         card.Controls.Add(grid);
@@ -218,15 +252,26 @@ internal sealed class PortalForm : Form
         return card;
     }
 
-    private void Row(TableLayoutPanel g, string label, Control c)
+    private Label Row(TableLayoutPanel g, string label, Control c)
     {
         int r = g.RowCount++;
-        var l = new Label { Text = label, AutoSize = true, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) };
+        var l = new Label { Text = label, AutoSize = true, UseMnemonic = false, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) };
         c.Anchor = c is ComboBox ? AnchorStyles.Left | AnchorStyles.Right : AnchorStyles.Left;
         c.Margin = new Padding(0, 3, 0, 3);
         g.Controls.Add(l, 0, r);
         g.Controls.Add(c, 1, r);
+        return l;
     }
+
+    /// <summary>Numeric input + unit: every number box has the same width and left edge, so the units line up too.</summary>
+    private Label NumRow(TableLayoutPanel g, string label, NumericUpDown n, string unit)
+        => Row(g, label, Flow(Framed(n, NumWidth), Unit(unit)));
+
+    private Label Unit(string text) => new() { Text = text, AutoSize = true, UseMnemonic = false, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) };
+
+    private Label CheckRow(TableLayoutPanel g, string label, CheckBox c) => Row(g, label, c);
+
+    private const int NumWidth = 86;
 
     private void Full(TableLayoutPanel g, Control c)
     {
@@ -245,53 +290,63 @@ internal sealed class PortalForm : Form
 
     private Label Hint(string text, int width = CardWidth - 40) => new() { Text = text, AutoSize = true, ForeColor = _p.Sub, MaximumSize = new Size(width, 0) };
 
-    private Control BuildSceneCard()
+    internal const string InfoTitle = "Thông tin cảnh vật & vị trí";
+    internal const string WeatherTitle = "Thời tiết";
+    internal const string SeasonTitle = "Mùa";
+    internal const string SceneryTitle = "Khung cảnh";
+    internal static readonly string[] CardTitles = { InfoTitle, WeatherTitle, SeasonTitle, SceneryTitle };
+
+    private Control BuildInfoCard()
     {
-        var card = NewCard("Cảnh vật && Thời tiết && Mùa", out var g);
+        var card = NewCard(InfoTitle, out var g);
         g.RowCount = 1;
         foreach (var r in Regions) _region.Items.Add(r.Label);
+        int w = CardWidth - 24 - LabelColumn - 6;
+        foreach (var l in new[] { _infoPlace, _infoNow }) { l.Width = w; l.ForeColor = _p.Text; }
+        Row(g, "Vị trí", _infoPlace);
+        Row(g, "Thời tiết thực", _infoNow);
+        Row(g, "Khu vực", _region);
+        return card;
+    }
+
+    private Control BuildWeatherCard()
+    {
+        var card = NewCard(WeatherTitle, out var g);
+        g.RowCount = 1;
         foreach (var w in Weathers) _weather.Items.Add(w.Label);
         foreach (var w in WeatherCycles) _weatherCycle.Items.Add(w.Label);
-        foreach (var t in Times) _time.Items.Add(t.Label);
-        foreach (var s in Seasons) _season.Items.Add(s.Label);
-
-        // Weather and location info is shown here (and only here) — handy while setting up.
-        _info1.ForeColor = _p.Text; _info2.ForeColor = _p.Sub;
-        var infoBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = _p.Card, Margin = Padding.Empty };
-        infoBox.Controls.Add(_info1); infoBox.Controls.Add(_info2);
-        Full(g, infoBox);
-
-        Row(g, "Khu vực", _region);
         Row(g, "Thời tiết", _weather);
         Row(g, "Tự đổi thời tiết", _weatherCycle);
-        _wcUnit.ForeColor = _p.Sub; _wcDash.ForeColor = _p.Sub;
-        _wcDash.Margin = new Padding(4, 6, 4, 0); _wcUnit.Margin = new Padding(8, 6, 0, 0);
-        Row(g, "Chu kỳ đổi", Flow(Framed(_wcA, 80), _wcDash, Framed(_wcB, 80), _wcUnit));
+        _wcDash.ForeColor = _p.Sub; _wcDash.UseMnemonic = false; _wcDash.Margin = new Padding(6, 6, 6, 0);
+        _wcUnit.ForeColor = _p.Sub; _wcUnit.UseMnemonic = false; _wcUnit.Margin = new Padding(8, 6, 0, 0);
+        _wcLabel = Row(g, "Chu kỳ đổi", Flow(Framed(_wcA, NumWidth), _wcDash, Framed(_wcB, NumWidth), _wcUnit));
+        CheckRow(g, "Hiệu ứng thời tiết", _effects);
+        return card;
+    }
+
+    private Control BuildSeasonCard()
+    {
+        var card = NewCard(SeasonTitle, out var g);
+        g.RowCount = 1;
+        foreach (var s in Seasons) _season.Items.Add(s.Label);
         Row(g, "Mùa", _season);
-        var seasonCell = Flow(Framed(_seasonMin, 86), new Label { Text = "phút/mùa  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) });
-        int sr = g.RowCount++;
-        _seasonCycle.Anchor = AnchorStyles.Left; _seasonCycle.Margin = Padding.Empty;
-        g.Controls.Add(_seasonCycle, 0, sr);
-        seasonCell.Margin = new Padding(0, 3, 0, 3);
-        g.Controls.Add(seasonCell, 1, sr);
-        Row(g, "Ngày && đêm", _time);
-        Row(g, "Độ dài chu kỳ", Flow(Framed(_cycleMin, 86), new Label { Text = "phút/ngày  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(8, 6, 0, 0) }));
-        // Same label/control grid as the rows above: checkbox in the label column, value in the control column.
-        _train.Margin = Padding.Empty;
-        var trainCell = Flow(Framed(_trainMin, 86), new Label { Text = "phút/lượt", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) });
-        int tr = g.RowCount++;
-        _train.Anchor = AnchorStyles.Left;
-        g.Controls.Add(_train, 0, tr);
-        trainCell.Margin = new Padding(0, 3, 0, 3);
-        g.Controls.Add(trainCell, 1, tr);
-        var two = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, BackColor = _p.Card, Margin = Padding.Empty };
-        two.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        two.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        foreach (var cb in new Control[] { _traffic, _effects, _ambient, _padding }) cb.Margin = new Padding(0, 3, 0, 3);
-        two.Controls.Add(_traffic, 0, 0); two.Controls.Add(_effects, 1, 0);
-        two.Controls.Add(_ambient, 0, 1); two.SetColumnSpan(_ambient, 2);
-        two.Controls.Add(_padding, 0, 2); two.SetColumnSpan(_padding, 2);
-        Full(g, two);
+        CheckRow(g, "Tự đổi mùa", _seasonCycle);
+        NumRow(g, "Mỗi mùa kéo dài", _seasonMin, "phút");
+        return card;
+    }
+
+    private Control BuildSceneryCard()
+    {
+        var card = NewCard(SceneryTitle, out var g);
+        g.RowCount = 1;
+        foreach (var t in Times) _time.Items.Add(t.Label);
+        Row(g, "Ngày & đêm", _time);
+        NumRow(g, "Độ dài chu kỳ", _cycleMin, "phút / ngày");
+        CheckRow(g, "Tàu hỏa", _train);
+        NumRow(g, "Một lượt tàu", _trainMin, "phút");
+        CheckRow(g, "Phương tiện", _traffic);
+        CheckRow(g, "Chi tiết nền", _ambient);
+        CheckRow(g, "Vùng đệm xám", _padding);
         return card;
     }
 
@@ -361,20 +416,7 @@ internal sealed class PortalForm : Form
         return card;
     }
 
-    private Control BuildSaveRow()
-    {
-        var t = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = false, Size = new Size(CardWidth, 40), BackColor = _p.Back, Margin = new Padding(0, 0, 0, 8), Padding = Padding.Empty };
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
-        _dirty.Anchor = AnchorStyles.Left; _dirty.Margin = new Padding(2, 0, 0, 0); _dirty.Font = new Font("Segoe UI Semibold", 9.5f);
-        StyleButton(_save, primary: true);
-        _save.AutoSize = false; _save.Dock = DockStyle.Fill; _save.Margin = new Padding(0, 1, 0, 1); _save.Font = new Font("Segoe UI Semibold", 9.5f);
-        t.Controls.Add(_dirty, 0, 0);
-        t.Controls.Add(_save, 1, 0);
-        return t;
-    }
-
-    // v5.3.2: the on/off button lives in the footer (right), next to "Đóng" (left) and "Kết thúc" (middle).
+    // v5.4: the footer is Đóng (left), Kết thúc (middle) and the primary Lưu cấu hình (right). F8 still toggles the effects.
     private const int FooterHeight = 36;
     private const int FooterGap = 8;
     private readonly Button _close = new() { Text = "Đóng (Ẩn xuống khay)" };
@@ -388,25 +430,24 @@ internal sealed class PortalForm : Form
         for (int i = 0; i < 3; i++) t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, CardWidth / 3f));
         StyleButton(_close, primary: false);
         StyleButton(_exit, primary: false, danger: true);
-        foreach (var b in new[] { _close, _exit, _toggle }) { b.AutoSize = false; b.Dock = DockStyle.Fill; b.Height = FooterHeight; b.Padding = new Padding(4, 0, 4, 0); b.TextAlign = ContentAlignment.MiddleCenter; b.UseMnemonic = false; }
-        _toggle.FlatStyle = FlatStyle.Flat;
-        _toggle.Font = new Font("Segoe UI Semibold", 9.5f);
-        _toggle.Cursor = Cursors.Hand;
+        foreach (var b in new[] { _close, _exit, _save }) { b.AutoSize = false; b.Dock = DockStyle.Fill; b.Height = FooterHeight; b.Padding = new Padding(4, 0, 4, 0); b.TextAlign = ContentAlignment.MiddleCenter; b.UseMnemonic = false; }
+        StyleButton(_save, primary: true);
+        _save.AutoSize = false; _save.Dock = DockStyle.Fill; _save.Height = FooterHeight; _save.Padding = new Padding(4, 0, 4, 0);
+        _save.TextAlign = ContentAlignment.MiddleCenter; _save.UseMnemonic = false;
+        _save.Font = new Font("Segoe UI Semibold", 9.5f);
         _close.Margin = new Padding(0, 1, FooterGap / 2, 1);
         _exit.Margin = new Padding(FooterGap / 2, 1, FooterGap / 2, 1);
-        _toggle.Margin = new Padding(FooterGap / 2, 1, 0, 1);
+        _save.Margin = new Padding(FooterGap / 2, 1, 0, 1);
         _close.Click += (_, _) => { if (ConfirmLeave()) Hide(); };
         _exit.Click += (_, _) => { if (ConfirmLeave()) _host.ExitFromPortal(); };
         t.Controls.Add(_close, 0, 0);
         t.Controls.Add(_exit, 1, 0);
-        t.Controls.Add(_toggle, 2, 0);
+        t.Controls.Add(_save, 2, 0);
         CancelButton = _close;
         _footer = t;
         LayoutFooter();
         return t;
     }
-
-    internal static string ToggleText(bool on, string hotkey) => (on ? "Tắt hiệu ứng (" : "Bật hiệu ứng (") + hotkey + ")";
 
     /// <summary>
     /// Column widths for the footer: each button gets at least its text width (+ padding); the space left over
@@ -436,9 +477,8 @@ internal sealed class PortalForm : Form
     private void LayoutFooter()
     {
         if (_footer is null) return;
-        string hk = _host.HotkeyDisplay;
         int Need(Button b, params string[] texts) => texts.Max(x => TextRenderer.MeasureText(x, b.Font).Width) + b.Padding.Horizontal + 14;
-        var need = new[] { Need(_close, _close.Text), Need(_exit, _exit.Text), Need(_toggle, ToggleText(true, hk), ToggleText(false, hk)) };
+        var need = new[] { Need(_close, _close.Text), Need(_exit, _exit.Text), Need(_save, _save.Text) };
         var cols = FooterColumns(CardWidth, FooterGap, need);
         _footer.SuspendLayout();
         for (int i = 0; i < 3; i++) _footer.ColumnStyles[i] = new ColumnStyle(SizeType.Absolute, cols[i]);
@@ -503,7 +543,6 @@ internal sealed class PortalForm : Form
 
     private void WireEvents()
     {
-        _toggle.Click += (_, _) => _host.SetEffect(!_host.EffectOn);
         _save.Click += (_, _) => { _host.SaveConfig(); SyncFromHost(); };
         _region.SelectedIndexChanged += (_, _) => Apply(c => c.RegionMode = Regions[Math.Max(0, _region.SelectedIndex)].Id, refreshWeather: true);
         _weather.SelectedIndexChanged += (_, _) =>
@@ -590,8 +629,9 @@ internal sealed class PortalForm : Form
     private void UpdateInfo()
     {
         var info = _host.WeatherInfo;
-        if (_info1.Text != info.Line1) _info1.Text = info.Line1;
-        if (_info2.Text != info.Line2) _info2.Text = info.Line2;
+        string now = info.Temperature + "  ·  " + info.Condition;
+        if (_infoPlace.Text != info.Location) _infoPlace.Text = info.Location;
+        if (_infoNow.Text != now) _infoNow.Text = now;
     }
 
     internal void SyncFromHost()
@@ -602,18 +642,8 @@ internal sealed class PortalForm : Form
         {
             var c = _host.Config;
             bool on = _host.EffectOn;
-            _status.Text = "● " + _host.StatusText;
+            _status.Text = "● " + _host.StatusText + "  ·  " + _host.HotkeyDisplay + " bật/tắt";
             _status.ForeColor = !on ? _p.Sub : _host.Fused ? _p.Ok : _p.Warn;
-            var tt = ToggleText(on, _host.HotkeyDisplay);
-            if (_toggle.Text != tt) { _toggle.Text = tt; LayoutFooter(); }
-            // Primary accent either way so it is easy to spot: filled green when on, green outline when off.
-            _toggle.BackColor = on ? _p.Accent : _p.Card;
-            _toggle.ForeColor = on ? Color.White : _p.Accent;
-            _toggle.FlatAppearance.BorderSize = 1;
-            _toggle.FlatAppearance.BorderColor = _p.Accent;
-            _toggle.FlatAppearance.MouseOverBackColor = on ? ControlPaint.Light(_p.Accent, 0.15f) : _p.Hover;
-            _toggle.FlatAppearance.MouseDownBackColor = on ? ControlPaint.Dark(_p.Accent, 0.05f) : _p.Input;
-
             UpdateInfo();
             SetIndex(_region, IndexOf(Regions, c.RegionMode));
             SetIndex(_weather, IndexOf(Weathers, c.WeatherPreview));
@@ -623,7 +653,7 @@ internal sealed class PortalForm : Form
             SetNum(_wcB, c.WeatherCycleRandomMaxMinutes);
             _wcA.Enabled = cyc; _wcB.Enabled = cyc && rnd;
             _wcB.Parent!.Visible = rnd; _wcDash.Visible = rnd;
-            _wcUnit.Text = rnd ? "phút" : "phút/lần đổi";
+            if (_wcLabel is not null) _wcLabel.Text = rnd ? "Khoảng ngẫu nhiên" : "Chu kỳ đổi";
             SetIndex(_season, IndexOf(Seasons, c.Season));
             _seasonCycle.Checked = c.SeasonCycleEnabled;
             SetNum(_seasonMin, c.SeasonCycleMinutes);
@@ -656,11 +686,12 @@ internal sealed class PortalForm : Form
             _startMin.Checked = c.StartMinimized;
 
             bool unsaved = _host.HasUnsavedChanges;
-            _dirty.Text = unsaved ? "● Có thay đổi chưa lưu" : "✓ Đã lưu";
-            _dirty.ForeColor = unsaved ? _p.Warn : _p.Ok;
+            _dirty.Text = unsaved ? "● Chưa lưu" : "✓ Đã lưu";
+            _dirty.ForeColor = unsaved ? _p.Warn : _p.Sub;
             _save.Enabled = unsaved;
             _save.BackColor = unsaved ? _p.Accent : _p.Card;
             _save.ForeColor = unsaved ? Color.White : _p.Sub;
+            _save.FlatAppearance.BorderColor = unsaved ? _p.Accent : _p.Border;
 
             _updVersion.Text = "Phiên bản hiện tại: v" + AutoUpdater.AppVersion();
             if (StoreEdition.UsesStoreUpdates)

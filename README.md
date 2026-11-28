@@ -48,10 +48,10 @@ Windows 11 64-bit. Không cần quyền Administrator, không cần cài .NET.
 - **Bốn mùa.** Xuân, hè, thu, đông với bảng màu trời/đất riêng (cánh hoa, lá rơi, tuyết phủ). Chọn thời tiết *Tuyết rơi* sẽ tự sang mùa đông. Có thể **tự đổi mùa** theo chu kỳ phút tùy chỉnh.
 - **Thời tiết tự đổi.** Theo chu kỳ cố định hoặc ngẫu nhiên trong khoảng bạn đặt, luôn hợp mùa (tuyết chỉ vào mùa đông).
 - **5 địa danh nổi tiếng mới:** Sydney (Nhà hát Opera, cầu Cảng), New York (Tượng Nữ thần Tự do, Empire State, cầu Brooklyn), Rome (Đấu trường La Mã, St. Peter), Giza (Kim tự tháp, Sphinx), Santorini (nhà vòm xanh, cối xay gió). Mỗi nơi có phương tiện và nhịp phố riêng.
-- **Bảng điều khiển gọn hơn.** Mặc định chỉ có *Cảnh vật, Thời tiết, Mùa* cùng dòng vị trí/thời tiết hiện tại. Âm thanh và mục *Cài đặt* (hệ thống, cập nhật, phím tắt) nằm trong phần có thể thu gọn. Nút **Lưu cấu hình**: chỉnh sửa xem trước ngay, chỉ ghi `config.json` khi bấm Lưu; đóng khi còn thay đổi chưa lưu sẽ hỏi.
+- **Bảng điều khiển gọn hơn.** Mặc định gồm bốn khối đồng dạng: *Thông tin cảnh vật & vị trí*, *Thời tiết*, *Mùa*, *Khung cảnh* (ngày–đêm, tàu hỏa, phương tiện, chi tiết nền, vùng đệm). Âm thanh và mục *Cài đặt* (hệ thống, cập nhật, phím tắt) nằm trong phần có thể thu gọn. Nút **Lưu cấu hình** nằm ở chân bảng điều khiển (góc phải, cạnh *Đóng* và *Kết thúc*), kèm dòng nhỏ *Đã lưu / Chưa lưu*: chỉnh sửa xem trước ngay, chỉ ghi `config.json` khi bấm Lưu; đóng khi còn thay đổi chưa lưu sẽ hỏi.
 - **Một nút cập nhật.** *Kiểm tra & cập nhật* (bảng điều khiển và menu khay) thay cho hai nút cũ. App tự kiểm tra và cài khi mở theo các tùy chọn cập nhật tự động hiện có (mặc định bật).
-- **Tùy chọn vùng đệm xám quanh icon** (ô *Vùng đệm xám quanh icon ứng dụng* trong thẻ Cảnh vật): tắt để cảnh vật sát icon.
-- **Gọn menu khay.** Bỏ mục *Hiện thông tin thời tiết địa điểm* (thông tin nằm trong bảng điều khiển; thẻ trên taskbar đã bỏ) và mục *Tắt hiệu ứng (F8)* (phím **F8** vẫn hoạt động; nút Bật/Tắt vẫn nằm ở chân bảng điều khiển).
+- **Tùy chọn vùng đệm xám quanh icon** (hàng *Vùng đệm xám* trong khối *Khung cảnh*): tắt để cảnh vật sát icon.
+- **Gọn menu khay.** Bỏ mục *Hiện thông tin thời tiết địa điểm* (thông tin nằm trong bảng điều khiển; thẻ trên taskbar đã bỏ) và mục *Tắt hiệu ứng (F8)* (phím **F8** vẫn hoạt động; nút Bật/Tắt ở chân bảng điều khiển được thay bằng *Lưu cấu hình*).
 
 ## Có gì mới trong v5.3.3
 
@@ -64,7 +64,7 @@ Thay đổi trong bảng điều khiển được xem trước ngay; bấm **Lư
 
 | Việc | Cách |
 |------|------|
-| Bật / tắt hiệu ứng | **F8** hoặc nút *Tắt/Bật hiệu ứng (F8)* ở chân bảng điều khiển |
+| Bật / tắt hiệu ứng | **F8** hoặc phím tắt cũng hiện trên dòng trạng thái đầu bảng điều khiển |
 | Mở bảng điều khiển | Nhấp đúp icon khay, chọn *Mở bảng điều khiển*, hoặc chạy lại `AudioTaskbar.exe` |
 | Ẩn cửa sổ, app vẫn chạy | **Đóng (Ẩn xuống khay)** hoặc nút ✕ |
 | Thoát hẳn, trả taskbar gốc | **Kết thúc (Thoát)** trên bảng điều khiển hoặc menu khay |

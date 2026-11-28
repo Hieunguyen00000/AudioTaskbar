@@ -1,14 +1,8 @@
 namespace AudioTaskbar.Tests;
 
-/// <summary>v5.3.2: footer row = Đóng | Kết thúc | Bật/Tắt hiệu ứng — even, aligned, never clipped.</summary>
+/// <summary>v5.3.2: footer row = Đóng | Kết thúc | Lưu cấu hình — even, aligned, never clipped.</summary>
 public class PortalLayoutTests
 {
-    [Theory]
-    [InlineData(true, "F8", "Tắt hiệu ứng (F8)")]
-    [InlineData(false, "F8", "Bật hiệu ứng (F8)")]
-    [InlineData(true, "Ctrl+Alt+F8", "Tắt hiệu ứng (Ctrl+Alt+F8)")]
-    public void Toggle_label(bool on, string hk, string expected) => Assert.Equal(expected, PortalForm.ToggleText(on, hk));
-
     [Fact]
     public void Short_labels_get_three_equal_buttons_spanning_the_card_width()
     {

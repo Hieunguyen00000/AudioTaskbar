@@ -10,7 +10,7 @@ internal static class SoundEffects
     {
         (Rain, "Mưa rơi"), (Thunder, "Sấm sét"), (Wind, "Gió"), (Traffic, "Xe cộ"), (Horns, "Còi xe"),
         (Train, "Tàu hỏa (xa / gần)"), (Birds, "Chim hót"), (Insects, "Côn trùng, ve, dế"),
-        (Animals, "Động vật (ếch, chó, gà gáy)"), (Waves, "Sóng nước")
+        (Animals, "Ếch, chó, gà gáy"), (Waves, "Sóng nước")
     };
 
     public static IEnumerable<string> Ids => All.Select(a => a.Id);
