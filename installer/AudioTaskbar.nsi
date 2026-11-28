@@ -36,7 +36,7 @@ RequestExecutionLevel user
 !define APP_NAME           "Audio Taskbar"
 !define APP_NAME_SHORT     "AudioTaskbar"
 !ifndef APP_VERSION
-  !define APP_VERSION      "5.3.2"
+  !define APP_VERSION      "5.3.3"
 !endif
 !define APP_VERSION_FULL   "${APP_VERSION}.0"
 !define APP_PUBLISHER      "Hieunguyen00000"

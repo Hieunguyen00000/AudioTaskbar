@@ -114,7 +114,7 @@ public class SigningPrepTests
         Assert.Equal("Copyright (c) 2026 Hieunguyen00000", Prop("Copyright"));
 
         var rc = File.ReadAllText(Path.Combine(root, "src/TaskbarTap/TaskbarTap.rc"));
-        // 5.3.2 → 5,3,2,0
+        // 5.3.3 → 5,3,3,0
         var comma = version.Replace('.', ',') + ",0";
         Assert.Contains($"FILEVERSION     {comma}", rc);
         Assert.Contains($"PRODUCTVERSION  {comma}", rc);
