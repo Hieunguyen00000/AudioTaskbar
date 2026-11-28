@@ -223,3 +223,51 @@ internal static class LayoutMath
         return new RectangleF(bx, (barHeight - size.Height) / 2f, size.Width, size.Height);
     }
 }
+
+/// <summary>
+/// Holds a last-good UIA taskbar layout across transient probe failures.
+/// Opening Start (Win key) commonly makes UIA return zero items; the conservative
+/// fallback then punches a nearly full-bar cutout, which collapses free spans,
+/// rebuilds scenery, and jumps landmarks. Keep the previous reliable snapshot
+/// until a real UIA layout or a genuine geometry change arrives.
+/// </summary>
+internal static class TaskbarLayoutHold
+{
+    public static bool IsReliable(TaskbarLayoutSnapshot? snap)
+    {
+        if (snap is null) return false;
+        if (snap.UiaCount <= 0) return false;
+        var src = snap.Source ?? "";
+        if (src.StartsWith("fallback", StringComparison.OrdinalIgnoreCase)) return false;
+        if (src.StartsWith("autohidden", StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Next is a transient failure or a clearly incomplete tree compared with a
+    /// recent good snapshot of the same taskbar (icons have not actually moved).
+    /// </summary>
+    public static bool IsDegraded(TaskbarLayoutSnapshot previous, TaskbarLayoutSnapshot next)
+    {
+        if (!IsReliable(next)) return true;
+        // Start (or similar shell UI) can also return a partial tree: far fewer
+        // items and a missing tray, while the real icons have not moved.
+        if (previous.UiaCount >= 8
+            && next.UiaCount <= previous.UiaCount / 2
+            && next.TrayArea.IsEmpty
+            && !previous.TrayArea.IsEmpty)
+            return true;
+        return false;
+    }
+
+    public static bool ShouldRetain(TaskbarLayoutSnapshot? previous, TaskbarLayoutSnapshot? next)
+    {
+        if (previous is null || next is null) return false;
+        if (!IsReliable(previous)) return false;
+        if (previous.Bounds != next.Bounds) return false;
+        // Auto-hide is a real state change, not a transient UIA failure.
+        var src = next.Source ?? "";
+        if (src.StartsWith("autohidden", StringComparison.OrdinalIgnoreCase)) return false;
+        return IsDegraded(previous, next);
+    }
+}

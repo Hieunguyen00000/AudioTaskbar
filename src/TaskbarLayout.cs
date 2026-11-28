@@ -42,6 +42,7 @@ internal sealed class TaskbarLayoutProbe : IDisposable
     private volatile IntPtr[] _targets = Array.Empty<IntPtr>();
     private readonly Action<string> _log;
     private string _lastLogged = "";
+    private readonly HashSet<IntPtr> _holding = new();
 
     public int IntervalMs { get; set; } = 400;
     /// <summary>Raised on the probe thread when any taskbar's item layout changes.</summary>
@@ -77,7 +78,28 @@ internal sealed class TaskbarLayoutProbe : IDisposable
     public TaskbarLayoutSnapshot ProbeNow(IntPtr hwnd)
     {
         var s = Probe(hwnd);
-        lock (_lock) _snaps[hwnd] = s;
+        lock (_lock) return Commit(hwnd, s, out _);
+    }
+
+    /// <summary>
+    /// Publish a new probe, or keep the last reliable UIA snapshot when the
+    /// new one is a transient fallback (Start menu / incomplete tree).
+    /// Must be called under <see cref="_lock"/>.
+    /// </summary>
+    private TaskbarLayoutSnapshot Commit(IntPtr hwnd, TaskbarLayoutSnapshot s, out bool changed)
+    {
+        _snaps.TryGetValue(hwnd, out var old);
+        if (TaskbarLayoutHold.ShouldRetain(old, s))
+        {
+            if (_holding.Add(hwnd))
+                _log("Layout: keeping last good UIA snapshot (transient probe failure, e.g. Start menu).");
+            changed = false;
+            return old!;
+        }
+        if (_holding.Remove(hwnd))
+            _log("Layout: resumed live UIA snapshot.");
+        changed = old is null || old.Signature() != s.Signature();
+        _snaps[hwnd] = s;
         return s;
     }
 
@@ -94,9 +116,8 @@ internal sealed class TaskbarLayoutProbe : IDisposable
                 catch (Exception ex) { _log("Layout probe error: " + ex.Message); continue; }
                 lock (_lock)
                 {
-                    if (!_snaps.TryGetValue(h, out var old) || old.Signature() != s.Signature())
-                        changed = true;
-                    _snaps[h] = s;
+                    s = Commit(h, s, out bool c);
+                    if (c) changed = true;
                 }
                 var sig = $"{s.Source} items={s.Items.Count} task={s.TaskArea} tray={s.TrayArea}";
                 if (sig != _lastLogged && h == _targets.FirstOrDefault())
