@@ -147,7 +147,7 @@ internal sealed class OverlayWindow : Form
             _diorama.Draw(g, ctx, mood, ctx.Time);
             g.Restore(st);
 
-            if (behind)
+            if (behind && ctx.Cfg.ShowIconPadding)
                 DimUnderIcons(g, ctx);
 
             if (ctx.ShowWeather && _badgeLevel >= 0 && !_badgeRect.IsEmpty)
@@ -201,14 +201,16 @@ internal sealed class OverlayWindow : Form
     private void UpdateLayout(Graphics g, FrameContext ctx, SceneMood mood, float s, int along, int thick, bool vertical)
     {
         string text = ctx.ShowWeather ? mood.TemperatureText + "|" + mood.ConditionVi + "|" + mood.Place + "|" + ctx.Cfg.WeatherPosition : "-";
-        string key = ctx.Regions.Signature + "|" + _rw + "x" + _rh + "|" + text + "|" + ctx.Region.Id;
+        string key = ctx.Regions.Signature + "|" + _rw + "x" + _rh + "|" + text + "|" + ctx.Region.Id + "|pad" + (ctx.Cfg.ShowIconPadding ? "1" : "0");
         if (key == _layoutKey) return;
         if (TaskbarLayoutHold.ShouldKeepExistingOverlayLayout(ctx.Regions.LayoutSource, _layoutKey.Length > 0))
             return;
         _layoutKey = key;
 
-        int pad = Math.Max(2, (int)Math.Round(2 * s));
-        int feather = Math.Max(4, (int)Math.Round(6 * s));
+        // v5.4: "Vùng đệm quanh icon" off = scenery runs right up to the icons (no guard gap, minimal feather).
+        bool padOn = ctx.Cfg.ShowIconPadding;
+        int pad = padOn ? Math.Max(2, (int)Math.Round(2 * s)) : 0;
+        int feather = padOn ? Math.Max(4, (int)Math.Round(6 * s)) : Math.Max(1, (int)Math.Round(1.5f * s));
         var spans = TaskbarService.FreeSpans(ctx.Regions, along, pad + feather, 6);
 
         // Visibility along the long axis: 0 inside (cutout + pad), smooth feather outside.
@@ -489,8 +491,9 @@ internal sealed class OverlayWindow : Form
     {
         if (!ctx.Cfg.IconSafeFade) return 1f;
         float vis = 1f;
-        vis = Math.Min(vis, DistanceFade(clientX, ctx.Regions.IconCluster, ctx.Cfg.IconSafePadding, minBehindIcons));
-        vis = Math.Min(vis, DistanceFade(clientX, ctx.Regions.Tray, Math.Max(8, ctx.Cfg.IconSafePadding / 2), minBehindIcons));
+        int padCfg = ctx.Cfg.ShowIconPadding ? ctx.Cfg.IconSafePadding : 0;
+        vis = Math.Min(vis, DistanceFade(clientX, ctx.Regions.IconCluster, padCfg, minBehindIcons));
+        vis = Math.Min(vis, DistanceFade(clientX, ctx.Regions.Tray, ctx.Cfg.ShowIconPadding ? Math.Max(8, ctx.Cfg.IconSafePadding / 2) : 0, minBehindIcons));
         return vis;
     }
 

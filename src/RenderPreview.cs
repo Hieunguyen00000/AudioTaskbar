@@ -7,7 +7,7 @@ namespace AudioTaskbar;
 /// Headless preview: renders exactly the overlay pixels a machine would show,
 /// for a given bar size + measured cut-outs, without touching the taskbar.
 /// AudioTaskbar.exe --render out.png --size 1920x60 --cutouts 8-198,516-1403,1653-1920
-///     --region hcmc --temp 27 --code 3 --day 0 --place "Ho Chi Minh City" --hud 1 --t 40 --preview live
+///     --region hcmc --temp 27 --code 3 --day 0 --place "Ho Chi Minh City" --season autumn --padding 0 --t 40 --preview live
 /// </summary>
 internal static class RenderPreview
 {
@@ -25,7 +25,8 @@ internal static class RenderPreview
         {
             RegionMode = Get("--region", "auto"),
             WeatherPreview = Get("--preview", "live"),
-            ShowWeatherHud = Get("--hud", "1") == "1",
+            Season = Get("--season", "summer"),
+            ShowIconPadding = Get("--padding", "1") == "1",
             TrainCrossingMinutes = float.Parse(Get("--train", "1"), CultureInfo.InvariantCulture),
             TimeMode = Get("--timemode", "cycle")
         };
@@ -64,7 +65,7 @@ internal static class RenderPreview
             {
                 Cfg = cfg, Analyzer = analyzer, Weather = weather, Regions = regions,
                 Time = t0 + i / 30f, Fused = Get("--fused", "0") == "1", BehindOk = Get("--fused", "0") == "1",
-                ShowWeather = cfg.ShowWeatherHud, Region = region
+                ShowWeather = Get("--hud", "0") == "1", Region = region
             };
             last?.Dispose();
             last = ow.RenderOffscreen(w, h, ctx);
