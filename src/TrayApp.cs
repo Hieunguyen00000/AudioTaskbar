@@ -4,7 +4,7 @@ using System.Drawing.Imaging;
 
 namespace AudioTaskbar;
 
-internal sealed class TrayApp : ApplicationContext
+internal sealed class TrayApp : ApplicationContext, IPortalHost
 {
     private readonly NotifyIcon _tray;
     private readonly System.Windows.Forms.Timer _frameTimer;
@@ -59,6 +59,12 @@ internal sealed class TrayApp : ApplicationContext
     private float _idle; // 0 active, 1 idle
     private Icon? _icon;
     private bool _savingConfig;
+    private string _savedJson = "";
+    private readonly SeasonCycler _seasonCycler = new();
+    private readonly WeatherScheduler _weatherSched = new();
+    private string _lastPreview = "";
+    private AmbientEngine? _ambient;
+    private int _ambientTick;
     // v5
     private readonly TaskbarLayoutProbe _layout;
     private readonly List<BackdropWindow> _backdrops = new();
@@ -92,12 +98,13 @@ internal sealed class TrayApp : ApplicationContext
         _cfg.EnableAudio = false;
         if (string.IsNullOrWhiteSpace(_cfg.WeatherPreview)) _cfg.WeatherPreview = "live";
         _cfg.Normalize();
+        _savedJson = Snapshot(_cfg);
         _layout = new TaskbarLayoutProbe(Log);
         _layout.Changed += () => _layoutDirty = true;
         Log("Start v" + AutoUpdater.AppVersion() + (startMinimized ? " (tray)" : " (portal)") + ". Config=" + _configPath + " preview=" + _cfg.WeatherPreview + " hotkey=" + _cfg.Hotkey
             + " blockWallpaper=" + _cfg.BlockWallpaper
             + " train=" + _cfg.ShowTrain + "(" + _cfg.TrainCrossingMinutes + " min) traffic=" + _cfg.ShowCyclist
-            + " region=" + _cfg.RegionMode + " hud=" + _cfg.ShowWeatherHud
+            + " region=" + _cfg.RegionMode + " season=" + _cfg.Season + " iconPadding=" + _cfg.ShowIconPadding + " weatherCycle=" + _cfg.WeatherCycleMode + " sound=" + _cfg.SoundMasterVolume
             + " time=" + _cfg.TimeMode + (_cfg.TimeMode == "cycle" ? "(" + _cfg.DayCycleMinutes + " min/day, now " + SceneClock.VirtualHour(_cfg, DateTime.Now).ToString("0.00") + "h)" : "")
             + " dpiCtx=PerMonitorV2 sac=" + (TaskbarTapHost.DetectTapBlocker() ?? "off"));
         _tap.ReadyTimeoutSeconds = _cfg.TapTimeoutSeconds;
@@ -180,15 +187,15 @@ internal sealed class TrayApp : ApplicationContext
             try { if (!_exiting) BeginInvoke(SyncOverlays); } catch { }
         };
 
-        // v5.3 auto-update: first check 10 s after start (startup stays instant), then every 6 h.
+        // v5.3 auto-update: first check 4 s after start (startup stays instant), then every 6 h.
         // Store edition: updates are delivered exclusively by Microsoft Store — never hit GitHub.
         if (!StoreEdition.UsesStoreUpdates)
         {
-            _updateTimer.Interval = 10_000;
+            _updateTimer.Interval = 4_000; // v5.4: look for (and install) updates right after launch
             _updateTimer.Tick += (_, _) =>
             {
                 _updateTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
-                if (_cfg.AutoUpdateEnabled) _ = CheckForUpdatesAsync(manual: false);
+                if (UpdatePolicy.ShouldCheckOnLaunch(_cfg, StoreEdition.UsesStoreUpdates)) _ = CheckForUpdatesAsync(manual: false);
             };
             _updateTimer.Start();
         }
@@ -212,15 +219,34 @@ internal sealed class TrayApp : ApplicationContext
     public string? TapBlocker => _tapBlockedReason ?? TaskbarTapHost.DetectTapBlocker();
     public string ConfigPath => _configPath;
     public AutoUpdater Updater => _updater;
+    public UpdateCheckResult? LastUpdateResult => _updater.LastResult;
     public bool UpdateBusy => _updateBusy;
     public double UpdateProgress => _updateProgress;
     public string UpdateStage => _updateStage;
 
     public string StatusText => _paused ? "Đang tắt" : (Fused ? "Đang bật · Hòa nền sau icon" : "Đang bật · Chế độ an toàn");
 
+    public PortalInfo WeatherInfo
+    {
+        get
+        {
+            var cfg = Config;
+            var w = _weather.Latest;
+            return PortalInfo.Build(w, cfg, RegionCatalog.Resolve(cfg, w));
+        }
+    }
+
     public void SetEffect(bool on) => SetEffectEnabled(on);
 
-    /// <summary>Apply a portal change live, persist it, and run the matching side effect.</summary>
+    private static string Snapshot(AppConfig c) => System.Text.Json.JsonSerializer.Serialize(c, ConfigStore.JsonOptions);
+
+    /// <summary>True when the live settings differ from what is saved in config.json.</summary>
+    public bool HasUnsavedChanges { get { lock (_configLock) return Snapshot(_cfg) != _savedJson; } }
+
+    /// <summary>
+    /// Apply a control-panel edit live (it previews at once) without writing it to disk. The panel's "Lưu cấu hình"
+    /// button calls <see cref="SaveConfig"/>; closing the panel with unsaved edits asks what to do.
+    /// </summary>
     public void Mutate(Action<AppConfig> change, bool refreshWeather = false, bool hotkey = false, bool fusion = false)
     {
         lock (_configLock)
@@ -228,7 +254,6 @@ internal sealed class TrayApp : ApplicationContext
             change(_cfg);
             _cfg.Normalize();
         }
-        Persist();
         if (refreshWeather) _weather.RefreshNow(_cfg);
         if (hotkey) RegisterConfiguredHotkey();
         if (fusion)
@@ -243,6 +268,19 @@ internal sealed class TrayApp : ApplicationContext
         }
         UpdateTip();
         RaiseStateChanged();
+    }
+
+    public void SaveConfig()
+    {
+        Persist();
+        Log("Config saved from the control panel.");
+    }
+
+    public void DiscardChanges()
+    {
+        ReloadConfig(notify: false);
+        Log("Unsaved control-panel edits discarded.");
+        UpdateTip();
     }
 
     public void ShowPortal()
@@ -296,8 +334,7 @@ internal sealed class TrayApp : ApplicationContext
             {
                 string exeDir = Path.GetDirectoryName(Application.ExecutablePath) ?? AppContext.BaseDirectory;
                 bool dev = AutoUpdater.IsDevCheckout(exeDir);
-                bool auto = !manual && _cfg.AutoUpdateSilentInstall && !dev;
-                if (install || auto)
+                if (UpdatePolicy.ShouldInstall(manual, install, _cfg.AutoUpdateSilentInstall, dev))
                     await InstallUpdateAsync(info, requireChecksum: true).ConfigureAwait(true);
                 else
                 {
@@ -305,7 +342,7 @@ internal sealed class TrayApp : ApplicationContext
                     if (dev && !manual) Log("Update: developer checkout — not self-installing (" + exeDir + ").");
                 }
             }
-            else if (manual && r.Status != UpdateStatus.UpToDate)
+            else if (manual)
                 NotifyBalloon(r.Message);
         }
         catch (Exception ex) { _updateStage = AutoUpdater.MsgCannotCheck; Log("Update error: " + ex); }
@@ -316,20 +353,8 @@ internal sealed class TrayApp : ApplicationContext
         }
     }
 
-    public Task InstallLatestAsync() => StoreEdition.UsesStoreUpdates
-        ? Task.CompletedTask
-        : _updater.LastResult?.Info is { } info && _updater.LastResult.Status == UpdateStatus.UpdateAvailable
-        ? WrapInstall(info)
-        : CheckForUpdatesAsync(manual: true, install: true);
-
-    private async Task WrapInstall(UpdateInfo info)
-    {
-        if (_updateBusy) return;
-        _updateBusy = true;
-        try { await InstallUpdateAsync(info, requireChecksum: true).ConfigureAwait(true); }
-        catch (Exception ex) { _updateStage = "Không thể cập nhật lúc này."; Log("Update error: " + ex); }
-        finally { _updateBusy = false; _updateProgress = -1; RaiseStateChanged(); }
-    }
+    /// <summary>v5.4: one command for both the control panel and the tray: check, then update if a newer version exists.</summary>
+    public Task CheckAndUpdateAsync() => CheckForUpdatesAsync(manual: true, install: true);
 
     private async Task InstallUpdateAsync(UpdateInfo info, bool requireChecksum)
     {
@@ -389,22 +414,54 @@ internal sealed class TrayApp : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
-        var open = new ToolStripMenuItem("Mở bảng điều khiển") { Font = new Font(SystemFonts.MenuFont ?? Control.DefaultFont, FontStyle.Bold) };
-        open.Click += (_, _) => ShowPortal();
-        menu.Items.Add(open);
-        menu.Items.Add(new ToolStripSeparator());
-        var pause = new ToolStripMenuItem("Bật/tắt hiệu ứng (F8)");
-        pause.Click += (_, _) => ToggleEffect();
-        menu.Items.Add(pause);
+        foreach (var e in TrayMenuModel.TopLevel(StoreEdition.UsesStoreUpdates))
+        {
+            switch (e.Id)
+            {
+                case TrayMenuModel.Sep:
+                    menu.Items.Add(new ToolStripSeparator());
+                    break;
+                case TrayMenuModel.Open:
+                {
+                    var open = new ToolStripMenuItem(e.Text) { Font = new Font(SystemFonts.MenuFont ?? Control.DefaultFont, FontStyle.Bold) };
+                    open.Click += (_, _) => ShowPortal();
+                    menu.Items.Add(open);
+                    break;
+                }
+                case TrayMenuModel.Scene: menu.Items.Add(BuildSceneMenu(e.Text)); break;
+                case TrayMenuModel.Time: menu.Items.Add(BuildTimeMenu(e.Text)); break;
+                case TrayMenuModel.Season: menu.Items.Add(BuildSeasonMenu(e.Text)); break;
+                case TrayMenuModel.Region: menu.Items.Add(BuildRegionMenu(e.Text)); break;
+                case TrayMenuModel.Preview: menu.Items.Add(BuildPreviewMenu(e.Text)); break;
+                case TrayMenuModel.Refresh:
+                    menu.Items.Add(e.Text, null, (_, _) =>
+                    {
+                        Log("Weather refresh requested.");
+                        _weather.RefreshNow(_cfg);
+                    });
+                    break;
+                case TrayMenuModel.Reload: menu.Items.Add(e.Text, null, (_, _) => ReloadConfig()); break;
+                case TrayMenuModel.Update: menu.Items.Add(e.Text, null, (_, _) => _ = CheckAndUpdateAsync()); break;
+                case TrayMenuModel.Exit: menu.Items.Add(e.Text, null, (_, _) => ExitApp()); break;
+            }
+        }
+        return menu;
+    }
 
-        var scene = new ToolStripMenuItem("Hoạt ảnh");
+    private ToolStripMenuItem BuildSceneMenu(string text)
+    {
+        var scene = new ToolStripMenuItem(text);
         scene.DropDownItems.Add(MakeToggle("Tàu hỏa (" + _cfg.TrainCrossingMinutes.ToString("0.#") + " phút/lượt)", () => _cfg.ShowTrain, v => { _cfg.ShowTrain = v; Persist(); }));
         scene.DropDownItems.Add(MakeToggle("Giao thông đặc trưng khu vực", () => _cfg.ShowCyclist, v => { _cfg.ShowCyclist = v; Persist(); }));
         scene.DropDownItems.Add(MakeToggle("Chim, đèn phố, cánh hoa", () => _cfg.ShowAmbientDetails, v => { _cfg.ShowAmbientDetails = v; Persist(); }));
         scene.DropDownItems.Add(MakeToggle("Hiệu ứng thời tiết (mưa, mây, sấm, sương)", () => _cfg.ShowWeatherEffects, v => { _cfg.ShowWeatherEffects = v; Persist(); }));
-        menu.Items.Add(scene);
+        scene.DropDownItems.Add(MakeToggle(TrayMenuModel.IconPaddingText, () => _cfg.ShowIconPadding, v => { _cfg.ShowIconPadding = v; Persist(); }));
+        return scene;
+    }
 
-        var timeMenu = new ToolStripMenuItem("Ngày & đêm (mặt trời / mặt trăng)");
+    private ToolStripMenuItem BuildTimeMenu(string text)
+    {
+        var timeMenu = new ToolStripMenuItem(text);
         void addTime(string id, Func<string> label)
         {
             var it = new ToolStripMenuItem(label());
@@ -422,32 +479,36 @@ internal sealed class TrayApp : ApplicationContext
         addTime("real", () => "Theo giờ thật");
         addTime("day", () => "Cố định ban ngày");
         addTime("night", () => "Cố định ban đêm");
-        menu.Items.Add(timeMenu);
+        return timeMenu;
+    }
 
-        var region = new ToolStripMenuItem("Khu vực & Cảnh vật");
-        void addRegion(string id, string label)
+    private ToolStripMenuItem BuildSeasonMenu(string text)
+    {
+        var season = new ToolStripMenuItem(text);
+        foreach (var (id, label) in TrayMenuModel.Seasons)
         {
             var it = new ToolStripMenuItem(label);
             it.Click += (_, _) =>
             {
-                _cfg.RegionMode = id;
-                _cfg.Normalize();
+                lock (_configLock) _cfg.ApplySeasonSelection(id);
                 Persist();
-                Log("Region mode: " + _cfg.RegionMode);
-                if (_cfg.WeatherFollowsRegion) _weather.RefreshNow(_cfg);
+                Log("Season: " + _cfg.Season);
             };
-            it.Paint += (_, _) => { try { it.Checked = _cfg.RegionMode == id; } catch { } };
-            region.DropDownItems.Add(it);
+            it.Paint += (_, _) => { try { it.Checked = _cfg.Season == id; } catch { } };
+            season.DropDownItems.Add(it);
         }
-        addRegion("auto", "Tự động theo máy");
-        region.DropDownItems.Add(new ToolStripSeparator());
-        addRegion("hcmc", "TP. Hồ Chí Minh");
-        addRegion("baria-vungtau", "Bà Rịa – Vũng Tàu");
-        addRegion("hanoi", "Hà Nội");
-        addRegion("danang-hoian", "Đà Nẵng – Hội An");
-        addRegion("tokyo", "Tokyo / Nhật Bản");
-        addRegion("paris", "Paris / Pháp");
-        addRegion("default", "Mặc định (quê hương & đô thị)");
+        return season;
+    }
+
+    private ToolStripMenuItem BuildRegionMenu(string text)
+    {
+        var region = new ToolStripMenuItem(text);
+        foreach (var (id, label) in RegionCatalog.PickList())
+        {
+            if (id == "default") region.DropDownItems.Add(new ToolStripSeparator());
+            if (id == "auto") { AddRegion(region, id, label); region.DropDownItems.Add(new ToolStripSeparator()); continue; }
+            AddRegion(region, id, label);
+        }
         region.DropDownItems.Add(new ToolStripSeparator());
         region.DropDownItems.Add(MakeToggle("Thời tiết theo khu vực đã chọn", () => _cfg.WeatherFollowsRegion, v =>
         {
@@ -455,10 +516,28 @@ internal sealed class TrayApp : ApplicationContext
             Persist();
             _weather.RefreshNow(_cfg);
         }));
-        menu.Items.Add(region);
+        return region;
+    }
 
-        var preview = new ToolStripMenuItem("Xem trước thời tiết");
-        void addPreview(string id, string label)
+    private void AddRegion(ToolStripMenuItem region, string id, string label)
+    {
+        var it = new ToolStripMenuItem(label);
+        it.Click += (_, _) =>
+        {
+            _cfg.RegionMode = id;
+            _cfg.Normalize();
+            Persist();
+            Log("Region mode: " + _cfg.RegionMode);
+            if (_cfg.WeatherFollowsRegion) _weather.RefreshNow(_cfg);
+        };
+        it.Paint += (_, _) => { try { it.Checked = _cfg.RegionMode == id; } catch { } };
+        region.DropDownItems.Add(it);
+    }
+
+    private ToolStripMenuItem BuildPreviewMenu(string text)
+    {
+        var preview = new ToolStripMenuItem(text);
+        foreach (var (id, label) in TrayMenuModel.Weathers)
         {
             var it = new ToolStripMenuItem(label);
             it.Click += (_, _) =>
@@ -471,46 +550,7 @@ internal sealed class TrayApp : ApplicationContext
             it.Paint += (_, _) => { try { it.Checked = _cfg.WeatherPreview == id; } catch { } };
             preview.DropDownItems.Add(it);
         }
-        addPreview("live", "Thực tế");
-        addPreview("sunny", "Nắng đẹp");
-        addPreview("cloudy", "Mây trôi");
-        addPreview("rain", "Mưa rào");
-        addPreview("storm", "Giông bão");
-        addPreview("snow", "Tuyết rơi");
-        addPreview("night", "Đêm sao");
-        menu.Items.Add(preview);
-
-        menu.Items.Add(MakeToggle("Hiện thông tin thời tiết & địa điểm", () => _cfg.ShowWeatherHud, v =>
-        {
-            _cfg.ShowWeatherHud = v;
-            Persist();
-            Log("Weather HUD: " + (v ? "on" : "off"));
-        }));
-        var refresh = new ToolStripMenuItem("Làm mới thời tiết & vị trí");
-        refresh.Click += (_, _) =>
-        {
-            Log("Weather refresh requested.");
-            _weather.RefreshNow(_cfg);
-        };
-        menu.Items.Add(refresh);
-
-        // v5.3: wallpaper blocking is always on (not user-configurable) — no tray toggle.
-
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Tải lại cấu hình", null, (_, _) => ReloadConfig());
-        if (!StoreEdition.UsesStoreUpdates)
-            menu.Items.Add("Kiểm tra cập nhật", null, (_, _) => _ = CheckForUpdatesAsync(manual: true));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Kết thúc (Thoát)", null, (_, _) => ExitApp());
-
-        menu.Opening += (_, _) =>
-        {
-            pause.Text = _paused
-                ? $"Bật hiệu ứng ({_hotkeyDisplay})"
-                : $"Tắt hiệu ứng ({_hotkeyDisplay})";
-            pause.Checked = !_paused;
-        };
-        return menu;
+        return preview;
     }
 
     private ToolStripMenuItem MakeIntensity(string label, float value)
@@ -561,6 +601,7 @@ internal sealed class TrayApp : ApplicationContext
                 copy = _cfg;
             }
             ConfigStore.Save(_configPath, copy);
+            lock (_configLock) _savedJson = Snapshot(copy);
             RaiseStateChanged();
         }
         catch (Exception ex) { Log("Save config failed: " + ex.Message); }
@@ -682,7 +723,7 @@ internal sealed class TrayApp : ApplicationContext
         try
         {
             if (_exiting || _tray.ContextMenuStrip is null) return;
-            _tray.ContextMenuStrip.BeginInvoke(new Action(ReloadConfig));
+            _tray.ContextMenuStrip.BeginInvoke(new Action(() => ReloadConfig()));
         }
         catch { }
     }
@@ -726,7 +767,7 @@ internal sealed class TrayApp : ApplicationContext
         catch (Exception ex) { Log("Preview command: " + ex.Message); }
     }
 
-    private void ReloadConfig()
+    private void ReloadConfig(bool notify = true)
     {
         try
         {
@@ -740,6 +781,7 @@ internal sealed class TrayApp : ApplicationContext
                 cfg.EnableAudio = false;
                 cfg.Normalize();
                 _cfg = cfg;
+                _savedJson = Snapshot(cfg);
                 weatherOn = cfg.ShowWeather;
             }
             if (cfg.EnableAudio)
@@ -756,7 +798,7 @@ internal sealed class TrayApp : ApplicationContext
                 DisableFusion();
             RegisterConfiguredHotkey();
             Log("Config reloaded. preview=" + cfg.WeatherPreview + " hotkey=" + cfg.Hotkey);
-            _tray.ShowBalloonTip(1200, "Audio Taskbar", "Đã tải lại cấu hình.", ToolTipIcon.None);
+            if (notify) _tray.ShowBalloonTip(1200, "Audio Taskbar", "Đã tải lại cấu hình.", ToolTipIcon.None);
         }
         catch (Exception ex)
         {
@@ -791,10 +833,12 @@ internal sealed class TrayApp : ApplicationContext
             }
         }
 
-        if (_paused) return;
-
         AppConfig cfg;
         lock (_configLock) cfg = _cfg;
+        ApplyCycles(cfg);
+        UpdateAmbient(cfg);
+
+        if (_paused) return;
 
         if (cfg.EnableAudio)
         {
@@ -852,7 +896,8 @@ internal sealed class TrayApp : ApplicationContext
             if (!_regions.TryGetValue(overlay.TaskbarHwnd, out regions))
                 regions = new TaskbarRegions { Bounds = overlay.Bounds };
 
-            bool showWeather = cfg.ShowWeatherHud && (overlay.IsPrimaryTaskbar || !cfg.WeatherOnPrimaryOnly);
+            // v5.4: the on-taskbar weather/location badge was removed; the info is shown in the control panel only.
+            const bool showWeather = false;
             overlay.DrawFrame(new FrameContext
             {
                 Cfg = cfg,
@@ -933,6 +978,37 @@ internal sealed class TrayApp : ApplicationContext
                 TaskbarTapHost.RestartExplorer(Log);
             }
         }
+    }
+
+    /// <summary>Automatic season / weather changes (v5.4). The result is runtime-only and never saved.</summary>
+    private void ApplyCycles(AppConfig cfg)
+    {
+        var now = DateTime.UtcNow;
+        if (cfg.WeatherPreview != _lastPreview)
+        {
+            _lastPreview = cfg.WeatherPreview;
+            _weatherSched.Reset(); // a manual weather pick restarts the automatic cycle from that weather
+        }
+        var season = _seasonCycler.Current(now, cfg);
+        cfg.RuntimeSeason = Seasons.Id(season);
+        cfg.RuntimeWeather = _weatherSched.Current(now, cfg, season);
+    }
+
+    /// <summary>Feeds the ambient sound engine ~6×/s. With every volume at 0 (the default) it does nothing at all.</summary>
+    private void UpdateAmbient(AppConfig cfg)
+    {
+        if (++_ambientTick < Math.Max(1, cfg.Fps / 6)) return;
+        _ambientTick = 0;
+        if (_ambient is null && cfg.SoundMasterVolume == 0) return;
+        try
+        {
+            _ambient ??= new AmbientEngine(Log);
+            var weather = _weather.Latest;
+            var region = RegionCatalog.Resolve(cfg, weather);
+            var mood = SceneClock.Compose(weather, cfg, DateTime.Now);
+            _ambient.Update(cfg, region, mood, Seasons.Parse(cfg.EffectiveSeason), effectsOn: !_paused && !_exiting, DioramaRenderer.TrainProgress);
+        }
+        catch (Exception ex) { Log("Ambient sound: " + ex.Message); }
     }
 
     private bool WantsSealedTaskbar(AppConfig? cfg = null)
@@ -1374,7 +1450,7 @@ internal sealed class TrayApp : ApplicationContext
                 : "";
             string state = _paused ? "TẮT" : "BẬT";
             string hk = _hotkeyRegistered ? _hotkeyDisplay : (_hotkeyDisplay + "?");
-            _tray.Text = TrimTip($"Audio Taskbar {state} ({hk})" + weather + ( _cfg.WeatherPreview != "live" ? " [" + _cfg.WeatherPreview + "]" : ""));
+            _tray.Text = TrimTip($"Audio Taskbar {state} ({hk})" + weather + (_cfg.EffectiveWeather != "live" ? " [" + _cfg.EffectiveWeather + "]" : ""));
         }
         catch { }
         RaiseStateChanged();
@@ -1388,6 +1464,7 @@ internal sealed class TrayApp : ApplicationContext
         try { _portal?.ForceClose(); } catch { }
         _frameTimer.Stop();
         _layoutTimer.Stop();
+        try { _ambient?.Dispose(); _ambient = null; } catch { }   // audio stops before anything else is torn down
         _watcher.EnableRaisingEvents = false;
         _watcher.Dispose();
         try { _shellNotify.UnregisterToggleHotkey(); } catch { }

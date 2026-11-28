@@ -15,6 +15,14 @@ internal static class Program
             RenderPreview.Run(args);
             return;
         }
+        if (args.Length > 0 && args[0] == "--render-portal")
+        {
+            // Headless preview of the control panel (fake host, nothing touches the taskbar or the real config).
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            Application.EnableVisualStyles();
+            PortalPreview.Run(args);
+            return;
+        }
         using var mutex = new Mutex(true, MutexName, out bool created);
         bool minimizedArg = args.Any(a => a.Equals("--minimized", StringComparison.OrdinalIgnoreCase) || a.Equals("/minimized", StringComparison.OrdinalIgnoreCase));
         if (StoreEdition.LaunchedByStartupTask())

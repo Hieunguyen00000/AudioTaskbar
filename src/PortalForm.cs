@@ -4,60 +4,87 @@ using Microsoft.Win32;
 
 namespace AudioTaskbar;
 
+internal enum UnsavedChoice { Save, Discard, Cancel }
+
 /// <summary>
-/// v5.3 UniKey-style control portal: one compact window with grouped cards. Every change applies
-/// live and persists to %LOCALAPPDATA%\AudioTaskbar\config.json; the tray menu, F8 and this
-/// window stay in sync through <see cref="TrayApp.StateChanged"/>.
+/// v5.4 control panel. By default it shows only the scenery, weather and season settings; "Âm thanh nền" and "Cài đặt"
+/// (system + update) are collapsed until clicked. Edits preview live; <b>Lưu cấu hình</b> writes them to config.json,
+/// and closing with unsaved edits asks whether to save, discard or keep editing.
 /// "Đóng" / X hides to the tray (effect keeps running); "Kết thúc" exits and restores the taskbar.
 /// </summary>
 internal sealed class PortalForm : Form
 {
-    private readonly TrayApp _host;
+    private readonly IPortalHost _host;
     private readonly Palette _p;
     private bool _syncing;
     private bool _forceClose;
 
     private readonly Label _status = new();
     private readonly Button _toggle = new();
+    private readonly Label _info1 = new() { AutoSize = true, MaximumSize = new Size(CardWidth - 30, 0) };
+    private readonly Label _info2 = new() { AutoSize = true, MaximumSize = new Size(CardWidth - 30, 0) };
     private readonly ComboBox _region = Combo();
     private readonly ComboBox _weather = Combo();
+    private readonly ComboBox _weatherCycle = Combo();
+    private readonly NumericUpDown _wcA = Num(0.5m, 1440m, 1, 1m, 66);
+    private readonly NumericUpDown _wcB = Num(0.5m, 1440m, 1, 1m, 66);
+    private readonly Label _wcDash = new() { Text = "–", AutoSize = true };
+    private readonly Label _wcUnit = new() { AutoSize = true };
+    private readonly ComboBox _season = Combo();
+    private readonly CheckBox _seasonCycle = Check("Tự đổi mùa");
+    private readonly NumericUpDown _seasonMin = Num((decimal)AppConfig.MinSeasonCycleMinutes, (decimal)AppConfig.MaxSeasonCycleMinutes, 1, 5m, 72);
     private readonly ComboBox _time = Combo();
-    private readonly CheckBox _hud = Check("Hiện thông tin thời tiết && địa điểm");
     private readonly CheckBox _train = Check("Tàu hỏa");
-    private readonly NumericUpDown _cycleMin = new() { BorderStyle = BorderStyle.None, Minimum = (decimal)AppConfig.MinDayCycleMinutes, Maximum = (decimal)AppConfig.MaxDayCycleMinutes, DecimalPlaces = 1, Increment = 5m, Width = 72, TextAlign = HorizontalAlignment.Right };
-    private readonly NumericUpDown _trainMin = new() { BorderStyle = BorderStyle.None, Minimum = 0.25m, Maximum = 240m, DecimalPlaces = 2, Increment = 0.25m, Width = 64, TextAlign = HorizontalAlignment.Right };
+    private readonly NumericUpDown _cycleMin = Num((decimal)AppConfig.MinDayCycleMinutes, (decimal)AppConfig.MaxDayCycleMinutes, 1, 5m, 72);
+    private readonly NumericUpDown _trainMin = Num(0.25m, 240m, 2, 0.25m, 64);
     private readonly CheckBox _traffic = Check("Phương tiện khu vực");
     private readonly CheckBox _ambient = Check("Chi tiết nền (chim, đèn phố)");
     private readonly CheckBox _effects = Check("Hiệu ứng thời tiết");
+    private readonly CheckBox _padding = Check("Vùng đệm xám quanh icon ứng dụng");
     private readonly ComboBox _hotkey = Combo();
     private readonly Label _hotkeyNote = new() { AutoSize = true };
     private readonly CheckBox _autostart = Check("Khởi động cùng Windows");
-    private readonly CheckBox _autoUpdate = Check("Tự động kiểm tra cập nhật");
+    private readonly CheckBox _autoUpdate = Check("Tự động kiểm tra và cập nhật khi mở app");
     private readonly CheckBox _startMin = Check("Mở ẩn xuống khay (không hiện cửa sổ này)");
     private readonly Label _updVersion = new() { AutoSize = true };
     private readonly Label _updStatus = new() { AutoSize = true, MaximumSize = new Size(400, 0) };
-    private readonly Button _updCheck = new() { Text = "Kiểm tra cập nhật", AutoSize = true };
-    private readonly Button _updNow = new() { Text = "Cập nhật ngay", AutoSize = true, Visible = false };
+    private readonly Button _updCheck = new() { Text = UpdateButtonText, AutoSize = true };
     private readonly ProgressBar _updBar = new() { Height = 8, Dock = DockStyle.Fill, Visible = false, Style = ProgressBarStyle.Continuous };
+    private readonly Button _save = new() { Text = SaveButtonText };
+    private readonly Label _dirty = new() { AutoSize = true };
+    private readonly DarkSlider _master = new() { Width = 230 };
+    private readonly Label _masterVal = new() { AutoSize = true, Width = 40 };
+    private readonly Dictionary<string, (DarkSlider Slider, Label Value)> _fx = new();
+    private Expander? _soundExp, _settingsExp;
+    private FlowLayoutPanel? _stack;
+    private bool _scrolling;
+    private readonly System.Windows.Forms.Timer _infoTimer = new() { Interval = 2000 };
 
-    private static readonly (string Id, string Label)[] Regions =
+    /// <summary>One button for check + update (the old separate "Cập nhật ngay" button is gone).</summary>
+    internal const string UpdateButtonText = "Kiểm tra & cập nhật";
+    internal const string SaveButtonText = "Lưu cấu hình";
+    internal const string SettingsTitle = "Cài đặt";
+    internal const string SoundTitle = "Âm thanh nền";
+
+    internal static readonly (string Id, string Label)[] Regions = RegionCatalog.PickList().ToArray();
+    internal static readonly (string Id, string Label)[] Weathers = TrayMenuModel.Weathers.ToArray();
+    internal static readonly (string Id, string Label)[] Times = TrayMenuModel.Times.ToArray();
+    internal static readonly (string Id, string Label)[] Seasons = TrayMenuModel.Seasons.ToArray();
+    internal static readonly (string Id, string Label)[] WeatherCycles =
     {
-        ("auto", "Tự động theo máy"), ("hcmc", "TP. Hồ Chí Minh"), ("baria-vungtau", "Bà Rịa – Vũng Tàu"),
-        ("hanoi", "Hà Nội"), ("danang-hoian", "Đà Nẵng – Hội An"), ("tokyo", "Tokyo"), ("paris", "Paris"), ("default", "Mặc định")
+        ("off", "Tắt (giữ thời tiết đã chọn)"), ("interval", "Theo khoảng thời gian"), ("random", "Ngẫu nhiên")
     };
-    private static readonly (string Id, string Label)[] Weathers =
-    {
-        ("live", "Thực tế"), ("sunny", "Nắng đẹp"), ("cloudy", "Mây trôi"), ("rain", "Mưa rào"),
-        ("storm", "Giông bão"), ("snow", "Tuyết rơi"), ("night", "Đêm sao")
-    };
-    private static readonly (string Id, string Label)[] Times = { ("cycle", "Theo chu kỳ tùy chỉnh"), ("real", "Theo giờ thật"), ("day", "Cố định ban ngày"), ("night", "Cố định ban đêm") };
     private static readonly string[] Hotkeys = { "F8", "F9", "Ctrl+Alt+F8", "Ctrl+Shift+F8" };
 
-    public PortalForm(TrayApp host)
+    /// <summary>Asked when the panel is closed or the app exited with unsaved edits. Tests replace it.</summary>
+    internal Func<UnsavedChoice> PromptUnsaved { get; set; }
+
+    public PortalForm(IPortalHost host)
     {
         _host = host;
         _p = Palette.Current();
         s_palette = _p;
+        PromptUnsaved = DefaultPrompt;
         Text = "Audio Taskbar";
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96f, 96f);
@@ -73,28 +100,35 @@ internal sealed class PortalForm : Form
         Padding = new Padding(14, 12, 14, 12);
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-        var stack = new FlowLayoutPanel
+        var stack = _stack = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = _p.Back, Margin = Padding.Empty,
             Location = new Point(Padding.Left, Padding.Top)
         };
         // Not Dock=Fill: a docked child of an AutoSize form makes the form size itself before the
-        // cards finish their own layout (the update card ended up under the footer).
+        // cards finish their own layout.
         stack.Controls.Add(BuildHeader());
         stack.Controls.Add(BuildSceneCard());
-        stack.Controls.Add(BuildSystemCard());
-        stack.Controls.Add(BuildUpdateCard());
+        _soundExp = new Expander(_p, SoundTitle, BuildSoundCard(), expanded: false) { Margin = new Padding(0, 0, 0, 10) };
+        _soundExp.Toggled += RefitSoon;
+        stack.Controls.Add(_soundExp);
+        _settingsExp = new Expander(_p, SettingsTitle, BuildSettingsBody(), expanded: false) { Margin = new Padding(0, 0, 0, 10) };
+        _settingsExp.Toggled += RefitSoon;
+        stack.Controls.Add(_settingsExp);
+        stack.Controls.Add(BuildSaveRow());
         stack.Controls.Add(BuildFooter());
         Controls.Add(stack);
 
         WireEvents();
         SyncFromHost();
         _host.StateChanged += OnHostChanged;
-        FormClosed += (_, _) => _host.StateChanged -= OnHostChanged;
+        _infoTimer.Tick += (_, _) => { if (Visible && !IsDisposed) UpdateInfo(); };
+        _infoTimer.Start();
+        FormClosed += (_, _) => { _host.StateChanged -= OnHostChanged; _infoTimer.Stop(); _infoTimer.Dispose(); };
     }
 
-    private const int CardWidth = 440;
+    internal const int CardWidth = 440;
     private const int LabelColumn = 118;
     [ThreadStatic] private static Palette? s_palette;
 
@@ -107,6 +141,36 @@ internal sealed class PortalForm : Form
         if (!_p.Dark) return;
         // Windows 10 20H1+ / 11: dark title bar so the frame matches the dark panel.
         try { int on = 1; if (DwmSetWindowAttribute(Handle, 20, ref on, 4) != 0) DwmSetWindowAttribute(Handle, 19, ref on, 4); } catch { }
+    }
+
+    /// <summary>Test / preview hooks.</summary>
+    internal bool SettingsExpanded { get => _settingsExp!.Expanded; set => _settingsExp!.Expanded = value; }
+    internal bool SoundExpanded { get => _soundExp!.Expanded; set => _soundExp!.Expanded = value; }
+    /// <summary>Texts of every control the user can see by default: everything except the content of collapsed sections.</summary>
+    internal IEnumerable<string> VisibleTexts() => Descendants(this).Where(c => c.Text.Length > 0).Select(c => c.Text);
+    internal IEnumerable<string> AllTexts() => Descendants(this, includeCollapsed: true).Where(c => c.Text.Length > 0).Select(c => c.Text);
+    internal IEnumerable<Control> AllControls() => Descendants(this, includeCollapsed: true);
+    internal bool IsInCollapsedSection(Control c)
+    {
+        for (var p = c.Parent; p is not null; p = p.Parent) if (p is Expander e && !e.Expanded) return true;
+        return false;
+    }
+    internal Button SaveButton => _save;
+    internal Button UpdateButton => _updCheck;
+    internal ComboBox WeatherBox => _weather;
+    internal ComboBox SeasonBox => _season;
+    internal CheckBox PaddingBox => _padding;
+    internal DarkSlider MasterSlider => _master;
+    internal IReadOnlyDictionary<string, DarkSlider> EffectSliders => _fx.ToDictionary(k => k.Key, k => k.Value.Slider);
+
+    private static IEnumerable<Control> Descendants(Control root, bool includeCollapsed = false)
+    {
+        foreach (Control c in root.Controls)
+        {
+            yield return c;
+            if (!includeCollapsed && c is Expander { Expanded: false } e) { yield return e.Controls[0]; continue; }
+            foreach (var d in Descendants(c, includeCollapsed)) yield return d;
+        }
     }
 
     #region layout
@@ -132,19 +196,20 @@ internal sealed class PortalForm : Form
         return t;
     }
 
-
-    private Card NewCard(string title, out TableLayoutPanel grid)
+    private Card NewCard(string title, out TableLayoutPanel grid, bool showTitle = true, int width = CardWidth)
     {
         // Fixed width: an AutoSize panel would otherwise shrink to its padding around the Dock=Top grid.
-        var card = new Card(_p) { Width = CardWidth, MinimumSize = new Size(CardWidth, 0), MaximumSize = new Size(CardWidth, 0), Margin = new Padding(0, 0, 0, 10) };
+        var card = new Card(_p) { Width = width, MinimumSize = new Size(width, 0), MaximumSize = new Size(width, 0), Margin = new Padding(0, 0, 0, 10) };
         grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Top, BackColor = _p.Card, Padding = new Padding(12, 8, 12, 10) };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, LabelColumn));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        var head = new Label { Text = title, AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = _p.Accent, Margin = new Padding(0, 0, 0, 8) };
-        grid.Controls.Add(head, 0, 0); grid.SetColumnSpan(head, 2);
+        if (showTitle)
+        {
+            var head = new Label { Text = title, AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = _p.Accent, Margin = new Padding(0, 0, 0, 8) };
+            grid.Controls.Add(head, 0, 0); grid.SetColumnSpan(head, 2);
+        }
         card.Controls.Add(grid);
-        // The card follows the grid's real height (an AutoSize Panel mis-measures a Dock=Top child,
-        // which let the footer cover the bottom of the update card).
+        // The card follows the grid's real height (an AutoSize Panel mis-measures a Dock=Top child).
         var g = grid;
         void Fit() { int h = g.Height + card.Padding.Vertical; if (card.Height != h) card.Height = h; }
         g.SizeChanged += (_, _) => Fit();
@@ -171,26 +236,49 @@ internal sealed class PortalForm : Form
         g.SetColumnSpan(c, 2);
     }
 
+    private FlowLayoutPanel Flow(params Control[] items)
+    {
+        var f = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
+        foreach (var i in items) f.Controls.Add(i);
+        return f;
+    }
+
+    private Label Hint(string text, int width = CardWidth - 40) => new() { Text = text, AutoSize = true, ForeColor = _p.Sub, MaximumSize = new Size(width, 0) };
+
     private Control BuildSceneCard()
     {
-        var card = NewCard("Cảnh vật && Thời tiết", out var g);
+        var card = NewCard("Cảnh vật && Thời tiết && Mùa", out var g);
         g.RowCount = 1;
         foreach (var r in Regions) _region.Items.Add(r.Label);
         foreach (var w in Weathers) _weather.Items.Add(w.Label);
+        foreach (var w in WeatherCycles) _weatherCycle.Items.Add(w.Label);
         foreach (var t in Times) _time.Items.Add(t.Label);
+        foreach (var s in Seasons) _season.Items.Add(s.Label);
+
+        // Weather and location info is shown here (and only here) — handy while setting up.
+        _info1.ForeColor = _p.Text; _info2.ForeColor = _p.Sub;
+        var infoBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = _p.Card, Margin = Padding.Empty };
+        infoBox.Controls.Add(_info1); infoBox.Controls.Add(_info2);
+        Full(g, infoBox);
+
         Row(g, "Khu vực", _region);
         Row(g, "Thời tiết", _weather);
+        Row(g, "Tự đổi thời tiết", _weatherCycle);
+        _wcUnit.ForeColor = _p.Sub; _wcDash.ForeColor = _p.Sub;
+        _wcDash.Margin = new Padding(4, 6, 4, 0); _wcUnit.Margin = new Padding(8, 6, 0, 0);
+        Row(g, "Chu kỳ đổi", Flow(Framed(_wcA, 80), _wcDash, Framed(_wcB, 80), _wcUnit));
+        Row(g, "Mùa", _season);
+        var seasonCell = Flow(Framed(_seasonMin, 86), new Label { Text = "phút/mùa  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) });
+        int sr = g.RowCount++;
+        _seasonCycle.Anchor = AnchorStyles.Left; _seasonCycle.Margin = Padding.Empty;
+        g.Controls.Add(_seasonCycle, 0, sr);
+        seasonCell.Margin = new Padding(0, 3, 0, 3);
+        g.Controls.Add(seasonCell, 1, sr);
         Row(g, "Ngày && đêm", _time);
-        var cycleRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
-        cycleRow.Controls.Add(Framed(_cycleMin, 86));
-        cycleRow.Controls.Add(new Label { Text = "phút/ngày  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(8, 6, 0, 0) });
-        Row(g, "Độ dài chu kỳ", cycleRow);
-        Full(g, _hud);
+        Row(g, "Độ dài chu kỳ", Flow(Framed(_cycleMin, 86), new Label { Text = "phút/ngày  (0,5 – 10080)", AutoSize = true, ForeColor = _p.Sub, Anchor = AnchorStyles.Left, Margin = new Padding(8, 6, 0, 0) }));
         // Same label/control grid as the rows above: checkbox in the label column, value in the control column.
-        _train.Margin = new Padding(0, 0, 0, 0);
-        var trainCell = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
-        trainCell.Controls.Add(Framed(_trainMin, 86));
-        trainCell.Controls.Add(new Label { Text = "phút/lượt", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) });
+        _train.Margin = Padding.Empty;
+        var trainCell = Flow(Framed(_trainMin, 86), new Label { Text = "phút/lượt", AutoSize = true, ForeColor = _p.Sub, Margin = new Padding(8, 6, 0, 0) });
         int tr = g.RowCount++;
         _train.Anchor = AnchorStyles.Left;
         g.Controls.Add(_train, 0, tr);
@@ -199,11 +287,38 @@ internal sealed class PortalForm : Form
         var two = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, BackColor = _p.Card, Margin = Padding.Empty };
         two.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         two.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        foreach (var cb in new Control[] { _traffic, _effects, _ambient }) cb.Margin = new Padding(0, 3, 0, 3); // flush with the rows above
+        foreach (var cb in new Control[] { _traffic, _effects, _ambient, _padding }) cb.Margin = new Padding(0, 3, 0, 3);
         two.Controls.Add(_traffic, 0, 0); two.Controls.Add(_effects, 1, 0);
         two.Controls.Add(_ambient, 0, 1); two.SetColumnSpan(_ambient, 2);
+        two.Controls.Add(_padding, 0, 2); two.SetColumnSpan(_padding, 2);
         Full(g, two);
         return card;
+    }
+
+    private Control BuildSoundCard()
+    {
+        var card = NewCard(SoundTitle, out var g, showTitle: false);
+        g.RowCount = 1;
+        Full(g, Hint("Tất cả âm lượng mặc định là 0 (im lặng). Kéo âm lượng tổng, rồi từng hiệu ứng. " +
+                     "Âm thanh do máy tự tạo, hòa theo khu vực, thời tiết, mùa và giờ trong ngày."));
+        Row(g, "Âm lượng tổng", Flow(_master, _masterVal));
+        _masterVal.ForeColor = _p.Text; _masterVal.Margin = new Padding(6, 3, 0, 0);
+        foreach (var (id, name) in SoundEffects.All)
+        {
+            var slider = new DarkSlider { Width = 230 };
+            var val = new Label { AutoSize = true, Width = 40, ForeColor = _p.Sub, Margin = new Padding(6, 3, 0, 0) };
+            _fx[id] = (slider, val);
+            Row(g, name, Flow(slider, val));
+        }
+        return card;
+    }
+
+    private Control BuildSettingsBody()
+    {
+        var body = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = _p.Back, Margin = Padding.Empty };
+        body.Controls.Add(BuildSystemCard());
+        body.Controls.Add(BuildUpdateCard());
+        return body;
     }
 
     private Control BuildSystemCard()
@@ -211,13 +326,10 @@ internal sealed class PortalForm : Form
         var card = NewCard("Hệ thống", out var g);
         g.RowCount = 1;
         foreach (var h in Hotkeys) _hotkey.Items.Add(h);
-        var hk = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
         _hotkey.Width = 150;
         _hotkey.Margin = Padding.Empty;
-        hk.Controls.Add(_hotkey);
         _hotkeyNote.Margin = new Padding(10, 5, 0, 0);
-        hk.Controls.Add(_hotkeyNote);
-        Row(g, "Phím tắt bật/tắt", hk);
+        Row(g, "Phím tắt bật/tắt", Flow(_hotkey, _hotkeyNote));
         Full(g, _autostart);
         // v5.3: wallpaper blocking / behind-icon blending is always on — no user toggle.
         // Store edition: GitHub auto-update does not apply (updates come from Microsoft Store).
@@ -238,20 +350,28 @@ internal sealed class PortalForm : Form
         if (StoreEdition.UsesStoreUpdates)
         {
             _updCheck.Visible = false;
-            _updNow.Visible = false;
             _updBar.Visible = false;
         }
         else
         {
-            var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = _p.Card, Margin = Padding.Empty };
-            StyleButton(_updCheck, primary: false);
-            StyleButton(_updNow, primary: true);
-            buttons.Controls.Add(_updCheck);
-            buttons.Controls.Add(_updNow);
-            Full(g, buttons);
+            StyleButton(_updCheck, primary: true);
+            Full(g, Flow(_updCheck));
             Full(g, _updBar);
         }
         return card;
+    }
+
+    private Control BuildSaveRow()
+    {
+        var t = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = false, Size = new Size(CardWidth, 40), BackColor = _p.Back, Margin = new Padding(0, 0, 0, 8), Padding = Padding.Empty };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
+        _dirty.Anchor = AnchorStyles.Left; _dirty.Margin = new Padding(2, 0, 0, 0); _dirty.Font = new Font("Segoe UI Semibold", 9.5f);
+        StyleButton(_save, primary: true);
+        _save.AutoSize = false; _save.Dock = DockStyle.Fill; _save.Margin = new Padding(0, 1, 0, 1); _save.Font = new Font("Segoe UI Semibold", 9.5f);
+        t.Controls.Add(_dirty, 0, 0);
+        t.Controls.Add(_save, 1, 0);
+        return t;
     }
 
     // v5.3.2: the on/off button lives in the footer (right), next to "Đóng" (left) and "Kết thúc" (middle).
@@ -275,8 +395,8 @@ internal sealed class PortalForm : Form
         _close.Margin = new Padding(0, 1, FooterGap / 2, 1);
         _exit.Margin = new Padding(FooterGap / 2, 1, FooterGap / 2, 1);
         _toggle.Margin = new Padding(FooterGap / 2, 1, 0, 1);
-        _close.Click += (_, _) => Hide();
-        _exit.Click += (_, _) => _host.ExitFromPortal();
+        _close.Click += (_, _) => { if (ConfirmLeave()) Hide(); };
+        _exit.Click += (_, _) => { if (ConfirmLeave()) _host.ExitFromPortal(); };
         t.Controls.Add(_close, 0, 0);
         t.Controls.Add(_exit, 1, 0);
         t.Controls.Add(_toggle, 2, 0);
@@ -371,6 +491,9 @@ internal sealed class PortalForm : Form
         return frame;
     }
 
+    private static NumericUpDown Num(decimal min, decimal max, int decimals, decimal step, int width)
+        => new() { BorderStyle = BorderStyle.None, Minimum = min, Maximum = max, DecimalPlaces = decimals, Increment = step, Width = width, TextAlign = HorizontalAlignment.Right };
+
     private static ComboBox Combo() => new DarkCombo { Width = 260 };
     private static CheckBox Check(string text) => new DarkCheck { Text = text, AutoSize = true };
 
@@ -381,16 +504,34 @@ internal sealed class PortalForm : Form
     private void WireEvents()
     {
         _toggle.Click += (_, _) => _host.SetEffect(!_host.EffectOn);
+        _save.Click += (_, _) => { _host.SaveConfig(); SyncFromHost(); };
         _region.SelectedIndexChanged += (_, _) => Apply(c => c.RegionMode = Regions[Math.Max(0, _region.SelectedIndex)].Id, refreshWeather: true);
         _weather.SelectedIndexChanged += (_, _) =>
         {
             if (_syncing) return;
             var id = Weathers[Math.Max(0, _weather.SelectedIndex)].Id;
-            _host.Mutate(c => c.ApplyWeatherOverrideSelection(id)); // "Đêm sao" → Cố định ban đêm
+            _host.Mutate(c => c.ApplyWeatherOverrideSelection(id)); // "Đêm sao" → Cố định ban đêm; "Tuyết rơi" → Mùa đông
             SyncFromHost();
         };
+        _weatherCycle.SelectedIndexChanged += (_, _) =>
+        {
+            if (_syncing) return;
+            var id = WeatherCycles[Math.Max(0, _weatherCycle.SelectedIndex)].Id;
+            _host.Mutate(c => c.WeatherCycleMode = id);
+            SyncFromHost();
+        };
+        _wcA.ValueChanged += (_, _) => { if (!_syncing) _host.Mutate(c => { if (c.WeatherCycleMode == "random") c.WeatherCycleRandomMinMinutes = (float)_wcA.Value; else c.WeatherCycleMinutes = (float)_wcA.Value; }); };
+        _wcB.ValueChanged += (_, _) => { if (!_syncing) _host.Mutate(c => c.WeatherCycleRandomMaxMinutes = (float)_wcB.Value); };
+        _season.SelectedIndexChanged += (_, _) =>
+        {
+            if (_syncing) return;
+            var id = Seasons[Math.Max(0, _season.SelectedIndex)].Id;
+            _host.Mutate(c => c.ApplySeasonSelection(id)); // leaving winter while snow is chosen puts the weather back to "Thực tế"
+            SyncFromHost();
+        };
+        _seasonCycle.CheckedChanged += (_, _) => Apply(c => c.SeasonCycleEnabled = _seasonCycle.Checked);
+        _seasonMin.ValueChanged += (_, _) => Apply(c => c.SeasonCycleMinutes = (float)_seasonMin.Value);
         _time.SelectedIndexChanged += (_, _) => Apply(c => c.TimeMode = Times[Math.Max(0, _time.SelectedIndex)].Id);
-        _hud.CheckedChanged += (_, _) => Apply(c => c.ShowWeatherHud = _hud.Checked);
         _train.CheckedChanged += (_, _) => Apply(c => c.ShowTrain = _train.Checked);
         _cycleMin.ValueChanged += (_, _) =>
         {
@@ -402,6 +543,14 @@ internal sealed class PortalForm : Form
         _traffic.CheckedChanged += (_, _) => Apply(c => c.ShowCyclist = _traffic.Checked);
         _ambient.CheckedChanged += (_, _) => Apply(c => c.ShowAmbientDetails = _ambient.Checked);
         _effects.CheckedChanged += (_, _) => Apply(c => c.ShowWeatherEffects = _effects.Checked);
+        _padding.CheckedChanged += (_, _) => Apply(c => c.ShowIconPadding = _padding.Checked);
+        _master.ValueChanged += (_, _) => { _masterVal.Text = _master.Value + "%"; Apply(c => c.SoundMasterVolume = _master.Value); };
+        foreach (var (id, pair) in _fx)
+        {
+            var (slider, val) = pair;
+            string key = id;
+            slider.ValueChanged += (_, _) => { val.Text = slider.Value + "%"; Apply(c => c.SoundVolumes[key] = slider.Value); };
+        }
         _hotkey.SelectedIndexChanged += (_, _) =>
         {
             if (_syncing || _hotkey.SelectedItem is not string hk) return;
@@ -416,8 +565,7 @@ internal sealed class PortalForm : Form
         };
         _autoUpdate.CheckedChanged += (_, _) => Apply(c => c.AutoUpdateEnabled = _autoUpdate.Checked);
         _startMin.CheckedChanged += (_, _) => Apply(c => c.StartMinimized = _startMin.Checked);
-        _updCheck.Click += async (_, _) => await _host.CheckForUpdatesAsync(manual: true);
-        _updNow.Click += async (_, _) => await _host.InstallLatestAsync();
+        _updCheck.Click += async (_, _) => await _host.CheckAndUpdateAsync();
     }
 
     private void Apply(Action<AppConfig> change, bool refreshWeather = false)
@@ -437,6 +585,13 @@ internal sealed class PortalForm : Form
     {
         for (int i = 0; i < list.Length; i++) if (list[i].Id == id) return i;
         return 0;
+    }
+
+    private void UpdateInfo()
+    {
+        var info = _host.WeatherInfo;
+        if (_info1.Text != info.Line1) _info1.Text = info.Line1;
+        if (_info2.Text != info.Line2) _info2.Text = info.Line2;
     }
 
     internal void SyncFromHost()
@@ -459,20 +614,37 @@ internal sealed class PortalForm : Form
             _toggle.FlatAppearance.MouseOverBackColor = on ? ControlPaint.Light(_p.Accent, 0.15f) : _p.Hover;
             _toggle.FlatAppearance.MouseDownBackColor = on ? ControlPaint.Dark(_p.Accent, 0.05f) : _p.Input;
 
+            UpdateInfo();
             SetIndex(_region, IndexOf(Regions, c.RegionMode));
             SetIndex(_weather, IndexOf(Weathers, c.WeatherPreview));
+            SetIndex(_weatherCycle, IndexOf(WeatherCycles, c.WeatherCycleMode));
+            bool rnd = c.WeatherCycleMode == "random", cyc = c.WeatherCycleMode != "off";
+            SetNum(_wcA, rnd ? c.WeatherCycleRandomMinMinutes : c.WeatherCycleMinutes);
+            SetNum(_wcB, c.WeatherCycleRandomMaxMinutes);
+            _wcA.Enabled = cyc; _wcB.Enabled = cyc && rnd;
+            _wcB.Parent!.Visible = rnd; _wcDash.Visible = rnd;
+            _wcUnit.Text = rnd ? "phút" : "phút/lần đổi";
+            SetIndex(_season, IndexOf(Seasons, c.Season));
+            _seasonCycle.Checked = c.SeasonCycleEnabled;
+            SetNum(_seasonMin, c.SeasonCycleMinutes);
+            _seasonMin.Enabled = c.SeasonCycleEnabled;
             SetIndex(_time, IndexOf(Times, c.TimeMode));
-            _hud.Checked = c.ShowWeatherHud;
             _train.Checked = c.ShowTrain;
-            var m = (decimal)Math.Clamp(c.TrainCrossingMinutes, 0.25f, 240f);
-            if (_trainMin.Value != m) _trainMin.Value = m;
+            SetNum(_trainMin, c.TrainCrossingMinutes);
             _trainMin.Enabled = c.ShowTrain;
-            var cm = (decimal)Math.Clamp(c.DayCycleMinutes, AppConfig.MinDayCycleMinutes, AppConfig.MaxDayCycleMinutes);
-            if (_cycleMin.Value != cm) _cycleMin.Value = cm;
+            SetNum(_cycleMin, c.DayCycleMinutes);
             _cycleMin.Enabled = c.TimeMode == "cycle";
             _traffic.Checked = c.ShowCyclist;
             _ambient.Checked = c.ShowAmbientDetails;
             _effects.Checked = c.ShowWeatherEffects;
+            _padding.Checked = c.ShowIconPadding;
+
+            _master.Value = c.SoundMasterVolume; _masterVal.Text = c.SoundMasterVolume + "%";
+            foreach (var (id, pair) in _fx)
+            {
+                int v = c.SoundVolumes.TryGetValue(id, out var x) ? x : 0;
+                pair.Slider.Value = v; pair.Value.Text = v + "%";
+            }
 
             if (!_hotkey.Items.Contains(c.Hotkey)) _hotkey.Items.Add(c.Hotkey);
             _hotkey.SelectedItem = c.Hotkey;
@@ -483,17 +655,23 @@ internal sealed class PortalForm : Form
             _autoUpdate.Checked = c.AutoUpdateEnabled;
             _startMin.Checked = c.StartMinimized;
 
+            bool unsaved = _host.HasUnsavedChanges;
+            _dirty.Text = unsaved ? "● Có thay đổi chưa lưu" : "✓ Đã lưu";
+            _dirty.ForeColor = unsaved ? _p.Warn : _p.Ok;
+            _save.Enabled = unsaved;
+            _save.BackColor = unsaved ? _p.Accent : _p.Card;
+            _save.ForeColor = unsaved ? Color.White : _p.Sub;
+
             _updVersion.Text = "Phiên bản hiện tại: v" + AutoUpdater.AppVersion();
             if (StoreEdition.UsesStoreUpdates)
             {
                 _updStatus.Text = StoreEdition.StoreUpdateMessage + ". Windows sẽ cài bản mới khi có trên Store.";
                 _updStatus.ForeColor = _p.Ok;
-                _updNow.Visible = false;
                 _updCheck.Visible = false;
                 _updBar.Visible = false;
                 return;
             }
-            var last = _host.Updater.LastResult;
+            var last = _host.LastUpdateResult;
             _updStatus.Text = _host.UpdateBusy || _host.UpdateStage.Length > 0 && last is null
                 ? _host.UpdateStage
                 : last is null ? "Chưa kiểm tra." : (_host.UpdateStage.Length > 0 ? _host.UpdateStage : last.Message) + "  (" + last.CheckedAt.ToString("HH:mm") + ")";
@@ -504,10 +682,7 @@ internal sealed class PortalForm : Form
                 null => _p.Sub,
                 _ => _p.Warn
             };
-            _updNow.Visible = last?.Status == UpdateStatus.UpdateAvailable;
-            if (last?.Info is { } info && last.Status == UpdateStatus.UpdateAvailable) _updNow.Text = "Cập nhật ngay (v" + info.Version + ")";
             _updCheck.Enabled = !_host.UpdateBusy;
-            _updNow.Enabled = !_host.UpdateBusy;
             double p = _host.UpdateProgress;
             _updBar.Visible = _host.UpdateBusy && p >= 0;
             if (p >= 0) _updBar.Value = (int)Math.Round(Math.Clamp(p, 0, 1) * 100);
@@ -515,9 +690,39 @@ internal sealed class PortalForm : Form
         finally { _syncing = false; }
     }
 
+    private static void SetNum(NumericUpDown n, float value)
+    {
+        var v = Math.Clamp((decimal)value, n.Minimum, n.Maximum);
+        if (n.Value != v) n.Value = v;
+    }
+
     private static void SetIndex(ComboBox cb, int i)
     {
         if (cb.SelectedIndex != i && i >= 0 && i < cb.Items.Count) cb.SelectedIndex = i;
+    }
+
+    #endregion
+
+    #region unsaved changes
+
+    private UnsavedChoice DefaultPrompt()
+    {
+        var r = MessageBox.Show(this,
+            "Bạn có thay đổi chưa lưu.\n\n• Có — lưu vào cấu hình\n• Không — bỏ thay đổi (trở về cấu hình đã lưu)\n• Hủy — tiếp tục chỉnh sửa",
+            "Audio Taskbar", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+        return r switch { DialogResult.Yes => UnsavedChoice.Save, DialogResult.No => UnsavedChoice.Discard, _ => UnsavedChoice.Cancel };
+    }
+
+    /// <summary>True when it is fine to leave (nothing unsaved, or the user chose to save / discard).</summary>
+    internal bool ConfirmLeave()
+    {
+        if (!_host.HasUnsavedChanges) return true;
+        switch (PromptUnsaved())
+        {
+            case UnsavedChoice.Save: _host.SaveConfig(); return true;
+            case UnsavedChoice.Discard: _host.DiscardChanges(); return true;
+            default: return false;
+        }
     }
 
     #endregion
@@ -535,18 +740,37 @@ internal sealed class PortalForm : Form
         BringToFront();
     }
 
-    /// <summary>High DPI / small screens: never taller than the work area — scroll instead.</summary>
-    private void FitToScreen()
+    /// <summary>Content root of the panel (used by the headless preview, which draws it at full height).</summary>
+    internal Control Content => _stack!;
+
+    private void RefitSoon()
+    {
+        if (!IsHandleCreated || IsDisposed) return;
+        try { BeginInvoke(new Action(() => FitToScreen(reposition: true))); } catch { }
+    }
+
+    /// <summary>High DPI / small screens: never taller than the work area — scroll instead. Re-evaluated when a section opens or closes.</summary>
+    internal void FitToScreen(bool reposition = true)
     {
         try
         {
             var wa = Screen.FromControl(this).WorkingArea;
+            if (_scrolling)
+            {
+                // back to natural size first, so closing a section shrinks the window again
+                AutoScroll = false;
+                AutoSize = true;
+                PerformLayout();
+                _scrolling = false;
+            }
             if (Height > wa.Height - 16)
             {
                 AutoSize = false;
                 AutoScroll = true;
                 Size = new Size(Width + SystemInformation.VerticalScrollBarWidth, wa.Height - 16);
+                _scrolling = true;
             }
+            if (!reposition) return;
             if (Bottom > wa.Bottom || Top < wa.Top) Top = Math.Max(wa.Top, wa.Bottom - Height);
             if (Right > wa.Right) Left = Math.Max(wa.Left, wa.Right - Width);
             if (Left < wa.Left) Left = wa.Left;
@@ -562,11 +786,11 @@ internal sealed class PortalForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        // X behaves like UniKey's "Đóng": hide to the tray, keep the effect running.
+        // X behaves like UniKey's "Đóng": hide to the tray, keep the effect running — after asking about unsaved edits.
         if (!_forceClose && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
-            Hide();
+            if (ConfirmLeave()) Hide();
             return;
         }
         base.OnFormClosing(e);
@@ -827,5 +1051,133 @@ internal sealed class PortalForm : Form
         }
     }
 
+
+    /// <summary>Collapsible section: a clickable header (chevron + title) that shows or hides its content.</summary>
+    private sealed class Expander : FlowLayoutPanel
+    {
+        private readonly Control _content;
+        private readonly ExpanderHeader _header;
+        public Expander(Palette p, string title, Control content, bool expanded)
+        {
+            FlowDirection = FlowDirection.TopDown; WrapContents = false; AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            BackColor = p.Back; Margin = Padding.Empty;
+            _content = content;
+            _header = new ExpanderHeader(p, title) { Width = CardWidth, Height = 34, Margin = new Padding(0, 0, 0, 6) };
+            _header.Click += (_, _) => Expanded = !Expanded;
+            Controls.Add(_header);
+            Controls.Add(_content);
+            Expanded = expanded;
+        }
+
+        private bool _expanded;
+        public event Action? Toggled;
+        public bool Expanded
+        {
+            get => _expanded;
+            set
+            {
+                bool changed = _expanded != value;
+                _expanded = value; _content.Visible = value; _header.Open = value; _header.Margin = new Padding(0, 0, 0, value ? 6 : 0);
+                if (changed) Toggled?.Invoke();
+            }
+        }
+    }
+
+    private sealed class ExpanderHeader : Control
+    {
+        private readonly Palette _p;
+        private bool _hover;
+        public bool Open { get; set; }
+        public ExpanderHeader(Palette p, string title)
+        {
+            _p = p; Text = title; Cursor = Cursors.Hand; DoubleBuffered = true;
+            SetStyle(ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            TabStop = true;
+        }
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hover = true; Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hover = false; Invalidate(); }
+        protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode is Keys.Space or Keys.Enter) { OnClick(EventArgs.Empty); e.Handled = true; } base.OnKeyDown(e); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var bg = new SolidBrush(_p.Back)) g.FillRectangle(bg, ClientRectangle);
+            using var path = Round(new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), 8);
+            using (var fill = new SolidBrush(_hover ? _p.Hover : _p.Card)) g.FillPath(fill, path);
+            using (var pen = new Pen(Focused ? _p.Accent : _p.Border)) g.DrawPath(pen, path);
+            // chevron: ▸ closed, ▾ open
+            float cx = 18, cy = Height / 2f;
+            using var chev = new Pen(_p.Accent, 1.8f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            if (Open) g.DrawLines(chev, new[] { new PointF(cx - 4, cy - 2), new PointF(cx, cy + 2), new PointF(cx + 4, cy - 2) });
+            else g.DrawLines(chev, new[] { new PointF(cx - 2, cy - 4), new PointF(cx + 2, cy), new PointF(cx - 2, cy + 4) });
+            TextRenderer.DrawText(g, Text, new Font("Segoe UI Semibold", 10.5f), new Rectangle(34, 0, Width - 40, Height), _p.Accent,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
+        }
+    }
+
+    /// <summary>Flat themed slider (0..100): grey track, accent fill, round thumb. Mouse and arrow keys.</summary>
+    internal sealed class DarkSlider : Control
+    {
+        private int _value;
+        private bool _drag;
+        public int Minimum => 0;
+        public int Maximum => 100;
+        public event EventHandler? ValueChanged;
+        private Palette P => s_palette ?? Palette.Current();
+
+        public DarkSlider()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Height = 24; TabStop = true; Cursor = Cursors.Hand;
+        }
+
+        public int Value
+        {
+            get => _value;
+            set
+            {
+                int v = Math.Clamp(value, 0, 100);
+                if (v == _value) return;
+                _value = v; Invalidate();
+                ValueChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        private int FromX(int x) => (int)Math.Round(Math.Clamp((x - 9f) / Math.Max(1f, Width - 18f), 0f, 1f) * 100f);
+        protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); _drag = true; Focus(); Value = FromX(e.X); }
+        protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (_drag) Value = FromX(e.X); }
+        protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); _drag = false; }
+        protected override bool IsInputKey(Keys k) => k is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End || base.IsInputKey(k);
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            switch (e.KeyCode)
+            {
+                case Keys.Left or Keys.Down: Value -= 5; break;
+                case Keys.Right or Keys.Up: Value += 5; break;
+                case Keys.Home: Value = 0; break;
+                case Keys.End: Value = 100; break;
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var p = P; var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var bg = new SolidBrush(Parent?.BackColor ?? p.Card)) g.FillRectangle(bg, ClientRectangle);
+            float cy = Height / 2f, x0 = 9, x1 = Width - 9, xv = x0 + (x1 - x0) * _value / 100f;
+            using var track = new Pen(p.Border, 4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLine(track, x0, cy, x1, cy);
+            if (_value > 0)
+            {
+                using var fill = new Pen(Enabled ? p.Accent : p.Border, 4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                g.DrawLine(fill, x0, cy, xv, cy);
+            }
+            using var thumb = new SolidBrush(Enabled ? (Focused ? ControlPaint.Light(p.Accent, 0.2f) : Color.White) : p.Border);
+            using var rim = new Pen(p.Accent, 1.4f);
+            g.FillEllipse(thumb, xv - 7, cy - 7, 14, 14);
+            g.DrawEllipse(rim, xv - 7, cy - 7, 14, 14);
+        }
+    }
     #endregion
 }
