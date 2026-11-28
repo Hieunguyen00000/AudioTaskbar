@@ -236,7 +236,7 @@ public class TransitCycleTests
     [Fact]
     public void Without_an_airport_the_plane_only_crosses_the_sky()
     {
-        var none = new AirportPlan(false, 0, 0, 0);
+        var none = new AirportPlan(false, 0, 0, 0, 0, 0);
         var seen = new HashSet<PlanePhase>();
         float prevX = float.MinValue;
         for (double p = 0; p < 1; p += 0.002)
@@ -270,6 +270,30 @@ public class TransitCycleTests
 [Collection("Statics")]
 public class TransitConfigTests
 {
+    [Fact]
+    public void Train_default_is_two_minutes_and_a_saved_value_is_never_overwritten()
+    {
+        Assert.Equal(2f, new AppConfig().TrainCrossingMinutes);
+        Assert.Equal(2f, AppConfig.DefaultTrainCycleMinutes);
+        using var d = new TempDir();
+        // brand-new config on disk
+        Assert.Equal(2f, ConfigStore.Load(d.File("none.json")).TrainCrossingMinutes);
+        // a file that has no train value at all (fresh / very old) gets the default
+        var p0 = d.File("a.json"); File.WriteAllText(p0, "{ \"configVersion\": 54 }");
+        Assert.Equal(2f, ConfigStore.Load(p0).TrainCrossingMinutes);
+        // values the user saved stay exactly as they are, including the old default of 1 and any other number
+        foreach (var (name, ver, val) in new[] { ("b.json", 54, 1f), ("c.json", 55, 1f), ("d.json", 53, 1f), ("e.json", 54, 0.5f), ("f.json", 55, 7.5f), ("g.json", 51, 25f) })
+        {
+            var p = d.File(name);
+            File.WriteAllText(p, "{ \"configVersion\": " + ver + ", \"trainCrossingMinutes\": " + val.ToString(System.Globalization.CultureInfo.InvariantCulture) + " }");
+            Assert.Equal(val, ConfigStore.Load(p).TrainCrossingMinutes);
+            Assert.Equal(val, ConfigStore.Load(p).TrainCrossingMinutes);   // and still after the migrated file is read again
+        }
+        // pre-v5.1 files that still carry the old 25-minute default move to the new default (that was never a user choice)
+        var po = d.File("old.json"); File.WriteAllText(po, "{ \"configVersion\": 0, \"trainCrossingMinutes\": 25 }");
+        Assert.Equal(2f, ConfigStore.Load(po).TrainCrossingMinutes);
+    }
+
     [Fact]
     public void Defaults_airplane_on_three_minutes_silent()
     {
@@ -506,5 +530,155 @@ public class TransitRenderTests
         var day = Render(true, true, PlaneCycle.StartOf(PlanePhase.Deplane) + 0.05, TrainCycle.StopStart + 0.02, hour: 12f);
         var night = Render(true, true, PlaneCycle.StartOf(PlanePhase.Deplane) + 0.05, TrainCycle.StopStart + 0.02, hour: 22f, weather: "night");
         Assert.True(Diff(day, night) > 2000);
+    }
+}
+
+/// <summary>v5.4: the runway exists only inside the airport span, and road vehicles never drive into it.</summary>
+[Collection("Statics")]
+public class AirportRoadTests
+{
+    private const int W = 1200;
+
+    private static T Sta<T>(Func<T> f)
+    {
+        T result = default!; Exception? err = null;
+        var t = new Thread(() => { try { result = f(); } catch (Exception e) { err = e; } });
+        t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join();
+        if (err is not null) throw new Exception("STA work failed: " + err.Message, err);
+        return result;
+    }
+
+    /// <summary>Draws many frames (about 3 minutes of scene time) and returns every road-vehicle extent seen after each frame.</summary>
+    private static (List<(float L, float R, int Lane)> seen, (float L, float R)? zone, int frames) Run(string region, bool airplane, List<(float L, float R)> spans, bool traffic = true, float seconds = 180f)
+        => Sta(() =>
+        {
+            var cfg = new AppConfig { RegionMode = region, WeatherPreview = "sunny", TimeMode = "real", ShowAirplane = airplane, ShowCyclist = traffic };
+            cfg.Normalize();
+            var reg = RegionCatalog.All.First(r => r.Id == region);
+            var d = new DioramaRenderer();
+            d.Ensure(W, 48);
+            d.SetLayout(reg, spans);
+            var seen = new List<(float, float, int)>();
+            SceneClock.HourOverride = 12f;
+            try
+            {
+                var mood = SceneClock.Compose(null, cfg, DateTime.Now);
+                using var bmp = new Bitmap(W, 48, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using var g = Graphics.FromImage(bmp);
+                var ctx = new FrameContext { Cfg = cfg, Analyzer = new Analyzer(), Regions = new TaskbarRegions { Bounds = new Rectangle(0, 0, W, 48) }, Region = reg };
+                int n = 0;
+                for (float t = 10f; t < 10f + seconds; t += 0.25f, n++)
+                {
+                    d.Draw(g, ctx, mood, t);
+                    seen.AddRange(d.Scenery.RoadExtents());
+                }
+                return (seen, d.Scenery.NoRoadZone, n);
+            }
+            finally { SceneClock.HourOverride = null; }
+        });
+
+    public static IEnumerable<object[]> Regions() => new[] { "hcmc", "hanoi", "newyork", "tokyo", "default" }.Select(r => new object[] { r });
+
+    [Theory]
+    [MemberData(nameof(Regions))]
+    public void No_road_vehicle_is_ever_inside_the_airport_span_while_the_airport_exists(string region)
+    {
+        var spans = new List<(float L, float R)> { (98f, 412f), (768f, 972f) };
+        var ap = AirportPlan.Plan(spans, W);
+        Assert.True(ap.HasAirport);
+        var (seen, zone, frames) = Run(region, true, spans);
+        Assert.Equal((ap.SpanL, ap.SpanR), zone);
+        Assert.Equal((98f, 412f), (ap.SpanL, ap.SpanR));
+        Assert.True(frames > 600);
+        Assert.NotEmpty(seen);   // there was traffic elsewhere, so the test is meaningful
+        Assert.DoesNotContain(seen, e => e.R > ap.SpanL && e.L < ap.SpanR);
+        // ... and traffic does still run on the rest of the bar (the second span)
+        Assert.Contains(seen, e => e.R > 768f && e.L < 972f);
+    }
+
+    [Fact]
+    public void Traffic_that_is_already_in_the_span_when_the_airport_appears_is_cleared_at_once()
+    {
+        var spans = new List<(float L, float R)> { (98f, 412f), (768f, 972f) };
+        // first without the airplane: vehicles do cross the future airport span
+        var (before, zone0, _) = Run("hcmc", false, spans, seconds: 60f);
+        Assert.Null(zone0);
+        Assert.Contains(before, e => e.R > 98f && e.L < 412f);
+        var (after, zone1, _) = Run("hcmc", true, spans, seconds: 60f);
+        Assert.NotNull(zone1);
+        Assert.DoesNotContain(after, e => e.R > 98f && e.L < 412f);
+    }
+
+    [Fact]
+    public void Flyover_only_mode_leaves_road_traffic_unchanged()
+    {
+        // no span wide enough for an airport: nothing is blocked and the traffic is identical with the airplane on or off
+        var narrow = new List<(float L, float R)> { (98f, 142f), (308f, 352f) };
+        Assert.False(AirportPlan.Plan(narrow, W).HasAirport);
+        var (on, zoneOn, _) = Run("hcmc", true, narrow, seconds: 60f);
+        var (off, zoneOff, _) = Run("hcmc", false, narrow, seconds: 60f);
+        Assert.Null(zoneOn); Assert.Null(zoneOff);
+        Assert.Equal(off, on);
+        Assert.Contains(on, e => e.R > 98f && e.L < 142f);   // vehicles still drive through the little spans
+    }
+
+    [Fact]
+    public void Switching_the_airplane_off_lets_traffic_drive_through_again()
+    {
+        var spans = new List<(float L, float R)> { (98f, 412f) };
+        var (_, zone, _) = Run("hcmc", false, spans, seconds: 5f);
+        Assert.Null(zone);
+    }
+
+    [Fact]
+    public void The_runway_and_the_whole_plane_run_stay_inside_the_airport_span()
+    {
+        foreach (var spans in new[] { new[] { (98f, 412f) }, new[] { (10f, 94f) }, new[] { (200f, 1000f) }, new[] { (0f, 1200f) } })
+        {
+            var ap = AirportPlan.Plan(spans, W);
+            Assert.True(ap.HasAirport);
+            Assert.True(ap.TermL >= ap.SpanL && ap.TermR <= ap.SpanR);
+            Assert.True(ap.StandX - AirportPlan.PlaneLen / 2 >= ap.SpanL);
+            var (td, taxi, outEnd, lift) = PlaneCycle.Marks(ap);
+            Assert.InRange(td, ap.SpanL, ap.SpanR); Assert.InRange(taxi, td, ap.StandX); Assert.InRange(outEnd, ap.StandX, ap.SpanR); Assert.InRange(lift, outEnd, ap.SpanR);
+            // every moment the plane is on the ground it is on the runway
+            for (double p = 0; p < 1; p += 0.0005)
+            {
+                var s = PlaneCycle.Evaluate(p, W, ap);
+                if (s.Visible && s.OnGround) Assert.InRange(s.X, ap.SpanL, ap.SpanR);
+            }
+        }
+    }
+
+    [Fact]
+    public void The_runway_is_drawn_only_inside_the_airport_span()
+    {
+        // render with a cut-out layout: the dark runway strip appears under the airport span only
+        var cfg = new AppConfig { RegionMode = "hcmc", WeatherPreview = "sunny", TimeMode = "real", ShowAirplane = true, ShowTrain = false, ShowCyclist = false, ShowAmbientDetails = false };
+        cfg.Normalize();
+        var bytes = Sta(() =>
+        {
+            SceneClock.HourOverride = 12f; DioramaRenderer.DebugPlaneCycle = 0.05;
+            try
+            {
+                var regions = new TaskbarRegions { Bounds = new Rectangle(0, 0, W, 48), Signature = "420-760,980-1200" };
+                regions.Cutouts.Add(Rectangle.FromLTRB(420, 0, 760, 48)); regions.Cutouts.Add(Rectangle.FromLTRB(980, 0, 1200, 48));
+                using var ow = new OverlayWindow(); var an = new Analyzer();
+                Bitmap? last = null;
+                for (int i = 0; i < 3; i++) { last?.Dispose(); last = ow.RenderOffscreen(W, 48, new FrameContext { Cfg = cfg, Analyzer = an, Regions = regions, Time = 30f + i / 30f, Region = RegionCatalog.All.First(r => r.Id == "hcmc") }); }
+                var bd = last!.LockBits(new Rectangle(0, 0, W, 48), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                var b = new byte[bd.Stride * 48]; System.Runtime.InteropServices.Marshal.Copy(bd.Scan0, b, 0, b.Length); last.UnlockBits(bd); last.Dispose();
+                return b;
+            }
+            finally { SceneClock.HourOverride = null; DioramaRenderer.DebugPlaneCycle = null; }
+        });
+        int stride = bytes.Length / 48;
+        // runway asphalt is the dark grey strip at y = 46 (below the centre-line dashes): count "asphalt-like" pixels per column band
+        bool Asphalt(int x) { int i = 46 * stride + x * 4; return bytes[i + 3] > 200 && Math.Abs(bytes[i] - bytes[i + 1]) < 14 && Math.Abs(bytes[i + 1] - bytes[i + 2]) < 18 && bytes[i] is > 50 and < 110; }
+        int inside = Enumerable.Range(140, 240).Count(Asphalt);       // well inside the airport span (≈ 98..412 at 1200 wide)
+        Assert.True(inside > 150, "runway missing inside the airport span");
+        // the second free span (≈ 768..972) is not an airport: no runway there
+        int outside = Enumerable.Range(790, 160).Count(Asphalt);
+        Assert.True(outside < 30, $"runway leaks outside the airport span ({outside} px)");
     }
 }

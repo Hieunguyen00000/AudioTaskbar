@@ -1494,8 +1494,31 @@ internal sealed class RegionScenery : IDisposable
                 Spawn(2, seg.x + (float)_rng.NextDouble() * seg.w);
     }
 
+    /// <summary>
+    /// v5.4: x range (logical px) with an airport. Road vehicles never enter it: one that reaches its edge turns off the road
+    /// (is removed), and none is seeded or kept inside. null = no airport, traffic as before.
+    /// </summary>
+    public (float L, float R)? NoRoadZone { get; set; }
+
+    /// <summary>Current x extents of the vehicles on the two road lanes (test hook).</summary>
+    internal IReadOnlyList<(float L, float R, int Lane)> RoadExtents()
+        => _vehicles.Where(v => v.Lane != 2).Select(v => v.Dir > 0 ? (v.X, v.X + v.Len, v.Lane) : (v.X - v.Len, v.X, v.Lane)).ToList();
+
+    private void RemoveRoadVehiclesInZone()
+    {
+        if (NoRoadZone is not { } z) return;
+        for (int i = _vehicles.Count - 1; i >= 0; i--)
+        {
+            var v = _vehicles[i];
+            if (v.Lane == 2) continue;
+            float l = v.Dir > 0 ? v.X : v.X - v.Len, r = v.Dir > 0 ? v.X + v.Len : v.X;
+            if (r > z.L && l < z.R) _vehicles.RemoveAt(i);
+        }
+    }
+
     private void StepTraffic(float dt)
     {
+        RemoveRoadVehiclesInZone();
         if (dt <= 0) return;
         for (int i = _vehicles.Count - 1; i >= 0; i--)
         {
@@ -1506,6 +1529,7 @@ internal sealed class RegionScenery : IDisposable
                 : (v.Dir > 0 ? v.X > _w + v.Len + 4 : v.X < -v.Len - 4);
             if (gone) _vehicles.RemoveAt(i);
         }
+        RemoveRoadVehiclesInZone();
         int maxRoad = Math.Max(3, _w / 220);
         _spawnNear -= dt; _spawnFar -= dt; _spawnWater -= dt;
         if (_spawnNear <= 0)

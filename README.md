@@ -73,7 +73,7 @@ Thay đổi trong bảng điều khiển được xem trước ngay; bấm **Lư
 | Ngày & đêm | Theo chu kỳ tùy chỉnh, theo giờ thật, cố định ban ngày, cố định ban đêm |
 | Độ dài chu kỳ | `0,5`–`10080` phút/ngày (30 giây đến 7 ngày). Chỉ bật khi đang ở chế độ chu kỳ |
 | Tàu hỏa | Bật/tắt và số **phút/vòng**: tàu vào ga chậm dần, dừng ở sân ga nhỏ, khách xuống rồi khách lên, đóng cửa, rời ga và tăng tốc |
-| Máy bay | Bật/tắt và số **phút/vòng** (mặc định 3): hạ cánh, chạy vào bãi đỗ, khách xuống/lên, ra đường băng, cất cánh rồi bay đi. Mọi khu vực đều có; thanh phố quá hẹp thì máy bay chỉ bay ngang bầu trời |
+| Máy bay | Bật/tắt và số **phút/vòng** (mặc định 3): hạ cánh, chạy vào bãi đỗ, khách xuống/lên, ra đường băng, cất cánh rồi bay đi. Đường băng chỉ nằm trong khoảng trống của sân bay, xe cộ không chạy vào đó; mọi khu vực đều có, thanh taskbar quá hẹp thì máy bay chỉ bay ngang bầu trời |
 | Mùa | *Mùa xuân/hè/thu/đông*, hoặc *Tự đổi mùa* với số phút mỗi mùa |
 | Thời tiết tự đổi | *Tự đổi thời tiết*: theo chu kỳ (phút) hoặc ngẫu nhiên trong khoảng |
 | Phương tiện, chi tiết nền, hiệu ứng thời tiết, vùng đệm icon | Các ô kiểm trên bảng điều khiển |
@@ -102,7 +102,7 @@ Cấu hình, log và cache nằm ở `%LOCALAPPDATA%\AudioTaskbar\` (`config.jso
 | `weatherCycleMode` | `"off"` | `off`, `interval`, `random` (kèm `weatherCycleMinutes`, `weatherCycleRandom{Min,Max}Minutes`) |
 | `showIconPadding` | `true` | Vùng đệm xám quanh icon |
 | `soundMasterVolume`, `soundVolumes` | tất cả `0` | Âm thanh nền 0–100 |
-| `trainCrossingMinutes` | `1` | Số phút cho một vòng của tàu: vào ga, dừng đón/trả khách, rời ga |
+| `trainCrossingMinutes` | `2` | Số phút cho một vòng của tàu: vào ga, dừng đón/trả khách, rời ga |
 | `showAirplane` | `true` | Máy bay: hạ cánh, đỗ, đón/trả khách, cất cánh |
 | `airplaneCycleMinutes` | `3` | Số phút cho một vòng của máy bay (0.5–240) |
 | `hotkey` | `"F8"` | Phím tắt toàn cục (ví dụ `Ctrl+Alt+F8`) |

@@ -113,7 +113,7 @@ python tests\test_analyzer.py
 
 | File | Bao phủ |
 |---|---|
-| `ConfigTests` | JSON hỏng / sai kiểu / rỗng → mặc định + bản sao `.corrupt-*`; thiếu khóa; giá trị âm, NaN, quá lớn; migrate tàu 25 → 1 phút đúng một lần; khóa v5.3 round-trip |
+| `ConfigTests` | JSON hỏng / sai kiểu / rỗng → mặc định + bản sao `.corrupt-*`; thiếu khóa; giá trị âm, NaN, quá lớn; migrate tàu 25 → mặc định mới (2 phút) đúng một lần, giá trị đã lưu không bị ghi đè; khóa v5.3 round-trip |
 | `WeatherTests` | offline, timeout, HTTP 500/502/429/404, JSON lỗi → không ném lỗi, giữ thời tiết cũ; bảng mã WMO (mọi mã tuyết, mưa, giông, sương, quang, mã lạ, ban đêm); chống nhảy vị trí > 80 km (cần 2 lần liên tiếp); khớp khu vực (Hồ Chí Minh → hcmc, Bà Rịa → baria-vungtau, lạ → default) |
 | `SceneTests` | giờ ảo chu kỳ 30 phút quay vòng 0..24, ngày trước 1970, ghi đè giờ; cung mặt trời/mặt trăng luôn trong khung ở 100/125/150/300 %; tiến độ tàu không NaN/âm, mượt, quay vòng 1 lần/chu kỳ; thanh kích thước 0/âm; render đủ khung cho 7 khu vực × thời tiết |
 | `LayoutTests` | khoét icon chồng nhau / trùng / ra ngoài thanh / phủ kín; màn hình phụ; DPI 100/125/150/200 %; thẻ thời tiết không bao giờ đè icon, ẩn khi không đủ chỗ |
@@ -158,7 +158,7 @@ Kết quả (không commit file exe):
 - `installer-output\AudioTaskbar-Setup-<version>.exe`
 - bản sao tại `installer\AudioTaskbar-Setup-<version>.exe`
 
-Setup đóng gói `release\AudioTaskbar.exe` (self-contained, đã embed `TaskbarTap.dll` + .NET 8), `README.md`, `NOTICE.md`, `config.example.json` và icon đa độ phân giải. **Không** đóng gói `config.json` cá nhân. Người dùng mới nhận mặc định sạch: `regionMode=auto`, `showWeatherHud=false`, `trainCrossingMinutes=1`, `timeMode=cycle`, `dayCycleMinutes=30`, `tapMode=auto`.
+Setup đóng gói `release\AudioTaskbar.exe` (self-contained, đã embed `TaskbarTap.dll` + .NET 8), `README.md`, `NOTICE.md`, `config.example.json` và icon đa độ phân giải. **Không** đóng gói `config.json` cá nhân. Người dùng mới nhận mặc định sạch: `regionMode=auto`, `showWeatherHud=false`, `trainCrossingMinutes=2`, `timeMode=cycle`, `dayCycleMinutes=30`, `tapMode=auto`.
 
 Cài mặc định vào `%LOCALAPPDATA%\Programs\AudioTaskbar`, tạo shortcut Desktop/Start Menu (tùy chọn), đăng ký gỡ cài chuẩn tại `HKCU\...\Uninstall\AudioTaskbar`. Trước khi ghi đè hoặc gỡ, Setup/Uninstall chỉ tắt `AudioTaskbar.exe` đang chạy **từ thư mục cài** (sự kiện `Local\AudioTaskbar.Cmd.Exit`) — không kill Explorer, không đụng bản đang chạy từ thư mục khác (ví dụ bản dev trên ổ D:).
 

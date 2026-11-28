@@ -71,7 +71,9 @@ public sealed class AppConfig
     /// Minutes for one full train lifecycle: it arrives and slows down, stops at the platform, passengers get off and on,
     /// then it departs and speeds up and leaves (v5.4; it used to be a plain left→right crossing).
     /// </summary>
-    public float TrainCrossingMinutes { get; set; } = 1f;
+    public float TrainCrossingMinutes { get; set; } = DefaultTrainCycleMinutes;
+    /// <summary>v5.4: 2 minutes per train lifecycle (was 1 when it only crossed). A value the user already saved is never changed.</summary>
+    public const float DefaultTrainCycleMinutes = 2f;
     /// <summary>"auto" (detect from machine location) or a region id: hcmc, baria-vungtau, hanoi, danang-hoian, tokyo, paris, default.</summary>
     public string RegionMode { get; set; } = "auto";
     /// <summary>Removed in v5.4 (weather and location info now live only in the control panel). Kept so old config files still load; ignored.</summary>
@@ -181,7 +183,7 @@ public sealed class AppConfig
         IdleFadeSeconds = Math.Clamp(IdleFadeSeconds, 0.3f, 8f);
         IconSafePadding = Math.Clamp(IconSafePadding, 0, 200);
         WeatherRefreshMinutes = Math.Clamp(WeatherRefreshMinutes, 5, 120);
-        TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 0.25f, 240f) : 1f;
+        TrainCrossingMinutes = float.IsFinite(TrainCrossingMinutes) ? Math.Clamp(TrainCrossingMinutes, 0.25f, 240f) : DefaultTrainCycleMinutes;
         AirplaneCycleMinutes = float.IsFinite(AirplaneCycleMinutes) && AirplaneCycleMinutes > 0f
             ? Math.Clamp(AirplaneCycleMinutes, MinAirplaneCycleMinutes, MaxAirplaneCycleMinutes) : DefaultAirplaneCycleMinutes;
         TimeMode = NormalizeTimeMode(TimeMode);
@@ -412,7 +414,7 @@ public static class ConfigStore
             {
                 // v5.1 one-time migration: the train now crosses in 1 minute (was 25), and the
                 // 30-minute day/night cycle is on by default.
-                if (cfg.ConfigVersion < 51 && MathF.Abs(cfg.TrainCrossingMinutes - 25f) < 0.01f) cfg.TrainCrossingMinutes = 1f;
+                if (cfg.ConfigVersion < 51 && MathF.Abs(cfg.TrainCrossingMinutes - 25f) < 0.01f) cfg.TrainCrossingMinutes = AppConfig.DefaultTrainCycleMinutes;
                 if (cfg.ConfigVersion < 54) MigrateToV54(cfg);
                 if (cfg.ConfigVersion < 55) MigrateToV55(cfg);
                 cfg.ConfigVersion = AppConfig.CurrentConfigVersion;

@@ -119,7 +119,7 @@ internal readonly record struct PlaneState(PlanePhase Phase, float PhaseT, float
     float Thrust, float Stairs, float Deplaning, float Boarding, bool OnGround, bool Visible);
 
 /// <summary>Where the little airport sits (terminal + stand) in the bar, or that it does not fit and the plane only crosses the sky.</summary>
-internal readonly record struct AirportPlan(bool HasAirport, float StandX, float TermL, float TermR)
+internal readonly record struct AirportPlan(bool HasAirport, float StandX, float TermL, float TermR, float SpanL = 0, float SpanR = 0)
 {
     public const float PlaneLen = 34f;
     /// <summary>Narrowest free span (px) that still holds the parked plane next to the terminal.</summary>
@@ -142,7 +142,7 @@ internal readonly record struct AirportPlan(bool HasAirport, float StandX, float
     {
         if (spans.Count == 0) spans = new[] { (0f, barW) };
         int i = FindSpan(spans, barW);
-        if (i < 0) return new(false, 0, 0, 0);
+        if (i < 0) return new(false, 0, 0, 0, 0, 0);
         var s = spans[i];
         float sw = s.R - s.L;
         float tw = Math.Clamp(sw * 0.34f, 34f, 52f);
@@ -151,7 +151,7 @@ internal readonly record struct AirportPlan(bool HasAirport, float StandX, float
         float slack = Math.Max(0f, sw - (tw + 44f));
         float termL = s.L + 2f + (AirplaneToTerminal) + 0.45f * slack, termR = termL + tw;
         float stand = termL - 4f - PlaneLen / 2f;
-        return new(true, stand, termL, termR);
+        return new(true, stand, termL, termR, s.L, s.R);
     }
 
     /// <summary>The span the train should use: widest span that is NOT the airport's, else the widest one.</summary>
@@ -196,12 +196,15 @@ internal static class PlaneCycle
     }
 
     /// <summary>Key x positions of the ground run for a given stand.</summary>
-    public static (float Touchdown, float TaxiStart, float TaxiOutEnd, float Liftoff) Marks(float standX)
+    public static (float Touchdown, float TaxiStart, float TaxiOutEnd, float Liftoff) Marks(AirportPlan ap)
     {
-        float taxi = Math.Min(standX - 4f, Math.Max(standX - 36f, 18f));
-        float td = Math.Max(taxi - 110f, 4f);
+        // The runway only exists inside the airport span, so touch-down, taxiing and lift-off all stay inside it.
+        float standX = ap.StandX;
+        float taxi = Math.Min(standX - 4f, Math.Max(standX - 36f, ap.SpanL + 4f));
+        float td = Math.Max(taxi - 110f, ap.SpanL + 2f);
         float outEnd = standX + 40f;
-        return (td, taxi, outEnd, outEnd + 120f);
+        float lift = Math.Clamp(outEnd + 120f, outEnd + 8f, Math.Max(outEnd + 8f, ap.SpanR - 10f));
+        return (td, taxi, outEnd, lift);
     }
 
     public static PlaneState Evaluate(double p, float barW, AirportPlan ap)
@@ -215,7 +218,7 @@ internal static class PlaneCycle
             float bob = MathF.Sin(t * 6.28f * 3f) * 1.2f;
             return new(ph, t, TransitMath.Lerp(x0, barW + L, t), CruiseAlt + bob - 3f, 0, 1f, 0.6f, 0, 0, 0, false, true);
         }
-        var (td, taxi, outEnd, lift) = Marks(ap.StandX);
+        var (td, taxi, outEnd, lift) = Marks(ap);
         float stand = ap.StandX;
         switch (ph)
         {

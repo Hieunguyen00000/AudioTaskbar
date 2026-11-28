@@ -28,7 +28,7 @@ internal static class RenderPreview
             WeatherPreview = Get("--preview", "live"),
             Season = Get("--season", "summer"),
             ShowIconPadding = Get("--padding", "1") == "1",
-            TrainCrossingMinutes = float.Parse(Get("--train", "1"), CultureInfo.InvariantCulture),
+            TrainCrossingMinutes = float.Parse(Get("--train", "2"), CultureInfo.InvariantCulture),
             ShowAirplane = Get("--airplane", "1") == "1",
             AirplaneCycleMinutes = float.Parse(Get("--airplane-min", "3"), CultureInfo.InvariantCulture),
             TimeMode = Get("--timemode", "cycle")

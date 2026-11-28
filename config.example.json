@@ -31,7 +31,7 @@
   "weatherLongitude": null,
   "weatherRefreshMinutes": 15,
   "weatherOnPrimaryOnly": true,
-  "trainCrossingMinutes": 1,
+  "trainCrossingMinutes": 2,
   "airplaneCycleMinutes": 3,
   "regionMode": "auto",
   // v5.4: thẻ thời tiết trên taskbar đã bỏ; thông tin vị trí/thời tiết nằm trong bảng điều khiển (khóa này bị bỏ qua)

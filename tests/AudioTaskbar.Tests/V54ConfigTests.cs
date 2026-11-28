@@ -108,11 +108,11 @@ public class V54ConfigTests
     }
 
     [Fact]
-    public void Train_crossing_25_to_1_migration_only_applies_below_v51()
+    public void Train_crossing_25_to_default_migration_only_applies_below_v51()
     {
         using var d = new TempDir();
         var p1 = d.File("a.json"); File.WriteAllText(p1, "{ \"configVersion\": 0, \"trainCrossingMinutes\": 25 }");
-        Assert.Equal(1f, ConfigStore.Load(p1).TrainCrossingMinutes);
+        Assert.Equal(2f, ConfigStore.Load(p1).TrainCrossingMinutes);
         var p2 = d.File("b.json"); File.WriteAllText(p2, "{ \"configVersion\": 51, \"trainCrossingMinutes\": 25 }");
         Assert.Equal(25f, ConfigStore.Load(p2).TrainCrossingMinutes);
     }

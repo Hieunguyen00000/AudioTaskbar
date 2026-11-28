@@ -42,7 +42,7 @@ public class ConfigTests
         File.WriteAllText(path, content);
         var cfg = ConfigStore.Load(path);
         Assert.Equal("F8", cfg.Hotkey);
-        Assert.Equal(1f, cfg.TrainCrossingMinutes);
+        Assert.Equal(2f, cfg.TrainCrossingMinutes);   // v5.4 default: 2 minutes per train lifecycle
         Assert.Equal(30f, cfg.DayCycleMinutes);
         Assert.Equal("auto", cfg.RegionMode);
         Assert.Equal("live", cfg.WeatherPreview);
@@ -74,8 +74,8 @@ public class ConfigTests
     [InlineData(-5f, 0.25f)]
     [InlineData(0f, 0.25f)]
     [InlineData(99999f, 240f)]
-    [InlineData(float.NaN, 1f)]
-    [InlineData(float.PositiveInfinity, 1f)]
+    [InlineData(float.NaN, 2f)]
+    [InlineData(float.PositiveInfinity, 2f)]
     [InlineData(3f, 3f)]
     public void Train_minutes_are_clamped(float input, float expected)
     {
@@ -186,13 +186,13 @@ public class ConfigTests
     }
 
     [Fact]
-    public void Old_config_migrates_train_25_to_1_once()
+    public void Old_config_migrates_the_old_default_train_25_to_the_new_default_once()
     {
         using var d = new TempDir();
         var path = d.File("config.json");
         File.WriteAllText(path, "{\"trainCrossingMinutes\": 25, \"configVersion\": 0}");
         var cfg = ConfigStore.Load(path);
-        Assert.Equal(1f, cfg.TrainCrossingMinutes);
+        Assert.Equal(AppConfig.DefaultTrainCycleMinutes, cfg.TrainCrossingMinutes);
         Assert.Equal(AppConfig.CurrentConfigVersion, cfg.ConfigVersion);
         Assert.Contains($"\"configVersion\": {AppConfig.CurrentConfigVersion}", File.ReadAllText(path));
     }

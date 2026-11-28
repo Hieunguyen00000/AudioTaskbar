@@ -116,7 +116,7 @@ internal sealed partial class DioramaRenderer
 
         if (plan.HasAirport)
         {
-            DrawRunway(g, mood);
+            DrawRunway(g, mood, plan);
             DrawTerminal(g, mood, time, plan);
         }
         if (!ps.Visible) { PlaneX01 = -1f; PlaneThrust = 0f; return; }
@@ -131,19 +131,27 @@ internal sealed partial class DioramaRenderer
             DrawPlanePassengers(g, mood, time, ps, plan, cy, contact);
     }
 
-    private void DrawRunway(Graphics g, SceneMood mood)
+    /// <summary>The runway strip exists only inside the airport span (<see cref="AirportPlan.SpanL"/>..<see cref="AirportPlan.SpanR"/>).</summary>
+    private void DrawRunway(Graphics g, SceneMood mood, AirportPlan ap)
     {
-        float y0 = _h - 5.6f;
+        float y0 = _h - 5.6f, x0 = ap.SpanL, x1 = ap.SpanR;
         var asphalt = SceneClock.Mix(Color.FromArgb(240, 30, 34, 44), Color.FromArgb(240, 74, 78, 88), mood.DayK);
-        using (var br = new SolidBrush(asphalt)) g.FillRectangle(br, 0, y0, _w, _h - y0);
-        using (var edge = new Pen(Color.FromArgb(70, 255, 255, 255), 0.6f)) g.DrawLine(edge, 0, y0 + 0.4f, _w, y0 + 0.4f);
+        using (var br = new SolidBrush(asphalt)) g.FillRectangle(br, x0, y0, x1 - x0, _h - y0);
+        using (var edge = new Pen(Color.FromArgb(70, 255, 255, 255), 0.6f)) g.DrawLine(edge, x0, y0 + 0.4f, x1, y0 + 0.4f);
         using (var dash = new Pen(Color.FromArgb(170, 236, 232, 210), 0.9f) { DashPattern = new[] { 5f, 6f } })
-            g.DrawLine(dash, 0, _h - 3.4f, _w, _h - 3.4f);
+            g.DrawLine(dash, x0 + 3f, _h - 3.4f, x1 - 3f, _h - 3.4f);
+        // threshold bars at both ends of the runway
+        using (var thr = new SolidBrush(Color.FromArgb(150, 236, 232, 210)))
+            for (int k = 0; k < 3; k++)
+            {
+                g.FillRectangle(thr, x0 + 0.6f + k * 1.4f, y0 + 1.2f, 0.7f, _h - y0 - 2.4f);
+                g.FillRectangle(thr, x1 - 1.3f - k * 1.4f, y0 + 1.2f, 0.7f, _h - y0 - 2.4f);
+            }
         float lk = mood.LightsK;
         if (lk > 0.05f)
         {
             using var lamp = new SolidBrush(Color.FromArgb((int)(210 * lk), 255, 232, 170));
-            for (float x = 6; x < _w; x += 16) g.FillRectangle(lamp, x, y0 - 0.1f, 1.4f, 1.0f);
+            for (float x = x0 + 4; x < x1 - 2; x += 16) g.FillRectangle(lamp, x, y0 - 0.1f, 1.4f, 1.0f);
         }
     }
 

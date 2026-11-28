@@ -528,6 +528,7 @@ internal sealed partial class DioramaRenderer
     private float _snowLast = -1;
     private const float TrainW = 176f * TrainScale;
     public string ActiveRegionId => _scenery.ActiveId;
+    internal RegionScenery Scenery => _scenery;
     private float _balloonX = 0.35f;
     private float _flash;          // 0..1 lightning envelope
     private float _flashCool;
@@ -618,6 +619,8 @@ internal sealed partial class DioramaRenderer
         if (ctx.Cfg.ShowTrain)
             DrawTrain(g, mood, time, ctx.Cfg);
 
+        // v5.4: the runway exists only inside the airport span, so road traffic keeps out of it.
+        _scenery.NoRoadZone = ctx.Cfg.ShowAirplane && AirportPlan.Plan(EffectiveSpans(), _w) is { HasAirport: true } zone ? (zone.SpanL, zone.SpanR) : null;
         if (ctx.Cfg.ShowCyclist)
             _scenery.DrawRoadTraffic(g, mood, time);
 
