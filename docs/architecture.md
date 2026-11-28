@@ -30,7 +30,7 @@ Không dùng `CreateRemoteThread`, không hook Win32 của Explorer, và không 
 | `Program.cs` | Entry point, mutex singleton, DPI, log crash. |
 | `TrayApp.cs` | Vòng đời app, menu khay, F8, gắn/gỡ TAP, reload config. |
 | `OverlayWindow.cs` | Cửa sổ layered phủ đúng bounds từng taskbar; vẽ frame (diorama hoặc spectrum). |
-| `Transit.cs` / `DioramaTransit.cs` | v5.4: máy trạng thái tàu hỏa và máy bay (thuần, có test) và phần vẽ sân ga, hành khách, đường băng, nhà ga, máy bay. |
+| `Transit.cs` / `DioramaTransit.cs` | v5.4: máy trạng thái tàu hỏa và máy bay (thuần, có test) và phần vẽ sân ga, hành khách tàu, đường băng ngắn, máy bay. |
 | `Diorama.cs` | Cảnh 48px: trời theo giờ, mây, mưa, sấm, tàu, xe đạp, chim, đom đóm, đèn phố. |
 | `TaskbarService.cs` | Tìm `Shell_TrayWnd` / `Shell_SecondaryTrayWnd`, đo vùng Start / icon / khay. |
 | `TaskbarTapHost.cs` | Trích DLL, gọi `InitializeXamlDiagnosticsEx`, đọc `tap-status.txt`, detach/restore. |
@@ -118,7 +118,7 @@ v5 chạy `TaskbarLayoutProbe` trên một luồng MTA nền, mỗi ~400 ms:
 
 `Regions.cs` chứa 7 hồ sơ (`RegionCatalog`) với tọa độ, danh lam, skyline nền, bảng giao thông đường bộ / đường thủy. `Resolve` ưu tiên: chọn tay → `weatherCity` → tên địa điểm thời tiết (bỏ dấu) → hộp tọa độ. `Scenery.cs` dựng skyline + danh lam vào khoảng trống theo độ ưu tiên và vẽ: nền xa, mặt nước & thuyền, danh lam (đèn, cửa sổ, hiệu ứng như hải đăng quét, cầu Rồng phun lửa mỗi 45 s, Eiffel lấp lánh), làn xe gần (trái → phải) / xa (phải → trái), cánh hoa.
 
-Đoàn tàu và máy bay (v5.4) là máy trạng thái thuần trong `Transit.cs`: `TrainCycle` (vào ga → dừng, khách xuống → khách lên → rời ga → nghỉ) và `PlaneCycle` (bay vào/hạ độ cao → chạm đường băng → chạy vào bãi đỗ → trả khách → đón khách → ra đường băng → cất cánh → bay đi, hoặc chỉ bay ngang trời khi không đủ chỗ cho sân bay). Vị trí là hàm của vị trí chu kỳ `0..1 = frac(phase0 + t / chu kỳ)`, `phase0` đặt để lúc khởi động tàu đang ở sân ga và máy bay đang ở bãi đỗ; bánh xe quay theo quãng đường, khói nhẹ 0,45 s/lần (thưa khi tàu đứng). `AirportPlan` chọn khoảng trống rộng nhất (≥ 84 px) cho sân bay, sân ga của tàu ở khoảng trống rộng nhì. `DioramaTransit.cs` chỉ vẽ trạng thái đó. Đường băng chỉ nằm trong khoảng trống của sân bay (`AirportPlan.SpanL..SpanR`); xe trên đường (`RegionScenery.NoRoadZone`) bị loại khi chạm mép khoảng đó. Mọi thứ vẽ nằm dưới lớp cắt icon nên không che icon / vùng đệm.
+Đoàn tàu và máy bay (v5.4) là máy trạng thái thuần trong `Transit.cs`: `TrainCycle` (vào ga → dừng, khách xuống → khách lên → rời ga → nghỉ) và `PlaneCycle` (lăn bánh từ mép trái → cất cánh → leo lên → bay ngang cao giữa thanh → hạ dần gần mép phải và rời khỏi tầm nhìn ở thấp, không hạ cánh). Vị trí là hàm của vị trí chu kỳ `0..1 = frac(phase0 + t / chu kỳ)`, `phase0` đặt để lúc khởi động tàu đang ở sân ga và máy bay đang lăn bánh; bánh xe quay theo quãng đường, khói nhẹ 0,45 s/lần (thưa khi tàu đứng). `TakeoffStrip` đặt một đường băng ngắn ở bên trái khoảng trống trái nhất đủ chỗ (≥ 56 px); sân ga của tàu tránh đường băng đó. `DioramaTransit.cs` chỉ vẽ trạng thái đó. Xe trên đường (`RegionScenery.NoRoadZone`) bị loại khi chạm mép đường băng. Mọi thứ vẽ nằm dưới lớp cắt icon nên không che icon / vùng đệm.
 
 ## v5.1.1: TAP thường trú, tái sử dụng (giao thức v3)
 

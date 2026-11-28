@@ -620,13 +620,13 @@ internal sealed partial class DioramaRenderer
             DrawTrain(g, mood, time, ctx.Cfg);
 
         // v5.4: the runway exists only inside the airport span, so road traffic keeps out of it.
-        _scenery.NoRoadZone = ctx.Cfg.ShowAirplane && AirportPlan.Plan(EffectiveSpans(), _w) is { HasAirport: true } zone ? (zone.SpanL, zone.SpanR) : null;
+        _scenery.NoRoadZone = ctx.Cfg.ShowAirplane && TakeoffStrip.Plan(EffectiveSpans(), _w) is { HasStrip: true } zone ? (zone.L, zone.R) : null;
         if (ctx.Cfg.ShowCyclist)
             _scenery.DrawRoadTraffic(g, mood, time);
 
-        // v5.4 airport strip + airplane: drawn after the road traffic so the plane is never hidden behind a passing car.
+        // v5.4 take-off strip + airplane: drawn after the road traffic so the plane is never hidden behind a passing car.
         if (ctx.Cfg.ShowAirplane)
-            DrawAirportAndPlane(g, mood, time, ctx.Cfg);
+            DrawTakeoffAndPlane(g, mood, time, ctx.Cfg);
 
         if (mood.IsRainy && ctx.Cfg.ShowWeatherEffects)
         {
@@ -1183,8 +1183,8 @@ internal sealed partial class DioramaRenderer
         float trainW = TrainW;
         double period = Math.Max(1.0, cfg.TrainCrossingMinutes) * 60.0;
         var spans = EffectiveSpans();
-        int airportSpan = cfg.ShowAirplane ? AirportPlan.FindSpan(spans, _w) : -1;
-        var st0 = AirportPlan.StationSpan(spans, _w, airportSpan);
+        var strip = cfg.ShowAirplane ? TakeoffStrip.Plan(spans, _w) : new TakeoffStrip(false, 0, 0);
+        var st0 = TakeoffStrip.StationSpan(spans, _w, strip);
         _platL = st0.L + 2; _platR = st0.R - 2;
         if (_platR - _platL > 168) { float mid = (_platL + _platR) / 2; _platL = mid - 84; _platR = mid + 84; }
         if (_platR - _platL < 40) { float mid = (_platL + _platR) / 2; _platL = mid - 20; _platR = mid + 20; }

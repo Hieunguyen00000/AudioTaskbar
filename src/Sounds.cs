@@ -9,7 +9,7 @@ internal static class SoundEffects
     public static readonly (string Id, string NameVi)[] All =
     {
         (Rain, "Mưa rơi"), (Thunder, "Sấm sét"), (Wind, "Gió"), (Traffic, "Xe cộ"), (Horns, "Còi xe"),
-        (Train, "Tàu hỏa (xa / gần)"), (Airplane, "Máy bay (xa / gần)"), (Birds, "Chim hót"), (Insects, "Côn trùng, ve, dế"),
+        (Train, "Tàu hỏa (xa / gần)"), (Airplane, "Máy bay (cất cánh)"), (Birds, "Chim hót"), (Insects, "Côn trùng, ve, dế"),
         (Animals, "Ếch, chó, gà gáy"), (Waves, "Sóng nước")
     };
 

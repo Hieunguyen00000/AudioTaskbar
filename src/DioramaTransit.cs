@@ -3,7 +3,7 @@ using System.Drawing.Drawing2D;
 
 namespace AudioTaskbar;
 
-// v5.4: the station platform with its passengers, and the little airport with its airplane.
+// v5.4: the station platform with its passengers, and the short take-off strip with its airplane.
 // All motion comes from the pure state machines in Transit.cs; this file only paints a given state.
 internal sealed partial class DioramaRenderer
 {
@@ -14,8 +14,7 @@ internal sealed partial class DioramaRenderer
     };
 
     private double _planePhase0;
-    private bool _planeSeeded, _planeSeedAirport;
-    private float _planeSeedTime;
+    private bool _planeSeeded;
 
     // ───────────────────────────── people ─────────────────────────────
 
@@ -95,52 +94,43 @@ internal sealed partial class DioramaRenderer
         }
     }
 
-    // ───────────────────────────── airport + airplane ─────────────────────────────
+    // ───────────────────────────── take-off strip + airplane ─────────────────────────────
 
-    private void DrawAirportAndPlane(Graphics g, SceneMood mood, float time, AppConfig cfg)
+    private void DrawTakeoffAndPlane(Graphics g, SceneMood mood, float time, AppConfig cfg)
     {
         var spans = EffectiveSpans();
-        var plan = AirportPlan.Plan(spans, _w);
+        var strip = TakeoffStrip.Plan(spans, _w);
         double period = Math.Max(1.0, cfg.AirplaneCycleMinutes * 60.0);
-        if (!_planeSeeded || (plan.HasAirport != _planeSeedAirport && time - _planeSeedTime < 6f))
+        if (!_planeSeeded)
         {
-            // Start with the plane standing at the gate (passengers getting off), or already crossing the sky.
-            double seed = plan.HasAirport ? PlaneCycle.StartOf(PlanePhase.Deplane) + 0.30 * 0.13 : 0.12;
+            // Start just into the take-off roll so something is happening right after launch.
+            double seed = PlaneCycle.StartOf(PlanePhase.Roll) + 0.12 * 0.16;
             _planePhase0 = seed - time / period;
             _planeSeeded = true;
-            _planeSeedAirport = plan.HasAirport;
-            _planeSeedTime = time;
         }
         double p = DebugPlaneCycle ?? SceneMath.TrainProgress(_planePhase0, time, period);
-        var ps = PlaneCycle.Evaluate(p, _w, plan);
+        var ps = PlaneCycle.Evaluate(p, _w, strip);
 
-        if (plan.HasAirport)
-        {
-            DrawRunway(g, mood, plan);
-            DrawTerminal(g, mood, time, plan);
-        }
+        if (strip.HasStrip) DrawRunway(g, mood, strip);
         if (!ps.Visible) { PlaneX01 = -1f; PlaneThrust = 0f; return; }
         PlaneX01 = Math.Clamp(ps.X / Math.Max(1f, _w), 0f, 1f);
         PlaneThrust = ps.Thrust;
 
         float contact = _h - 2.7f;
         float cy = contact - ps.Alt - 5.2f;
-        if (plan.HasAirport && ps.Stairs > 0.01f) DrawStairs(g, mood, ps, cy, contact);
         DrawPlane(g, mood, time, ps, cy);
-        if (plan.HasAirport && (ps.Phase == PlanePhase.Deplane || ps.Phase == PlanePhase.Board))
-            DrawPlanePassengers(g, mood, time, ps, plan, cy, contact);
     }
 
-    /// <summary>The runway strip exists only inside the airport span (<see cref="AirportPlan.SpanL"/>..<see cref="AirportPlan.SpanR"/>).</summary>
-    private void DrawRunway(Graphics g, SceneMood mood, AirportPlan ap)
+    /// <summary>The short take-off strip exists only between <see cref="TakeoffStrip.L"/> and <see cref="TakeoffStrip.R"/>.</summary>
+    private void DrawRunway(Graphics g, SceneMood mood, TakeoffStrip strip)
     {
-        float y0 = _h - 5.6f, x0 = ap.SpanL, x1 = ap.SpanR;
+        float y0 = _h - 5.6f, x0 = strip.L, x1 = strip.R;
         var asphalt = SceneClock.Mix(Color.FromArgb(240, 30, 34, 44), Color.FromArgb(240, 74, 78, 88), mood.DayK);
         using (var br = new SolidBrush(asphalt)) g.FillRectangle(br, x0, y0, x1 - x0, _h - y0);
         using (var edge = new Pen(Color.FromArgb(70, 255, 255, 255), 0.6f)) g.DrawLine(edge, x0, y0 + 0.4f, x1, y0 + 0.4f);
         using (var dash = new Pen(Color.FromArgb(170, 236, 232, 210), 0.9f) { DashPattern = new[] { 5f, 6f } })
             g.DrawLine(dash, x0 + 3f, _h - 3.4f, x1 - 3f, _h - 3.4f);
-        // threshold bars at both ends of the runway
+        // threshold bars at both ends of the short strip
         using (var thr = new SolidBrush(Color.FromArgb(150, 236, 232, 210)))
             for (int k = 0; k < 3; k++)
             {
@@ -155,86 +145,7 @@ internal sealed partial class DioramaRenderer
         }
     }
 
-    private void DrawTerminal(Graphics g, SceneMood mood, float time, AirportPlan ap)
-    {
-        float y0 = _h - 5.6f, l = ap.TermL, r = ap.TermR, h = 8.6f, top = y0 - h;
-        float lk = mood.LightsK, day = mood.DayK;
-        var wall = SceneClock.Mix(SceneClock.Mix(Color.FromArgb(255, 46, 52, 72), Color.FromArgb(255, 198, 202, 210), day), mood.Silhouette, 0.12f);
-        var roof = SceneClock.Mix(Color.FromArgb(255, 30, 34, 50), Color.FromArgb(255, 112, 122, 140), day);
-        using (var b = new SolidBrush(wall)) g.FillRectangle(b, l, top, r - l, h);
-        using (var b = new SolidBrush(roof)) g.FillRectangle(b, l - 1f, top - 0.2f, r - l + 2f, 1.7f);
-        // glass band (warm and lit at night)
-        var glass = SceneClock.Mix(Color.FromArgb(255, 116, 166, 212), Color.FromArgb(255, 255, 208, 130), lk);
-        using (var b = new SolidBrush(Color.FromArgb(230, glass))) g.FillRectangle(b, l + 1.5f, top + 2.6f, r - l - 3f, 3.4f);
-        using (var mull = new Pen(Color.FromArgb(110, 40, 46, 62), 0.6f))
-            for (float x = l + 1.5f + 4.5f; x < r - 2; x += 4.5f) g.DrawLine(mull, x, top + 2.6f, x, top + 6f);
-        // entrance
-        using (var door = new SolidBrush(Color.FromArgb(255, SceneClock.Mix(Color.FromArgb(255, 20, 22, 30), Color.FromArgb(255, 255, 224, 150), lk * 0.8f))))
-            g.FillRectangle(door, l + 2.6f, y0 - 4.2f, 3.4f, 4.2f);
-        // control tower
-        float tx = r - 7f, tTop = _h - 25.5f;
-        using (var shaft = new SolidBrush(SceneClock.Mix(wall, roof, 0.35f))) g.FillRectangle(shaft, tx, tTop + 3.6f, 3.2f, y0 - tTop - 3.6f);
-        using (var cab = new SolidBrush(Color.FromArgb(255, roof))) g.FillRectangle(cab, tx - 2.4f, tTop + 0.6f, 8f, 3.4f);
-        using (var win = new SolidBrush(Color.FromArgb(235, SceneClock.Mix(Color.FromArgb(255, 124, 176, 220), Color.FromArgb(255, 255, 222, 150), lk))))
-            g.FillRectangle(win, tx - 1.8f, tTop + 1.2f, 6.8f, 1.9f);
-        using (var cap = new SolidBrush(Color.FromArgb(255, roof))) g.FillRectangle(cap, tx - 3f, tTop - 0.4f, 9.2f, 1.1f);
-        using (var ant = new Pen(Color.FromArgb(220, 40, 44, 56), 0.6f)) g.DrawLine(ant, tx + 1.6f, tTop - 0.4f, tx + 1.6f, tTop - 3.4f);
-        float blink = 0.5f + 0.5f * MathF.Sin(time * 4f);
-        using (var beacon = new SolidBrush(Color.FromArgb((int)(90 + 165 * blink * (0.4f + 0.6f * lk)), 255, 70, 60)))
-            g.FillEllipse(beacon, tx + 1.6f - 0.9f, tTop - 4.2f, 1.8f, 1.8f);
-        if (mood.SnowCover > 0.01f)
-            using (var sn = new SolidBrush(RegionScenery.SnowTint(mood, (int)(210 * mood.SnowCover))))
-            {
-                g.FillRectangle(sn, l - 1f, top - 0.9f, r - l + 2f, 1.0f);
-                g.FillRectangle(sn, tx - 3f, tTop - 1.1f, 9.2f, 0.9f);
-            }
-    }
-
-    private void DrawStairs(Graphics g, SceneMood mood, PlaneState ps, float cy, float contact)
-    {
-        float doorX = ps.X + 9f, doorBottom = cy + 2.1f;
-        float fx = doorX + 1.2f + 5.4f * ps.Stairs, fy = doorBottom + (contact - doorBottom) * ps.Stairs;
-        var col = SceneClock.Mix(Color.FromArgb(255, 70, 78, 100), Color.FromArgb(255, 188, 194, 206), mood.DayK);
-        using var pen = new Pen(col, 2.3f) { StartCap = LineCap.Flat, EndCap = LineCap.Flat };
-        g.DrawLine(pen, doorX + 1.2f, doorBottom - 0.4f, fx, fy);
-        using var tick = new Pen(Color.FromArgb(120, 30, 34, 46), 0.5f);
-        for (int i = 1; i <= 3; i++)
-        {
-            float t = i / 4f;
-            g.DrawLine(tick, doorX + 1.2f + (fx - doorX - 1.2f) * t - 1.1f, doorBottom + (fy - doorBottom) * t, doorX + 1.2f + (fx - doorX - 1.2f) * t + 1.1f, doorBottom + (fy - doorBottom) * t);
-        }
-        using var rail = new Pen(Color.FromArgb(200, 250, 210, 80), 0.5f);
-        g.DrawLine(rail, doorX + 0.6f, doorBottom - 3.4f, fx - 0.6f, fy - 3.4f);
-    }
-
-    private void DrawPlanePassengers(Graphics g, SceneMood mood, float time, PlaneState ps, AirportPlan ap, float cy, float contact)
-    {
-        const int n = 5;
-        float doorX = ps.X + 9f, doorBottom = cy + 2.1f;
-        var p0 = new PointF(doorX + 1.4f, doorBottom);
-        var p1 = new PointF(doorX + 6.8f, contact);
-        var p2 = new PointF(ap.TermL + 4.3f, contact);
-        float l1 = MathF.Sqrt((p1.X - p0.X) * (p1.X - p0.X) + (p1.Y - p0.Y) * (p1.Y - p0.Y)), l2 = Math.Max(1f, p2.X - p1.X);
-        PointF At(float u)
-        {
-            float d = u * (l1 + l2);
-            if (d <= l1) { float t = d / Math.Max(0.01f, l1); return new PointF(p0.X + (p1.X - p0.X) * t, p0.Y + (p1.Y - p0.Y) * t); }
-            return new PointF(p1.X + (d - l1), p1.Y);
-        }
-        bool deplane = ps.Phase == PlanePhase.Deplane;
-        float prog = deplane ? ps.Deplaning : ps.Boarding;
-        for (int k = 0; k < n; k++)
-        {
-            float w = PlaneCycle.Walk(prog, k, n);
-            if (w <= 0f || w >= 1f) continue;
-            float u = deplane ? w : 1f - w;
-            var pt = At(u);
-            float a = deplane ? TransitMath.Clamp01(w * 8f) * Fade(w) : TransitMath.Clamp01(w * 5f) * (1f - TransitMath.Clamp01((w - 0.9f) / 0.1f));
-            DrawPerson(g, mood, pt.X, pt.Y, k + (deplane ? 0 : 2), a, time * 2.4f + k, 0.9f);
-        }
-    }
-
-    /// <summary>Side-on airliner, nose to the right, about 34 px long. (<paramref name="cy"/> = fuselage centre line.)</summary>
+        /// <summary>Side-on airliner, nose to the right, about 34 px long. (<paramref name="cy"/> = fuselage centre line.)</summary>
     private void DrawPlane(Graphics g, SceneMood mood, float time, PlaneState ps, float cy)
     {
         float day = mood.DayK, lk = mood.LightsK;

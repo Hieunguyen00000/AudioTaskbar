@@ -6,8 +6,8 @@
 #define VFT2_UNKNOWN      0
 
 1 VERSIONINFO
-FILEVERSION     5,4,0,0
-PRODUCTVERSION  5,4,0,0
+FILEVERSION     5,4,1,0
+PRODUCTVERSION  5,4,1,0
 FILEFLAGSMASK   0x3fL
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -20,12 +20,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Hieunguyen00000"
             VALUE "FileDescription",  "Audio Taskbar XAML Backdrop Helper"
-            VALUE "FileVersion",      "5.4.0.0"
+            VALUE "FileVersion",      "5.4.1.0"
             VALUE "InternalName",     "TaskbarTap"
             VALUE "LegalCopyright",   "Copyright (c) 2026 Hieunguyen00000"
             VALUE "OriginalFilename", "TaskbarTap.dll"
             VALUE "ProductName",      "Audio Taskbar"
-            VALUE "ProductVersion",   "5.4.0"
+            VALUE "ProductVersion",   "5.4.1"
         END
     END
     BLOCK "VarFileInfo"

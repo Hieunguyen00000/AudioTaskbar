@@ -20,7 +20,7 @@ These must stay in `packaging/msix/AppxManifest.xml`:
 - Store ID: `9PMQLC03S8Z6`
 - Display name: `Audio Taskbar`
 
-The package version uses four parts and the fourth must be `0` (for example `5.4.0.0`). `scripts/build-msix.ps1` stamps it from `<Version>` in `src/AudioTaskbar.csproj`.
+The package version uses four parts and the fourth must be `0` (for example `5.4.1.0`). `scripts/build-msix.ps1` stamps it from `<Version>` in `src/AudioTaskbar.csproj`.
 
 ## Build on Windows
 

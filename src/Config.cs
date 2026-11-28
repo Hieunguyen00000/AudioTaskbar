@@ -133,9 +133,9 @@ public sealed class AppConfig
     public int SoundMasterVolume { get; set; } = 0;
     /// <summary>Per-effect volume 0..100 by effect id (rain, thunder, wind, traffic, horns, train, birds, insects, animals, waves). All 0 by default.</summary>
     public Dictionary<string, int> SoundVolumes { get; set; } = new();
-    /// <summary>v5.4 airplane: lands, taxis to the stand, drops off and boards passengers, takes off again (or just crosses the sky when no airport fits).</summary>
+    /// <summary>v5.4 airplane: take-off from the left, climb, cruise high across the middle, then descend and leave low at the right (it does not land). Cycle minutes is how often a take-off happens.</summary>
     public bool ShowAirplane { get; set; } = true;
-    /// <summary>Minutes for one full airplane lifecycle.</summary>
+    /// <summary>Minutes between take-offs (one roll / lift-off / climb / cruise / descent / exit cycle).</summary>
     public float AirplaneCycleMinutes { get; set; } = 3f;
     public const float MinAirplaneCycleMinutes = 0.5f;
     public const float MaxAirplaneCycleMinutes = 240f;

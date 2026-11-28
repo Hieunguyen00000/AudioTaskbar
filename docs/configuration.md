@@ -95,7 +95,7 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 |------|------|----------|---------|
 | `mode` | string | `"diorama"` | `diorama` (hoặc `scene`): cảnh vật. `spectrum` / `waveform` / `both`: bật lại visualizer âm thanh tương ứng nếu `showSpectrum`/`showWaveform` đang tắt. |
 | `showTrain` | bool | `true` | Tàu hỏa vào ga từ trái, chậm dần, dừng ở sân ga nhỏ (khách xuống rồi lên), rời ga và tăng tốc về bên phải (đầu máy, toa, đèn, khói). Menu: *Cảnh vật → Tàu hỏa*. |
-| `showAirplane` | bool | `true` | v5.4: máy bay hạ cánh, chạy vào bãi đỗ cạnh nhà ga nhỏ, khách xuống/lên bằng cầu thang, ra đường băng và cất cánh. Đường băng chỉ có trong khoảng trống của sân bay và xe cộ trên đường không chạy vào đó (xe tới mép thì rẽ khỏi đường). Khoảng trống giữa các icon quá hẹp thì chỉ bay ngang trời, xe cộ như cũ. Menu: *Cảnh vật → Máy bay*. |
+| `showAirplane` | bool | `true` | v5.4.1: máy bay lăn bánh từ mép trái, cất cánh, leo lên, bay ngang cao giữa thanh, rồi hạ dần và rời khỏi tầm nhìn ở thấp gần mép phải (không hạ cánh, không nhà ga hay hành khách). Đường băng ngắn ở bên trái khoảng trống đủ chỗ; xe cộ không chạy vào đó. Thanh quá hẹp thì không vẽ đường băng, máy bay vẫn bay. Menu: *Cảnh vật → Máy bay*. |
 | `showCyclist` | bool | `true` | Người đi xe đạp (đèn đêm, dù khi mưa). *Cảnh vật → Xe đạp*. |
 | `showAmbientDetails` | bool | `true` | Chim, đom đóm, sao băng, khinh khí cầu, đèn phố. *Cảnh vật → Chim & đèn phố*. |
 | `showWeatherEffects` | bool | `true` | Mưa, gợn nước, sấm chớp, mây nhiều lớp. *Cảnh vật → Thời tiết*. |
@@ -114,7 +114,7 @@ Bật lại visualizer âm thanh (kiến trúc v1–v3):
 
 | Khóa | Kiểu | Mặc định | Ý nghĩa |
 |------|------|----------|---------|
-| `airplaneCycleMinutes` | float | `3` | v5.4: số phút cho một vòng đời máy bay (hạ cánh → bãi đỗ → trả/đón khách → cất cánh → bay đi), 0.5–240. |
+| `airplaneCycleMinutes` | float | `3` | v5.4: số phút giữa các lần cất cánh (lăn bánh → cất cánh → leo lên → bay ngang → hạ dần → rời khỏi tầm nhìn), 0.5–240. |
 | `trainCrossingMinutes` | float | `2` | Số phút cho một vòng của đoàn tàu: vào ga chậm dần (36 %), dừng trả khách (10 %) và đón khách (10 %), rời ga tăng tốc (40 %), nghỉ ngắn (4 %) (0.25–240). v5.0 mặc định 25 (config cũ còn `25` được tự đổi một lần khi nâng lên v5.1); từ v5.4 mặc định là `2` phút cho một vòng đời. Giá trị bạn đã lưu (kể cả `1`) không bao giờ bị ghi đè. |
 | `timeMode` | string | `"cycle"` | `cycle` = chu kỳ ngày–đêm tăng tốc; `real` = theo giờ thật của máy; `day` = cố định ban ngày (~10:30–12:00, dao động nhẹ); `night` = cố định ban đêm (~23:30–00:00). Giá trị lạ → `cycle`. Đổi trong portal hoặc menu khay *Ngày & đêm*. |
 | `dayCycleMinutes` | float | `30` | Ở chế độ `cycle`: số phút thật cho 1 ngày ảo 24 giờ, **tùy chỉnh 0,5–10080** (30 giây – 7 ngày; v5.3.1 bỏ giới hạn cũ 2–1440). 30 → mỗi giờ ảo = 75 giây; 1440 → nhịp như giờ thật nhưng lệch pha. Giá trị ≤ 0 / NaN / vô hạn → `30`; ngoài khoảng bị kẹp về 0,5 hoặc 10080. Đổi trong portal (*Độ dài chu kỳ*) áp dụng ngay, không nhảy cảnh (app tự chỉnh `dayCycleOffsetHours`). |

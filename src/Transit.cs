@@ -108,79 +108,81 @@ internal static class TrainCycle
 
 // ───────────────────────────────────────── airplane ─────────────────────────────────────────
 
-internal enum PlanePhase { Away, Approach, Landing, TaxiIn, Deplane, Board, TaxiOut, Takeoff, ClimbOut, Cruise }
+internal enum PlanePhase { Away, Roll, Liftoff, Climb, Cruise, Descent, Exit }
 
 /// <param name="X">Centre of the fuselage (logical px).</param>
 /// <param name="Alt">Height of the wheels above the runway (px). 0 on the ground.</param>
-/// <param name="PitchDeg">Nose-up angle (negative = nose down).</param>
-/// <param name="Thrust">0..1 engine effort (drives the engine sound).</param>
-/// <param name="Stairs">0..1 passenger stairs lowered at the front door.</param>
+/// <param name="PitchDeg">Nose-up angle.</param>
+/// <param name="Thrust">0..1 engine effort (drives the take-off / climb sound).</param>
 internal readonly record struct PlaneState(PlanePhase Phase, float PhaseT, float X, float Alt, float PitchDeg, float Speed,
-    float Thrust, float Stairs, float Deplaning, float Boarding, bool OnGround, bool Visible);
+    float Thrust, bool OnGround, bool Visible);
 
-/// <summary>Where the little airport sits (terminal + stand) in the bar, or that it does not fit and the plane only crosses the sky.</summary>
-internal readonly record struct AirportPlan(bool HasAirport, float StandX, float TermL, float TermR, float SpanL = 0, float SpanR = 0)
+/// <summary>
+/// A short take-off strip at the left of the leftmost free span that can hold it.
+/// The plane always rolls, lifts off, climbs and leaves at the right of the bar; when no span is
+/// wide enough the strip is not drawn and road traffic is left alone.
+/// </summary>
+internal readonly record struct TakeoffStrip(bool HasStrip, float L, float R)
 {
     public const float PlaneLen = 34f;
-    /// <summary>Narrowest free span (px) that still holds the parked plane next to the terminal.</summary>
-    public const float MinSpan = 84f;
-    private const float AirplaneToTerminal = PlaneLen + 4f;
+    /// <summary>Narrowest free span (px) that still holds a short take-off strip.</summary>
+    public const float MinSpan = 56f;
+    public const float DefaultLen = 96f;
+    public const float MaxLen = 120f;
 
-    /// <summary>Index of the widest span that fits an airport, or -1.</summary>
-    public static int FindSpan(IReadOnlyList<(float L, float R)> spans, float barW)
-    {
-        int best = -1; float bw = 0;
-        for (int i = 0; i < spans.Count; i++)
-        {
-            float w = spans[i].R - spans[i].L;
-            if (w > bw) { bw = w; best = i; }
-        }
-        return best >= 0 && bw >= MinSpan ? best : -1;
-    }
-
-    public static AirportPlan Plan(IReadOnlyList<(float L, float R)> spans, float barW)
+    public static TakeoffStrip Plan(IReadOnlyList<(float L, float R)> spans, float barW)
     {
         if (spans.Count == 0) spans = new[] { (0f, barW) };
-        int i = FindSpan(spans, barW);
-        if (i < 0) return new(false, 0, 0, 0, 0, 0);
-        var s = spans[i];
-        float sw = s.R - s.L;
-        float tw = Math.Clamp(sw * 0.34f, 34f, 52f);
-        // Room left over once the parked plane and the terminal are in: ~45 % of it before them (landing roll), ~55 % after
-        // them (take-off roll), so both can be watched when the span is wide.
-        float slack = Math.Max(0f, sw - (tw + 44f));
-        float termL = s.L + 2f + (AirplaneToTerminal) + 0.45f * slack, termR = termL + tw;
-        float stand = termL - 4f - PlaneLen / 2f;
-        return new(true, stand, termL, termR, s.L, s.R);
+        foreach (var s in spans)
+        {
+            float w = s.R - s.L;
+            if (w < MinSpan) continue;
+            float len = Math.Min(DefaultLen, Math.Min(MaxLen, w));
+            return new(true, s.L, s.L + len);
+        }
+        return new(false, 0, Math.Min(DefaultLen, Math.Max(0f, barW)));
     }
 
-    /// <summary>The span the train should use: widest span that is NOT the airport's, else the widest one.</summary>
-    public static (float L, float R) StationSpan(IReadOnlyList<(float L, float R)> spans, float barW, int airportSpan)
+    /// <summary>
+    /// Span the train should use: the widest one, preferring a span that is not the strip's when
+    /// another is at least 48 px. If the chosen span also holds the strip, the returned left edge
+    /// starts just after the strip so the platform does not sit on the runway.
+    /// </summary>
+    public static (float L, float R) StationSpan(IReadOnlyList<(float L, float R)> spans, float barW, TakeoffStrip strip)
     {
         if (spans.Count == 0) return (0, barW);
         var order = spans.Select((s, k) => (s, k)).OrderByDescending(v => v.s.R - v.s.L).ToList();
-        var pick = order.FirstOrDefault(v => v.k != airportSpan && v.s.R - v.s.L >= 48);
-        return (pick.s.R - pick.s.L >= 48 ? pick.s : order[0].s);
+        int stripSpan = -1;
+        if (strip.HasStrip)
+        {
+            for (int i = 0; i < spans.Count; i++)
+                if (strip.L >= spans[i].L - 0.5f && strip.R <= spans[i].R + 0.5f) { stripSpan = i; break; }
+        }
+        var pick = order.FirstOrDefault(v => v.k != stripSpan && v.s.R - v.s.L >= 48);
+        var s = pick.s.R - pick.s.L >= 48 ? pick.s : order[0].s;
+        if (strip.HasStrip && s.L <= strip.L + 1f && s.R >= strip.R - 1f)
+            return (Math.Min(strip.R + 6f, Math.Max(s.L, s.R - 8f)), s.R);
+        return s;
     }
 }
 
 /// <summary>
-/// Fly in and descend → touch down and roll out → taxi to the stand → stop, stairs down, passengers get off → passengers get on
-/// → taxi out → take-off roll → climb out and leave → a gap. Without an airport the plane only crosses the sky.
+/// Take-off roll from the left → lift off → climb to cruise height → cruise high across the middle
+/// → descend near the right and leave the view low (it does not land) → a gap. One cycle is how often a take-off happens.
 /// </summary>
 internal static class PlaneCycle
 {
     public const float CruiseAlt = 24f;
+    /// <summary>Height of the wheels as the plane leaves the view: low, but still flying (it never lands).</summary>
+    public const float ExitAlt = 3.2f;
+    public const float LiftAlt = 5.5f;
 
     public static readonly (int Id, double Frac)[] Plan =
     {
-        ((int)PlanePhase.Away, 0.14), ((int)PlanePhase.Approach, 0.16), ((int)PlanePhase.Landing, 0.07),
-        ((int)PlanePhase.TaxiIn, 0.07), ((int)PlanePhase.Deplane, 0.13), ((int)PlanePhase.Board, 0.13),
-        ((int)PlanePhase.TaxiOut, 0.06), ((int)PlanePhase.Takeoff, 0.08), ((int)PlanePhase.ClimbOut, 0.16)
+        ((int)PlanePhase.Away, 0.18), ((int)PlanePhase.Roll, 0.12), ((int)PlanePhase.Liftoff, 0.08),
+        ((int)PlanePhase.Climb, 0.16), ((int)PlanePhase.Cruise, 0.26), ((int)PlanePhase.Descent, 0.12),
+        ((int)PlanePhase.Exit, 0.08)
     };
-
-    /// <summary>Sky-only variant: cross the sky once per period, then a gap.</summary>
-    public static readonly (int Id, double Frac)[] FlyoverPlan = { ((int)PlanePhase.Cruise, 0.55), ((int)PlanePhase.Away, 0.45) };
 
     public static double StartOf(PlanePhase ph)
     {
@@ -188,74 +190,76 @@ internal static class PlaneCycle
         return 0;
     }
 
-    public static (PlanePhase Phase, float T) PhaseAt(double p, bool airport)
+    public static (PlanePhase Phase, float T) PhaseAt(double p)
     {
-        var table = airport ? Plan : FlyoverPlan;
-        var (i, t) = TransitMath.Locate(table, p);
-        return ((PlanePhase)table[i].Id, t);
+        var (i, t) = TransitMath.Locate(Plan, p);
+        return ((PlanePhase)Plan[i].Id, t);
     }
 
-    /// <summary>Key x positions of the ground run for a given stand.</summary>
-    public static (float Touchdown, float TaxiStart, float TaxiOutEnd, float Liftoff) Marks(AirportPlan ap)
+    /// <summary>
+    /// Key x positions along the flight: start of the roll, lift-off, start of the climb, start of the cruise,
+    /// start of the descent (near the right), start of the low exit, and leaving the bar.
+    /// </summary>
+    public static (float Start, float Lift, float ClimbStart, float CruiseStart, float DescentStart, float ExitStart, float Exit) Marks(float barW, TakeoffStrip strip)
     {
-        // The runway only exists inside the airport span, so touch-down, taxiing and lift-off all stay inside it.
-        float standX = ap.StandX;
-        float taxi = Math.Min(standX - 4f, Math.Max(standX - 36f, ap.SpanL + 4f));
-        float td = Math.Max(taxi - 110f, ap.SpanL + 2f);
-        float outEnd = standX + 40f;
-        float lift = Math.Clamp(outEnd + 120f, outEnd + 8f, Math.Max(outEnd + 8f, ap.SpanR - 10f));
-        return (td, taxi, outEnd, lift);
+        float L = TakeoffStrip.PlaneLen;
+        float sl = strip.HasStrip ? strip.L : 0f;
+        float sr = strip.HasStrip ? strip.R : Math.Min(TakeoffStrip.DefaultLen, Math.Max(L + 8f, barW * 0.12f));
+        float start = sl + L * 0.5f;
+        float lift = Math.Max(start + 8f, sr - 4f);
+        float exit = barW + L * 0.5f;
+        if (lift > exit - 40f) lift = Math.Max(start + 4f, exit - 40f);
+        float remain = Math.Max(40f, exit - lift);
+        // After lift-off: a short climb, a long high cruise across the middle, then a descent close to the right edge.
+        float climbStart = lift + Math.Min(remain * 0.08f, 22f);
+        float cruiseStart = lift + remain * 0.28f;
+        float descentStart = lift + remain * 0.78f;
+        float exitStart = lift + remain * 0.92f;
+        return (start, lift, climbStart, cruiseStart, descentStart, exitStart, exit);
     }
 
-    public static PlaneState Evaluate(double p, float barW, AirportPlan ap)
+    public static PlaneState Evaluate(double p, float barW, TakeoffStrip strip = default)
     {
-        float L = AirportPlan.PlaneLen;
-        var (ph, t) = PhaseAt(p, ap.HasAirport);
-        float x0 = -L;
-        if (!ap.HasAirport)
-        {
-            if (ph == PlanePhase.Away) return new(ph, t, x0, CruiseAlt, 0, 0, 0, 0, 0, 0, false, false);
-            float bob = MathF.Sin(t * 6.28f * 3f) * 1.2f;
-            return new(ph, t, TransitMath.Lerp(x0, barW + L, t), CruiseAlt + bob - 3f, 0, 1f, 0.6f, 0, 0, 0, false, true);
-        }
-        var (td, taxi, outEnd, lift) = Marks(ap);
-        float stand = ap.StandX;
+        var (ph, t) = PhaseAt(p);
+        var (start, lift, climbStart, cruiseStart, descentStart, exitStart, exit) = Marks(barW, strip);
         switch (ph)
         {
             case PlanePhase.Away:
-                return new(ph, t, x0, CruiseAlt, 0, 0, 0, 0, 0, 0, false, false);
-            case PlanePhase.Approach:
+                return new(ph, t, start, 0, 0, 0, 0, true, false);
+            case PlanePhase.Roll:
             {
-                float fx = 0.7f * t + 0.3f * TransitMath.EaseOut(t);
-                float alt = CruiseAlt * (1f - TransitMath.Smooth((t - 0.30f) / 0.70f));
-                float pitch = t < 0.30f ? 0f : (t < 0.88f ? -3f : 3f);
-                return new(ph, t, TransitMath.Lerp(x0, td, fx), alt, pitch, 0.8f, 0.45f, 0, 0, 0, alt < 0.05f, true);
+                float pitch = t > 0.85f ? 8f * (t - 0.85f) / 0.15f : 0f;
+                return new(ph, t, TransitMath.Lerp(start, lift, TransitMath.EaseIn(t)), 0, pitch,
+                    0.25f + 0.75f * t, 0.35f + 0.65f * t, true, true);
             }
-            case PlanePhase.Landing:
-                return new(ph, t, TransitMath.Lerp(td, taxi, TransitMath.EaseOut(t)), 0, 0, 1f - 0.8f * t, 0.5f * (1f - t) + 0.1f, 0, 0, 0, true, true);
-            case PlanePhase.TaxiIn:
-                return new(ph, t, TransitMath.Lerp(taxi, stand, TransitMath.EaseOut(t)), 0, 0, 0.2f * (1f - t), 0.12f, 0, 0, 0, true, true);
-            case PlanePhase.Deplane:
-                return new(ph, t, stand, 0, 0, 0, 0.04f, TransitMath.Clamp01(t / 0.12f), t, 0, true, true);
-            case PlanePhase.Board:
-                return new(ph, t, stand, 0, 0, 0, 0.04f + 0.08f * TransitMath.Smooth((t - 0.85f) / 0.15f),
-                    TransitMath.Clamp01((1f - t) / 0.12f), 1f, t, true, true);
-            case PlanePhase.TaxiOut:
-                return new(ph, t, TransitMath.Lerp(stand, outEnd, TransitMath.EaseIn(t)), 0, 0, 0.2f * t, 0.15f + 0.1f * t, 0, 1f, 1f, true, true);
-            case PlanePhase.Takeoff:
+            case PlanePhase.Liftoff:
             {
-                float pitch = t > 0.75f ? 10f * (t - 0.75f) / 0.25f : 0f;
-                return new(ph, t, TransitMath.Lerp(outEnd, lift, TransitMath.EaseIn(t)), 0, pitch, 0.2f + 0.7f * t, 0.9f, 0, 1f, 1f, true, true);
+                float alt = LiftAlt * TransitMath.EaseIn(t);
+                return new(ph, t, TransitMath.Lerp(lift, climbStart, t), alt, 8f + 6f * t, 1f, 1f, alt < 0.4f, true);
             }
-            default: // ClimbOut
+            case PlanePhase.Climb:
             {
-                float fx = 0.45f * t + 0.55f * t * t;
-                float alt = CruiseAlt * TransitMath.EaseOut(t);
-                return new(ph, t, TransitMath.Lerp(lift, Math.Max(barW + L, lift + 1), fx), alt, 12f * (1f - t) + 2f, 1f, 0.9f, 0, 1f, 1f, false, true);
+                float fx = 0.4f * t + 0.6f * TransitMath.EaseOut(t);
+                float alt = TransitMath.Lerp(LiftAlt, CruiseAlt, TransitMath.EaseOut(t));
+                return new(ph, t, TransitMath.Lerp(climbStart, cruiseStart, fx), alt, 14f - 11f * t, 1f, 0.95f, false, true);
+            }
+            case PlanePhase.Cruise:
+            {
+                float bob = MathF.Sin(t * 6.28f * 2f) * 0.6f;
+                return new(ph, t, TransitMath.Lerp(cruiseStart, descentStart, t), CruiseAlt + bob, 3f, 1f, 0.62f, false, true);
+            }
+            case PlanePhase.Descent:
+            {
+                float alt = TransitMath.Lerp(CruiseAlt, ExitAlt, TransitMath.Smooth(t));
+                float pitch = t < 0.75f
+                    ? TransitMath.Lerp(3f, -6f, TransitMath.Smooth(t / 0.75f))
+                    : TransitMath.Lerp(-6f, -1.5f, (t - 0.75f) / 0.25f);
+                return new(ph, t, TransitMath.Lerp(descentStart, exitStart, t), alt, pitch, 1f, 0.45f, false, true);
+            }
+            default: // Exit: already low, leaves the view without touching down
+            {
+                return new(ph, t, TransitMath.Lerp(exitStart, exit, t), ExitAlt, -1.5f, 1f, 0.38f - 0.1f * t, false, true);
             }
         }
     }
-
-    /// <summary>Passenger walk progress, see <see cref="TrainCycle.Walk"/>.</summary>
-    public static float Walk(float phaseProgress, int i, int n) => TrainCycle.Walk(phaseProgress, i, n);
 }
